@@ -138,6 +138,7 @@ describe('LogViewController Domain Unit Tests', () => {
         const loadedHandled = await controller.handleMessage({ type: 'webviewLoaded' });
         expect(loadedHandled).toBe(true);
 
+        postedMessages.length = 0;
         const selectionHandled = await controller.handleMessage({
             type: 'selectionChange',
             payload: {
@@ -147,6 +148,16 @@ describe('LogViewController Domain Unit Tests', () => {
         });
         expect(selectionHandled).toBe(true);
         expect(controller.selectedCommitIds).toEqual(['@']);
+        // A webview-originated selectionChange must not echo setSelection back to the
+        // webview, or rapid multi-select (click + Ctrl-click) ping-pongs between states.
+        expect(postedMessages).not.toContainEqual(expect.objectContaining({ type: 'setSelection' }));
+
+        // Host-originated setSelectedCommits still pushes setSelection to the webview.
+        controller.setSelectedCommits(['c1', 'c2']);
+        expect(postedMessages).toContainEqual({
+            type: 'setSelection',
+            payload: { ids: ['c1', 'c2'] },
+        });
     });
 
     test('refreshes commits from real repository on disk', async () => {

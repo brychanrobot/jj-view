@@ -305,6 +305,25 @@ export class LogViewController implements Disposable {
     }
 
     public setSelectedCommits(commitIds: readonly string[], hasImmutableSelection?: boolean): void {
+        this._applySelection(commitIds, hasImmutableSelection, /* syncWebview= */ true);
+    }
+
+    /**
+     * Updates the host-side selection state.
+     *
+     * `syncWebview` must be false when the change originated from the webview
+     * itself (a `selectionChange` message). The webview's `setSelection` handler
+     * replies with its own `selectionChange`, so echoing a webview-originated
+     * selection back creates a ping-pong: when the user changes the selection
+     * twice within one IPC round-trip (e.g. click then Ctrl+click), the stale
+     * echo of the first selection overwrites the newer one in the webview, which
+     * echoes it back again, and the two sides keep flipping between selections.
+     */
+    private _applySelection(
+        commitIds: readonly string[],
+        hasImmutableSelection: boolean | undefined,
+        syncWebview: boolean,
+    ): void {
         if (
             this._selectedCommitIds.length === commitIds.length &&
             this._selectedCommitIds.every((id, idx) => id === commitIds[idx])
@@ -322,7 +341,9 @@ export class LogViewController implements Disposable {
 
         this._onDidChangeSelection.fire(this._selectedCommitIds);
 
-        this._receiver.sender.setSelection({ ids: [...commitIds] });
+        if (syncWebview) {
+            this._receiver.sender.setSelection({ ids: [...commitIds] });
+        }
     }
 
     public setHighlightedCommit(changeId: string | undefined): void {
@@ -682,7 +703,7 @@ export class LogViewController implements Disposable {
                 },
                 selectionChange: async (msg) => {
                     const hasImmutable = Boolean(msg.hasImmutableSelection);
-                    this.setSelectedCommits(msg.commitIds, hasImmutable);
+                    this._applySelection(msg.commitIds, hasImmutable, /* syncWebview= */ false);
                     this._options?.onSelectionChange?.(msg.commitIds);
                 },
             },
