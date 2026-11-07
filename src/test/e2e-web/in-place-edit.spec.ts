@@ -113,6 +113,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         const item = page
             .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
             .filter({ hasText: 'editable.txt' });
+        await expect(item).toBeVisible();
         await item.locator('.file-name').click();
 
         const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
@@ -124,6 +125,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         await expect(async () => {
             await editableLine.click();
             await expect(editor).toBeFocused({ timeout: 500 });
+            await expect(editableLine).toHaveAttribute('data-editor-active-line', '', { timeout: 500 });
         }).toPass({ timeout: 10000 });
         await editor.pressSequentially('\nappended edit', { delay: 15 });
         await expect(editor).toContainText('appended edit', { timeout: 5000 });
@@ -168,6 +170,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         await expect(async () => {
             await editableLine.click();
             await expect(editor).toBeFocused({ timeout: 500 });
+            await expect(editableLine).toHaveAttribute('data-editor-active-line', '', { timeout: 500 });
         }).toPass({ timeout: 10000 });
         await editor.pressSequentially('\nparent edit via diff', { delay: 15 });
         await expect(editor).toContainText('parent edit via diff', { timeout: 5000 });
@@ -209,6 +212,7 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         await expect(async () => {
             await editableLine.click();
             await expect(editor).toBeFocused({ timeout: 500 });
+            await expect(editableLine).toHaveAttribute('data-editor-active-line', '', { timeout: 500 });
         }).toPass({ timeout: 10000 });
         await editor.pressSequentially('\nedited from commit details diff', { delay: 15 });
         await expect(editor).toContainText('edited from commit details diff', { timeout: 5000 });
