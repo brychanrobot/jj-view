@@ -14,4 +14,6 @@ if (rootElement) {
     } else {
         mount(CommitDetailsApp, { target: rootElement });
     }
+    // Signals that event listeners are attached; interactions before this point are not handled.
+    rootElement.dataset.hydrated = 'true';
 }
