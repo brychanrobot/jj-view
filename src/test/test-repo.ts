@@ -25,6 +25,7 @@ function memoize<T>(fn: () => T): () => T {
 }
 
 const tempDirs = new Set<string>();
+const TEMP_DIR_RM_OPTIONS: fs.RmOptions = { recursive: true, force: true, maxRetries: 5, retryDelay: 50 };
 const DEFAULT_TEST_CONFIG = `user.name = "Test User"
 user.email = "test@example.com"
 signing.backend = "none"
@@ -152,6 +153,50 @@ export class TestRepo {
     }
 
     async dispose(): Promise<void> {
+        const repoConfigDir = this.resolveRepoConfigDir();
+
+        for (const dir of [this.path, this.execTmpDir]) {
+            try {
+                await fs.promises.rm(dir, TEMP_DIR_RM_OPTIONS);
+                tempDirs.delete(dir);
+            } catch {}
+        }
+
+        if (repoConfigDir) {
+            const gcStart = process.hrtime.bigint();
+            try {
+                await fs.promises.rm(repoConfigDir, TEMP_DIR_RM_OPTIONS);
+                this.recordRepoConfigGc(repoConfigDir, gcStart);
+            } catch {}
+        }
+    }
+
+    /**
+     * Synchronous variant of {@link dispose}. Used by `using` declarations, which cannot
+     * await their disposer: a fire-and-forget async `rm` would keep deleting files after the
+     * scope (and even the test) has ended, racing with any repository later created at the
+     * same path.
+     */
+    disposeSync(): void {
+        const repoConfigDir = this.resolveRepoConfigDir();
+
+        for (const dir of [this.path, this.execTmpDir]) {
+            try {
+                fs.rmSync(dir, TEMP_DIR_RM_OPTIONS);
+                tempDirs.delete(dir);
+            } catch {}
+        }
+
+        if (repoConfigDir) {
+            const gcStart = process.hrtime.bigint();
+            try {
+                fs.rmSync(repoConfigDir, TEMP_DIR_RM_OPTIONS);
+                this.recordRepoConfigGc(repoConfigDir, gcStart);
+            } catch {}
+        }
+    }
+
+    private resolveRepoConfigDir(): string | undefined {
         if (!this.configId) {
             const configIdFile = path.join(this.path, '.jj', 'repo', 'config-id');
             if (fs.existsSync(configIdFile)) {
@@ -160,39 +205,13 @@ export class TestRepo {
                 } catch {}
             }
         }
+        return this.configId ? path.join(getUserJjDir(), 'repos', this.configId) : undefined;
+    }
 
-        const repoPath = this.path;
-        try {
-            await fs.promises.rm(repoPath, {
-                recursive: true,
-                force: true,
-                maxRetries: 5,
-                retryDelay: 50,
-            });
-            tempDirs.delete(repoPath);
-        } catch {}
-
-        try {
-            await fs.promises.rm(this.execTmpDir, {
-                recursive: true,
-                force: true,
-                maxRetries: 5,
-                retryDelay: 50,
-            });
-            tempDirs.delete(this.execTmpDir);
-        } catch {}
-
-        if (this.configId) {
-            const userJjDir = getUserJjDir();
-            const repoConfigDir = path.join(userJjDir, 'repos', this.configId);
-            const gcStart = process.hrtime.bigint();
-            try {
-                await fs.promises.rm(repoConfigDir, { recursive: true, force: true });
-                tempDirs.delete(repoConfigDir);
-                const duration = Math.max(0, Number(process.hrtime.bigint() - gcStart) / 1_000_000);
-                recordCommandTrace('TestRepo', ['repo-config-gc'], duration);
-            } catch {}
-        }
+    private recordRepoConfigGc(repoConfigDir: string, gcStart: bigint): void {
+        tempDirs.delete(repoConfigDir);
+        const duration = Math.max(0, Number(process.hrtime.bigint() - gcStart) / 1_000_000);
+        recordCommandTrace('TestRepo', ['repo-config-gc'], duration);
     }
 
     // POLICY: This method is intentionally private. Do not expose it publicly.
@@ -956,7 +975,7 @@ export async function buildGraph(repo: TestRepo, commits: CommitDefinition[]): P
 
 export class ScopedTestRepo extends TestRepo implements Disposable, AsyncDisposable {
     [Symbol.dispose]() {
-        this.dispose().catch(() => {});
+        this.disposeSync();
     }
 
     async [Symbol.asyncDispose]() {
