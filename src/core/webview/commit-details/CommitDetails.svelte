@@ -192,6 +192,24 @@ $effect(() => {
     });
 });
 
+// The textarea is server-rendered, so the user can type before hydration attaches listeners.
+// Svelte's `bind:value` then adopts the typed DOM value during hydration without firing
+// `oninput`, leaving the host unaware of the edit (no dirty marker, nothing to save or undo).
+// Forward such a pre-hydration edit once the textarea is bound.
+let initialHydrationChecked = false;
+$effect(() => {
+    const inputEl = textareaRef;
+    if (!initialHydrationChecked && inputEl) {
+        initialHydrationChecked = true;
+        untrack(() => {
+            const initialBaseline = unsavedDraft ?? description;
+            if (!isApplyingExtensionEdit && draftDescription !== initialBaseline) {
+                onDescriptionChange?.(draftDescription, inputEl.selectionStart, inputEl.selectionEnd);
+            }
+        });
+    }
+});
+
 $effect(() => {
     return () => {
         if (saveTimeout) {
