@@ -88,6 +88,7 @@ let selectedLineSide = $state<'deletions' | 'additions' | undefined>(undefined);
 let fileDiffInstance: JjFileDiff<CommentThreadHandle> | null = null;
 let editorInstance: Editor<'file-diff', CommentThreadHandle> | null = null;
 let detachEditor: (() => void) | null = null;
+let lastAppliedAnnotations: DiffLineAnnotation<CommentThreadHandle>[] = [];
 // Incremented on every render/cleanup so a pending async editor attach can
 // detect it has been superseded and bail out instead of attaching to a stale
 // FileDiff instance.
@@ -124,6 +125,25 @@ function buildLineAnnotations(
     }));
 }
 
+function areLineAnnotationsEqual(
+    prev: readonly DiffLineAnnotation<CommentThreadHandle>[],
+    next: readonly DiffLineAnnotation<CommentThreadHandle>[],
+): boolean {
+    if (prev.length !== next.length) {
+        return false;
+    }
+    for (let i = 0; i < prev.length; i++) {
+        if (
+            prev[i].side !== next[i].side ||
+            prev[i].lineNumber !== next[i].lineNumber ||
+            prev[i].metadata !== next[i].metadata
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * Pierre's `setOptions` replaces the whole options object, so every options
  * object (construction and diff-style toggles) is built here to keep
@@ -158,13 +178,19 @@ $effect(() => {
         return;
     }
     const isDeleted = fileStatus === 'deleted' || (Boolean(originalContent) && !untrack(() => currentContent));
-    instance.setLineAnnotations(buildLineAnnotations(handles, isDeleted));
+    const nextAnnotations = buildLineAnnotations(handles, isDeleted);
+    if (areLineAnnotationsEqual(lastAppliedAnnotations, nextAnnotations)) {
+        return;
+    }
+    lastAppliedAnnotations = nextAnnotations;
+    instance.setLineAnnotations(nextAnnotations);
     instance.rerender();
     threadMounts.retainOnly(new Set(handles.map((h) => h.id)));
 });
 
 function cleanupInstances(): void {
     renderGeneration++;
+    lastAppliedAnnotations = [];
     selectedRanges = undefined;
     selectedLineSide = undefined;
     onSelectionChange?.(undefined);
@@ -321,6 +347,7 @@ function renderDiff(): void {
     const fileDiff = parseDiffFromFile(oldFile, newFile);
     // Later thread changes are applied by the commentThreads effect, not by re-rendering.
     const lineAnnotations = untrack(() => buildLineAnnotations(commentThreads, isDeleted));
+    lastAppliedAnnotations = lineAnnotations;
     trace.phase('setup');
 
     const renderStart = performance.now();
@@ -365,9 +392,20 @@ async function attachEditorWhenHighlighted(
     const generation = ++renderGeneration;
     const waitStart = performance.now();
     let waitedFor = 'none';
-    if (workerManager && fileDiff.cacheKey != null) {
+    if (workerManager) {
         try {
-            await workerManager.primeDiffHighlightCache(fileDiff);
+            // Plain-text diffs (e.g. .txt) skip worker cache priming, but if the
+            // initial FileDiff.render() ran before the worker pool finished
+            // initializing, FileDiff scheduled `workerManager.initialize().then(() => this.rerender())`.
+            // Awaiting initialization here ensures that deferred rerender runs
+            // before Editor.edit() attaches, rather than replacing DOM nodes
+            // inside the active contenteditable textbox while the user is clicking/typing.
+            if (!workerManager.isInitialized()) {
+                await workerManager.initialize();
+            }
+            if (fileDiff.cacheKey != null) {
+                await workerManager.primeDiffHighlightCache(fileDiff);
+            }
             waitedFor = 'worker-highlight';
         } catch {
             waitedFor = 'worker-unavailable';
