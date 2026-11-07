@@ -796,6 +796,86 @@ describe('CodeForgeAuthManager', () => {
         });
     });
 
+    describe('extensionInstaller short-circuit', () => {
+        const gitlabInstaller = {
+            extensionId: 'gitlab.gitlab-workflow',
+            extensionName: 'GitLab Workflow',
+            providerName: 'GitLab',
+        };
+
+        test('skips silent getSession calls and marks provider unavailable when required extension is not installed', async () => {
+            authManager.registerProvider('gitlab', gitlabInstaller);
+            const getSessionSpy = vi.spyOn(host.auth, 'getSession');
+
+            expect(await authManager.hasOAuthSession('gitlab', ['api'])).toBe(false);
+            expect(getSessionSpy).not.toHaveBeenCalled();
+            expect(authManager.isProviderUnavailable('gitlab')).toBe(true);
+
+            const items = await authManager.getAuthManageItems('gitlab', {
+                displayName: 'GitLab',
+                scopes: ['api'],
+                envTokenKey: 'NON_EXISTENT_ENV_KEY',
+                secretTokenKey: 'gitlab_token',
+                hasAuth: () => authManager.hasOAuthSession('gitlab', ['api'], gitlabInstaller),
+                promptForPat: vi.fn(),
+                clearCache: vi.fn(),
+                extensionInstaller: gitlabInstaller,
+            });
+            expect(getSessionSpy).not.toHaveBeenCalled();
+            expect(items[0].label).toBe('$(sign-in) Sign In (OAuth)');
+        });
+
+        test('calls getSession silently when required extension is installed', async () => {
+            host.extensions?.installedExtensions.add(gitlabInstaller.extensionId);
+            host.auth.setSession('gitlab', {
+                id: '1',
+                accessToken: 'gl-oauth-token',
+                account: { id: 'u1', label: 'User 1' },
+                scopes: ['api'],
+            });
+            authManager.registerProvider('gitlab', gitlabInstaller);
+            const getSessionSpy = vi.spyOn(host.auth, 'getSession');
+
+            expect(await authManager.hasOAuthSession('gitlab', ['api'], gitlabInstaller)).toBe(true);
+            expect(getSessionSpy).toHaveBeenCalledWith('gitlab', ['api'], { silent: true });
+            expect(authManager.isProviderUnavailable('gitlab')).toBe(false);
+        });
+
+        test('still calls getSession on hosts without extensions API (web host)', async () => {
+            host.extensions = undefined;
+            host.auth.setSession('gitlab', {
+                id: '1',
+                accessToken: 'web-oauth-token',
+                account: { id: 'u1', label: 'User 1' },
+                scopes: ['api'],
+            });
+            authManager.registerProvider('gitlab', gitlabInstaller);
+            const getSessionSpy = vi.spyOn(host.auth, 'getSession');
+
+            expect(await authManager.hasOAuthSession('gitlab', ['api'], gitlabInstaller)).toBe(true);
+            expect(getSessionSpy).toHaveBeenCalledWith('gitlab', ['api'], { silent: true });
+        });
+
+        test('getSessionCredential skips silent check, marks provider unavailable, and respects shouldSkipPrompt when extension is missing', async () => {
+            const getSessionSpy = vi.spyOn(host.auth, 'getSession');
+
+            const cred = await authManager.getSessionCredential('gitlab', {
+                scopes: ['api'],
+                envTokenKey: 'NON_EXISTENT_ENV_KEY',
+                promptMessage: 'GitLab auth required',
+                extensionInstaller: gitlabInstaller,
+                shouldSkipPrompt: () =>
+                    authManager.isProviderUnavailable('gitlab') &&
+                    !host.extensions?.hasExtension(gitlabInstaller.extensionId),
+            });
+
+            expect(cred).toBeUndefined();
+            expect(getSessionSpy).not.toHaveBeenCalled();
+            expect(authManager.isProviderUnavailable('gitlab')).toBe(true);
+            expect(host.ui.warningMessages).toHaveLength(0);
+        });
+    });
+
     describe('dispose', () => {
         test('disposes event emitter', () => {
             expect(() => authManager.dispose()).not.toThrow();

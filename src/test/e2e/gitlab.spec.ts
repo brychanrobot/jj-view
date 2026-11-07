@@ -281,18 +281,9 @@ test.describe('GitLab Integration E2E', () => {
         await expectNotificationToast(page, 'Successfully cleared stored GitLab Personal Access Token');
 
         // Re-open again to confirm it reverted back to "Enter Personal Access Token (PAT)"
-        await expect(async () => {
-            const isVisible = await quickPick.isVisible();
-            if (isVisible) {
-                await page.keyboard.press('Escape');
-                await expect(quickPick).not.toBeVisible();
-            }
-            await focusSCM(page);
-            await manageAuthButton.click();
-            await expect(locateQuickInputItem(page, 'Enter Personal Access Token (PAT)')).toBeVisible({
-                timeout: 2000,
-            });
-        }).toPass({ timeout: 15000 });
+        await focusSCM(page);
+        await manageAuthButton.click();
+        await expect(locateQuickInputItem(page, 'Enter Personal Access Token (PAT)')).toBeVisible();
 
         await expect(locateQuickInputItem(page, 'Clear Personal Access Token (PAT)')).not.toBeVisible();
         await page.keyboard.press('Escape');

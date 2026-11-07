@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { chunkArray } from '../utils/array-utils';
 import type { LoggerChannel } from '../utils/output-channel';
-import type { AuthCredential, AuthResult, CodeForgeAuthManager } from './code-forge-auth';
+import type { AuthCredential, AuthResult, CodeForgeAuthManager, ExtensionInstaller } from './code-forge-auth';
 import type {
     AuthManageItem,
     ChangeStatusRequest,
@@ -23,6 +23,11 @@ import type { JjService } from './jj-service';
 import type { CodeForgeChangeInfo } from './jj-types';
 
 const GITLAB_EXTENSION_ID = 'gitlab.gitlab-workflow';
+const GITLAB_EXTENSION_INSTALLER: ExtensionInstaller = {
+    extensionId: GITLAB_EXTENSION_ID,
+    extensionName: 'GitLab Workflow',
+    providerName: 'GitLab',
+};
 
 export const GitLabMergeRequestSchema = z.object({
     id: z.number(),
@@ -121,7 +126,7 @@ export class GitLabProvider implements CodeForgeProvider {
         private outputChannel: LoggerChannel,
         private host: HostEnvironment,
     ) {
-        this.authManager.registerProvider(this.id);
+        this.authManager.registerProvider(this.id, GITLAB_EXTENSION_INSTALLER);
     }
 
     public async detect(_workspaceRoot: string, remotes: GitRemote[]): Promise<boolean> {
@@ -1131,11 +1136,7 @@ export class GitLabProvider implements CodeForgeProvider {
                 const hasGitLabExtension = !!this.host?.extensions?.hasExtension(GITLAB_EXTENSION_ID);
                 return this.authManager.isProviderUnavailable(this.id) && !hasGitLabExtension;
             },
-            extensionInstaller: {
-                extensionId: GITLAB_EXTENSION_ID,
-                extensionName: 'GitLab Workflow',
-                providerName: 'GitLab',
-            },
+            extensionInstaller: GITLAB_EXTENSION_INSTALLER,
         });
     }
 
@@ -1171,11 +1172,7 @@ export class GitLabProvider implements CodeForgeProvider {
             hasAuth: () => this.hasAuth(),
             clearCache: () => this.clearCache(),
             promptForPat: () => this.promptForPat(),
-            extensionInstaller: {
-                extensionId: GITLAB_EXTENSION_ID,
-                extensionName: 'GitLab Workflow',
-                providerName: 'GitLab',
-            },
+            extensionInstaller: GITLAB_EXTENSION_INSTALLER,
         });
     }
 }

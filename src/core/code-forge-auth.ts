@@ -40,6 +40,7 @@ export class CodeForgeAuthManager implements Disposable {
     private promptedThisSession = new Set<string>();
     private unavailableProviders = new Set<string>();
     private registeredProviderIds = new Set<string>();
+    private providerExtensions = new Map<string, ExtensionInstaller>();
 
     private readonly _onDidAuthenticate = new EventEmitter<string>();
     public readonly onDidAuthenticate: Event<string> = this._onDidAuthenticate.event;
@@ -53,8 +54,16 @@ export class CodeForgeAuthManager implements Disposable {
         this._onDidAuthenticate.dispose();
     }
 
-    public registerProvider(providerId: string): void {
+    public registerProvider(providerId: string, extensionInstaller?: ExtensionInstaller): void {
         this.registeredProviderIds.add(providerId);
+        if (extensionInstaller) {
+            this.providerExtensions.set(providerId, extensionInstaller);
+        }
+    }
+
+    private isExtensionMissing(providerId: string, extensionInstaller?: ExtensionInstaller): boolean {
+        const installer = extensionInstaller ?? this.providerExtensions.get(providerId);
+        return !!(installer && this.host.extensions && !this.host.extensions.hasExtension(installer.extensionId));
     }
 
     public get secrets(): HostSecrets {
@@ -117,8 +126,16 @@ export class CodeForgeAuthManager implements Disposable {
         return errorStr.includes('not registered') || errorStr.includes('No authentication provider');
     }
 
-    public async hasOAuthSession(providerId: string, scopes: string[]): Promise<boolean> {
+    public async hasOAuthSession(
+        providerId: string,
+        scopes: string[],
+        extensionInstaller?: ExtensionInstaller,
+    ): Promise<boolean> {
         if (this.host.auth.supportsOAuth === false || this.isProviderUnavailable(providerId)) {
+            return false;
+        }
+        if (this.isExtensionMissing(providerId, extensionInstaller)) {
+            this.setProviderUnavailable(providerId, true);
             return false;
         }
         try {
@@ -168,7 +185,7 @@ export class CodeForgeAuthManager implements Disposable {
             extensionInstaller?: ExtensionInstaller;
         },
     ): Promise<AuthCredential | undefined> {
-        this.registerProvider(providerId);
+        this.registerProvider(providerId, options.extensionInstaller);
 
         // 1. Check environment variables
         const envToken = process.env[options.envTokenKey];
@@ -197,32 +214,37 @@ export class CodeForgeAuthManager implements Disposable {
 
         const prompt = options.prompt ?? true;
 
-        // Always try silently first to see if an active session exists (if OAuth is supported)
+        // Always try silently first to see if an active session exists (if OAuth is supported
+        // and any required provider extension is installed).
         if (this.host.auth.supportsOAuth !== false) {
-            try {
-                const silentPromise = this.host.auth.getSession(providerId, options.scopes, { silent: true });
-                const session = await this.withTimeout(
-                    silentPromise,
-                    5000,
-                    `${providerId} authentication silent check timed out`,
-                );
-                this.setProviderUnavailable(providerId, false);
-                if (session) {
-                    return { kind: 'bearer', token: session.accessToken };
-                }
-            } catch (e) {
-                const errorStr = String(e);
+            if (this.isExtensionMissing(providerId, options.extensionInstaller)) {
+                this.setProviderUnavailable(providerId, true);
+            } else {
+                try {
+                    const silentPromise = this.host.auth.getSession(providerId, options.scopes, { silent: true });
+                    const session = await this.withTimeout(
+                        silentPromise,
+                        5000,
+                        `${providerId} authentication silent check timed out`,
+                    );
+                    this.setProviderUnavailable(providerId, false);
+                    if (session) {
+                        return { kind: 'bearer', token: session.accessToken };
+                    }
+                } catch (e) {
+                    const errorStr = String(e);
 
-                if (this.isProviderUnavailableError(e)) {
-                    this.setProviderUnavailable(providerId, true);
-                    this.outputChannel?.info(
-                        `[CodeForgeAuthManager] ${providerId} authentication provider is not available in host. Using unauthenticated requests only.`,
-                    );
-                    return undefined;
-                } else {
-                    this.outputChannel?.error(
-                        `[CodeForgeAuthManager] Failed to get OAuth token silently for ${providerId}: ${errorStr}`,
-                    );
+                    if (this.isProviderUnavailableError(e)) {
+                        this.setProviderUnavailable(providerId, true);
+                        this.outputChannel?.info(
+                            `[CodeForgeAuthManager] ${providerId} authentication provider is not available in host. Using unauthenticated requests only.`,
+                        );
+                        return undefined;
+                    } else {
+                        this.outputChannel?.error(
+                            `[CodeForgeAuthManager] Failed to get OAuth token silently for ${providerId}: ${errorStr}`,
+                        );
+                    }
                 }
             }
         }
@@ -442,7 +464,12 @@ export class CodeForgeAuthManager implements Disposable {
             hasPat = await this.secrets.has(options.secretTokenKey);
         } catch {}
         const hasEnv = !!process.env[options.envTokenKey];
-        const hasOAuth = supportsOAuth && !hasPat && !hasEnv && (await options.hasAuth());
+        const hasOAuth =
+            supportsOAuth &&
+            !this.isExtensionMissing(providerId, options.extensionInstaller) &&
+            !hasPat &&
+            !hasEnv &&
+            (await options.hasAuth());
         const items: AuthManageItem[] = [];
 
         if (supportsOAuth) {
