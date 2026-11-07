@@ -13,6 +13,7 @@ import {
     expectFileInScmGroup,
     expectScmDescription,
     focusSCM,
+    getScmItemLocator,
     hoverAndClick,
     openScmDiff,
     openScmFile,
@@ -500,7 +501,11 @@ test.describe('SCM Pane E2E', () => {
         // Wait for SCM refresh to confirm absorb (the wc change for f1.txt is consumed into ancestor)
         await expect(async () => {
             expect(repo.getFileContent(commits.ancestor.changeId, 'f1.txt').trim()).toBe('2');
+            expect(repo.getDiffSummary('@')).not.toContain('f1.txt');
         }).toPass({ timeout: 5000 });
+        // The SCM tree is virtualized: wait until it has re-rendered without f1.txt in the
+        // Working Copy group so later rows don't shift underneath an inline-action click.
+        await expect(await getScmItemLocator(page, 'f1.txt', /Working Copy/i)).toHaveCount(0);
 
         // 2. Show Details
         await expect(async () => {
@@ -512,18 +517,19 @@ test.describe('SCM Pane E2E', () => {
         await focusSCM(page);
 
         // 3. Squash File to Child (Pull from Ancestor)
-        await expect(async () => {
-            const wcChanges = repo.getDiffSummary('@');
-            if (!wcChanges.includes('A f2.txt')) {
-                const ancestorF2Row = await expectFileInScmGroup(page, /ancestor/i, 'f2.txt');
-                await clickScmAction(page, ancestorF2Row, SCM_ACTIONS.SquashFilesIntoChild);
-            }
-            expect(repo.getDiffSummary('@')).toContain('A f2.txt');
+        // Click exactly once. Retrying the click inside a toPass loop while the squash is still
+        // in flight can land on a recycled tree row (f1.txt slides into f2.txt's slot once the
+        // tree refreshes), squashing the whole ancestor away.
+        const ancestorF2Row = await expectFileInScmGroup(page, /ancestor/i, 'f2.txt');
+        await clickScmAction(page, ancestorF2Row, SCM_ACTIONS.SquashFilesIntoChild);
 
-            // Also wait for the UI SCM tree to refresh.
-            // In SCM tree under Working Copy group, there should be f2.txt
-            await expectFileInScmGroup(page, /Working Copy/i, /f2\.txt/i);
+        await expect(async () => {
+            expect(repo.getDiffSummary('@')).toContain('A f2.txt');
         }).toPass({ timeout: 15000 });
+
+        // Also wait for the UI SCM tree to refresh.
+        // In SCM tree under Working Copy group, there should be f2.txt
+        await expectFileInScmGroup(page, /Working Copy/i, /f2\.txt/i);
 
         // 4. Edit (Make ancestor the working copy)
         await clickScmAction(page, /ancestor change/, SCM_ACTIONS.Edit);
