@@ -11,7 +11,7 @@ import { CommitDetailsController } from '../../src/core/controllers/commit-detai
 import { ProcessMonitorController } from '../../src/core/controllers/process-monitor-controller';
 import { DiffTabCleaner } from '../../src/core/diff-tab-cleaner';
 import type { HostDiffTab, HostOpenOptions } from '../../src/core/host/host-environment';
-import type { FuzzyFileMatch } from '../../src/core/host/host-system';
+import type { FuzzyFileMatch, SystemUpdateInfo } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import type { JjEditFsService } from '../../src/core/jj-edit-fs-service';
 import { JjProcessTracker } from '../../src/core/jj-process-tracker';
@@ -295,7 +295,23 @@ function openCommandPalette(): void {
             category: 'View',
             iconClass: 'codicon codicon-output',
         },
+        {
+            id: 'jj-view.checkForUpdates',
+            title: 'Check for Updates',
+            category: 'Help',
+            iconClass: 'codicon codicon-cloud-download',
+        },
     ];
+
+    const availableUpdate = activeStatusBar.state.updateAvailable;
+    if (availableUpdate) {
+        builtIns.push({
+            id: 'jj-view.installUpdate',
+            title: `Update to v${availableUpdate.latestVersion}`,
+            category: 'Help',
+            iconClass: 'codicon codicon-cloud-download',
+        });
+    }
 
     for (const b of builtIns) {
         if (!seenIds.has(b.id)) {
@@ -315,8 +331,125 @@ function openCommandPalette(): void {
         }
         if (webHostEnv) {
             await webHostEnv.commands.executeCommand(cmdId);
+            return;
+        }
+        if (cmdId === 'jj-view.checkForUpdates') {
+            await performCheckForUpdates(true);
+            return;
+        }
+        if (cmdId === 'jj-view.installUpdate') {
+            await performInstallUpdate();
         }
     });
+}
+
+let promptedUpdateVersion: string | undefined;
+
+function handleUpdateInfo(info: SystemUpdateInfo, interactive: boolean): void {
+    if (info.updateAvailable) {
+        const existing = activeStatusBar.state.updateAvailable;
+        activeStatusBar.setUpdateAvailable({
+            currentVersion: info.currentVersion,
+            latestVersion: info.latestVersion,
+            releaseUrl: info.releaseUrl,
+            releaseNotes: info.releaseNotes,
+            prerelease: info.prerelease,
+            updating: existing?.latestVersion === info.latestVersion ? existing.updating : false,
+        });
+
+        if (interactive || promptedUpdateVersion !== info.latestVersion) {
+            promptedUpdateVersion = info.latestVersion;
+            for (const item of activeNotifications.items) {
+                if (item.message.startsWith('JJ View v') && item.message.includes('is available')) {
+                    activeNotifications.dismiss(item.id);
+                }
+            }
+            void activeNotifications
+                .showInformation(
+                    `JJ View v${info.latestVersion} is available (current: v${info.currentVersion}).`,
+                    'Update & Restart',
+                    'Release Notes',
+                )
+                .then((choice) => {
+                    if (choice === 'Update & Restart') {
+                        void performInstallUpdate();
+                    } else if (choice === 'Release Notes' && info.releaseUrl) {
+                        void webHostEnv?.nav.openExternal(Uri.parse(info.releaseUrl));
+                    }
+                });
+        }
+        return;
+    }
+
+    activeStatusBar.setUpdateAvailable(undefined);
+    if (interactive) {
+        if (!info.canSelfUpdate) {
+            void activeNotifications.showInformation(
+                `JJ View is at v${info.currentVersion} (self-update is not enabled for development builds).`,
+            );
+        } else {
+            void activeNotifications.showInformation(`JJ View v${info.currentVersion} is up to date.`);
+        }
+    }
+}
+
+async function performCheckForUpdates(interactive: boolean): Promise<void> {
+    const targetHost = host ?? webHostEnv?.system;
+    if (!targetHost?.checkUpdate) {
+        return;
+    }
+    try {
+        const info = await targetHost.checkUpdate({ force: interactive });
+        handleUpdateInfo(info, interactive);
+    } catch (err) {
+        if (interactive) {
+            void activeNotifications.showError(`Failed to check for updates: ${toError(err).message}`);
+        }
+    }
+}
+
+async function performInstallUpdate(): Promise<void> {
+    const targetHost = host ?? webHostEnv?.system;
+    const applyUpdate = targetHost?.applyUpdate?.bind(targetHost);
+    if (!applyUpdate) {
+        return;
+    }
+    const currentUpdate = activeStatusBar.state.updateAvailable;
+    if (currentUpdate?.updating) {
+        return;
+    }
+    for (const item of activeNotifications.items) {
+        if (item.message.startsWith('JJ View v') && item.message.includes('is available')) {
+            activeNotifications.dismiss(item.id);
+        }
+    }
+    if (currentUpdate) {
+        activeStatusBar.setUpdateAvailable({
+            ...currentUpdate,
+            updating: true,
+        });
+    }
+    const targetLabel = currentUpdate ? `v${currentUpdate.latestVersion}` : 'latest release';
+    try {
+        const res = await activeStatusBar.withProgress(`Updating JJ View to ${targetLabel}...`, async () => {
+            return await applyUpdate({
+                prerelease: currentUpdate?.prerelease,
+            });
+        });
+        activeStatusBar.setUpdateAvailable(undefined);
+        const statusMsg = res.restarting
+            ? `Updated to v${res.updatedVersion}. Restarting daemon...`
+            : `Updated to v${res.updatedVersion}.`;
+        activeStatusBar.setMessage(statusMsg, 10000);
+    } catch (err) {
+        if (currentUpdate) {
+            activeStatusBar.setUpdateAvailable({
+                ...currentUpdate,
+                updating: false,
+            });
+        }
+        void activeNotifications.showError(`Self-update failed: ${toError(err).message}`);
+    }
 }
 
 interface QuickOpenFileItem {
@@ -1988,6 +2121,14 @@ onMount(() => {
             await handleAddSelectionToChat();
         });
 
+        webHostEnv.commands.registerCommand('jj-view.checkForUpdates', async () => {
+            await performCheckForUpdates(true);
+        });
+
+        webHostEnv.commands.registerCommand('jj-view.installUpdate', async () => {
+            await performInstallUpdate();
+        });
+
         webHostEnv.commands.setContextKeySetter(rootContext);
         webHostEnv.ui.setQuickInputService(activeQuickInput);
 
@@ -2255,11 +2396,20 @@ onMount(() => {
         void applyTheme('pierre-dark-soft');
     }
 
+    const updateSub = host?.onUpdateAvailable((info) => {
+        handleUpdateInfo(info, false);
+    });
+
+    if (host || webHostEnv?.system?.checkUpdate) {
+        void performCheckForUpdates(false);
+    }
+
     return () => {
         webHostEnv?.documents.setDelegate(undefined);
         commentsStore?.dispose();
         rootContext.dispose();
         configSub?.dispose();
+        updateSub?.dispose();
     };
 });
 </script>
@@ -2539,6 +2689,9 @@ onMount(() => {
             onOpenSettings={() => {
                 isSettingsOpen = true;
             }}
+            onTriggerUpdate={() => {
+                void performInstallUpdate();
+            }}
         />
     {/snippet}
 </AppLayout>
@@ -2577,8 +2730,8 @@ onMount(() => {
     flex-direction: column;
     height: 100%;
     width: 100%;
-    background-color: var(--vscode-editor-background, #171717);
-    color: var(--vscode-editor-foreground, #d4d4d4);
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground, var(--vscode-foreground));
     overflow: hidden;
 }
 
@@ -2593,7 +2746,7 @@ onMount(() => {
 .editor-loading-placeholder {
     width: 100%;
     height: 100%;
-    background-color: var(--vscode-editor-background, #171717);
+    background-color: var(--vscode-editor-background);
 }
 
 .empty-editor-message {
@@ -2603,7 +2756,7 @@ onMount(() => {
     justify-content: center;
     height: 100%;
     gap: 12px;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
+    color: var(--vscode-descriptionForeground);
     text-align: center;
     user-select: none;
 }
@@ -2612,7 +2765,7 @@ onMount(() => {
     font-size: 18px;
     font-weight: 600;
     margin: 0;
-    color: var(--vscode-foreground, #d4d4d4);
+    color: var(--vscode-foreground);
 }
 
 .empty-editor-message p {
@@ -2624,7 +2777,7 @@ onMount(() => {
 
 .large-icon {
     font-size: 48px;
-    color: var(--vscode-icon-foreground, #8a8a8a);
+    color: var(--vscode-icon-foreground, var(--vscode-descriptionForeground));
     margin-bottom: 8px;
 }
 </style>

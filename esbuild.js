@@ -351,8 +351,20 @@ async function generateSettingsSchema() {
     });
 }
 
+async function generateVersion() {
+    execFileSync(process.execPath, [path.join(__dirname, 'tooling/generate-version.ts')], {
+        stdio: 'inherit',
+    });
+}
+
 // Run prerequisite tasks before main build
-Promise.all([generateSettingsSchema(), buildIcons(), copyAssets(), webOnly ? Promise.resolve() : installNativeDeps()])
+Promise.all([
+    generateSettingsSchema(),
+    generateVersion(),
+    buildIcons(),
+    copyAssets(),
+    webOnly ? Promise.resolve() : installNativeDeps(),
+])
     .then(main)
     .catch((e) => {
         console.error(e);

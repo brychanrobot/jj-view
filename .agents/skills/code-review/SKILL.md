@@ -163,6 +163,7 @@ categories:
     -   Invoke external binaries (`ffmpeg`) via
         `cp.execFileSync(bin, argsArray)` rather than shell string interpolation
         (`cp.execSync`).
+-   **Deduplicate Dual RPC + SSE Broadcast Notifications**: When a backend RPC handler both broadcasts an SSE notification and returns the same payload to the caller, frontend handlers must deduplicate or dismiss existing toasts for the same state before pushing a new notification.
 
 ### 4. Testing & Visual Verification Quality
 
@@ -188,6 +189,7 @@ categories:
     dark and light themes) before finishing.
 -   **Await Process Exit Before Deleting Temp Directories (Anti-Pattern)**: Never gate teardown cleanup on `proc.killed` (Node sets it synchronously when sending a signal, before the child exits); check `proc.exitCode !== null || proc.signalCode !== null` and await `'exit'`.
 -   **No Non-Idempotent Actions in `.toPass()` Retries (Anti-Pattern)**: Never put additive actions like `pressSequentially` inside a `.toPass()` retry loop; retry only idempotent state/focus checks.
+-   **Isolate Binaries for Self-Mutating E2E Tests**: When testing self-updating or binary-mutating daemon workflows in Playwright E2E specs (`StandaloneServer`), always set `copyBinaryToTemp: true` so the test spawns, overwrites, and reloads an isolated binary copy rather than mutating the shared `dist/bin/jj-view` workspace binary.
 
 --------------------------------------------------------------------------------
 

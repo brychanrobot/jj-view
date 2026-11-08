@@ -7,11 +7,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1161,3 +1164,183 @@ func startServerWithConfig(t *testing.T, cfg Config) *Server {
 	t.Cleanup(func() { _ = srv.Close(context.Background()) })
 	return srv
 }
+
+func TestHandleRPCCSRFEnforcement(t *testing.T) {
+	srv := startServerWithConfig(t, Config{
+		Host:      "127.0.0.1",
+		Port:      0,
+		RepoRoot:  t.TempDir(),
+		CSRFToken: "secret-csrf-token-123",
+	})
+
+	rpcURL := fmt.Sprintf("http://127.0.0.1:%d/api/rpc?token=%s", srv.Port(), srv.SessionToken())
+	payload := `{"jsonrpc":"2.0","id":1,"method":"system.info"}`
+
+	// 1. Missing CSRF header -> 403
+	req1, _ := http.NewRequest(http.MethodPost, rpcURL, strings.NewReader(payload))
+	req1.Header.Set("Content-Type", "application/json")
+	resp1, err := http.DefaultClient.Do(req1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp1.Body.Close()
+	if resp1.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when CSRF token is missing, got %d", resp1.StatusCode)
+	}
+
+	// 2. Matching X-CSRF-Token header -> 200
+	req2, _ := http.NewRequest(http.MethodPost, rpcURL, strings.NewReader(payload))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-CSRF-Token", "secret-csrf-token-123")
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK with valid X-CSRF-Token, got %d", resp2.StatusCode)
+	}
+}
+
+func TestSystemCheckAndApplyUpdateRPC(t *testing.T) {
+	const assetName = "jj-view-linux-amd64"
+	updatedPayload := []byte("#!/bin/sh\necho jj-view-3.1.0\n")
+	sum := sha256.Sum256(updatedPayload)
+	checksumHex := hex.EncodeToString(sum[:])
+
+	var mockURL string
+	mockReleases := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/releases":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `[{
+				"tag_name": "v3.1.0",
+				"draft": false,
+				"prerelease": false,
+				"html_url": "https://github.com/brychanrobot/jj-view/releases/tag/v3.1.0",
+				"body": "Release v3.1.0 notes",
+				"published_at": "2026-11-08T12:00:00Z",
+				"assets": [
+					{"name": %q, "browser_download_url": %q, "size": %d},
+					{"name": "checksums.txt", "browser_download_url": %q, "size": 90}
+				]
+			}]`, assetName, mockURL+"/download/"+assetName, len(updatedPayload), mockURL+"/download/checksums.txt")
+		case "/download/checksums.txt":
+			_, _ = fmt.Fprintf(w, "%s  %s\n", checksumHex, assetName)
+		case "/download/" + assetName:
+			_, _ = w.Write(updatedPayload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer mockReleases.Close()
+	mockURL = mockReleases.URL
+
+	tempDir := t.TempDir()
+	binPath := filepath.Join(tempDir, "jj-view")
+	if err := os.WriteFile(binPath, []byte("old-binary-3.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := make(chan struct{}, 1)
+	srv := startServerWithConfig(t, Config{
+		Host:           "127.0.0.1",
+		Port:           0,
+		RepoRoot:       tempDir,
+		Version:        "3.0.0",
+		ReleaseAsset:   assetName,
+		ExecutablePath: binPath,
+		ReleasesURL:    mockReleases.URL + "/releases",
+		OnReload: func() error {
+			select {
+			case reloaded <- struct{}{}:
+			default:
+			}
+			return nil
+		},
+	})
+
+	// 1. system.info includes canSelfUpdate and releaseAsset
+	infoRes := postRPC(t, srv, 1, "system.info", nil)
+	if infoRes.Error != nil {
+		t.Fatalf("system.info failed: %+v", infoRes.Error)
+	}
+	infoMap := infoRes.Result.(map[string]any)
+	if infoMap["canSelfUpdate"] != true || infoMap["releaseAsset"] != assetName {
+		t.Fatalf("unexpected system.info self-update fields: %+v", infoMap)
+	}
+
+	// 2. Connect SSE client to verify system/updateAvailable broadcast
+	eventsURL := fmt.Sprintf("http://127.0.0.1:%d/api/events?token=%s&clientId=update-test", srv.Port(), srv.SessionToken())
+	sseResp, err := http.Get(eventsURL)
+	if err != nil {
+		t.Fatalf("SSE connect failed: %v", err)
+	}
+	defer sseResp.Body.Close()
+
+	notifCh := make(chan map[string]any, 1)
+	go func() {
+		reader := bufio.NewReader(sseResp.Body)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "data:") {
+				dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				var notif protocol.Notification
+				if err := json.Unmarshal([]byte(dataStr), &notif); err == nil && notif.Method == "system/updateAvailable" {
+					if m, ok := notif.Params.(map[string]any); ok {
+						notifCh <- m
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	// 3. system.checkUpdate
+	checkRes := postRPC(t, srv, 2, "system.checkUpdate", map[string]any{"force": true})
+	if checkRes.Error != nil {
+		t.Fatalf("system.checkUpdate failed: %+v", checkRes.Error)
+	}
+	checkMap := checkRes.Result.(map[string]any)
+	if checkMap["updateAvailable"] != true || checkMap["latestVersion"] != "3.1.0" {
+		t.Fatalf("unexpected system.checkUpdate result: %+v", checkMap)
+	}
+
+	select {
+	case notif := <-notifCh:
+		if notif["latestVersion"] != "3.1.0" {
+			t.Fatalf("unexpected system/updateAvailable notification: %+v", notif)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for system/updateAvailable SSE notification")
+	}
+
+	// 4. system.applyUpdate replaces binary on disk and triggers OnReload
+	applyRes := postRPC(t, srv, 3, "system.applyUpdate", map[string]any{})
+	if applyRes.Error != nil {
+		t.Fatalf("system.applyUpdate failed: %+v", applyRes.Error)
+	}
+	applyMap := applyRes.Result.(map[string]any)
+	if applyMap["previousVersion"] != "3.0.0" || applyMap["updatedVersion"] != "3.1.0" || applyMap["restarting"] != true {
+		t.Fatalf("unexpected system.applyUpdate result: %+v", applyMap)
+	}
+
+	diskBytes, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(diskBytes) != string(updatedPayload) {
+		t.Fatalf("binary on disk was not updated: got %q", string(diskBytes))
+	}
+
+	select {
+	case <-reloaded:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for OnReload after system.applyUpdate")
+	}
+}
+

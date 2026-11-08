@@ -21,8 +21,11 @@ function ensurePrerequisites(): void {
         stdio: 'inherit',
     });
 
-    // 2. Generate settings schema
+    // 2. Generate settings schema and Go version
     cp.execFileSync(process.execPath, [path.join(rootDir, 'tooling/generate-settings-schema.ts')], {
+        stdio: 'inherit',
+    });
+    cp.execFileSync(process.execPath, [path.join(rootDir, 'tooling/generate-version.ts')], {
         stdio: 'inherit',
     });
 

@@ -58,7 +58,8 @@ function buildTarget(
     const binaryPath = path.join(releaseDir, binaryName);
 
     console.log(`[build-web-binaries] Compiling ${binaryName}...`);
-    cp.execSync(`go build -ldflags "-s -w -X main.version=${version}" -o ${JSON.stringify(binaryPath)} ./cmd/jj-view`, {
+    const ldflags = `-s -w -X main.version=${version} -X main.releaseAsset=${binaryName}`;
+    cp.execSync(`go build -ldflags "${ldflags}" -o ${JSON.stringify(binaryPath)} ./cmd/jj-view`, {
         cwd: rootDir,
         stdio: 'inherit',
         env: {

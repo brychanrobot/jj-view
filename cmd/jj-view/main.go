@@ -21,13 +21,32 @@ import (
 	"time"
 
 	"github.com/brychanrobot/jj-view/internal/server"
+	"github.com/brychanrobot/jj-view/internal/update"
 )
 
-var (
-	version = "2.10.0"
+var releaseAsset = ""
+
+const (
+	installAntigravityPluginCommand = "install-antigravity-plugin"
+	updateCommand                   = "update"
 )
 
-const installAntigravityPluginCommand = "install-antigravity-plugin"
+func effectiveReleaseAsset() string {
+	if envAsset := strings.TrimSpace(os.Getenv("JJ_VIEW_RELEASE_ASSET")); envAsset != "" {
+		return envAsset
+	}
+	return strings.TrimSpace(releaseAsset)
+}
+
+func effectiveUpdateURL(explicit string) string {
+	if trimmed := strings.TrimSpace(explicit); trimmed != "" {
+		return trimmed
+	}
+	if envURL := strings.TrimSpace(os.Getenv("JJ_VIEW_UPDATE_URL")); envURL != "" {
+		return envURL
+	}
+	return update.DefaultReleasesURL
+}
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == installAntigravityPluginCommand {
@@ -51,11 +70,22 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == updateCommand {
+		err := runUpdateCommand(os.Args[2:], os.Stdout, os.Stderr)
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	flag.Usage = func() {
 		printUsage(flag.CommandLine, "jj-view [flags]",
 			"Serve the JJ View UI for a Jujutsu repository.",
-			"Subcommands:\n  "+configCommand+"                      Query and modify JJ View configuration.\n  "+installAntigravityPluginCommand+"  Register this binary as an Antigravity plugin.")
+			"Subcommands:\n  "+configCommand+"                      Query and modify JJ View configuration.\n  "+updateCommand+"                      Check for and install JJ View updates.\n  "+installAntigravityPluginCommand+"  Register this binary as an Antigravity plugin.")
 	}
 	hostFlag := flag.String("host", "127.0.0.1", "Host address to bind to")
 	portFlag := flag.Int("port", 8080, "Port to listen on (0 for dynamic port)")
@@ -83,6 +113,7 @@ func main() {
 	}
 
 	execPath := resolveExecutablePath(os.Args[0])
+	update.CleanupStaleFiles(execPath)
 	reloadPortStr := os.Getenv(reloadPortEnvVar)
 	reloadSessionToken := os.Getenv(reloadSessionTokenEnvVar)
 	reloadAllowedRootsStr := os.Getenv(reloadAllowedRootsEnvVar)
@@ -159,6 +190,11 @@ func main() {
 		}
 	}
 
+	// Register signal handler before creating the server and printing the ready URL
+	// so callers or self-update callbacks that signal SIGHUP cannot race with setup.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
 	cfg := server.Config{
 		Host:              *hostFlag,
 		Port:              port,
@@ -167,6 +203,13 @@ func main() {
 		SidecarToken:      os.Getenv("ANTIGRAVITY_SIDECAR_UI_TOKEN"),
 		CSRFToken:         os.Getenv("ANTIGRAVITY_CSRF_TOKEN"),
 		Version:           version,
+		ReleaseAsset:      effectiveReleaseAsset(),
+		ExecutablePath:    execPath,
+		ReleasesURL:       effectiveUpdateURL(""),
+		OnReload: func() error {
+			sigChan <- syscall.SIGHUP
+			return nil
+		},
 		UserDataDir:       absUserDataDir,
 		UserConfigPath:    userConfigPath,
 		AllowedOrigins:    allowedOrigins,
@@ -187,11 +230,6 @@ func main() {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
-
-	// Register signal handler before printing the ready URL so callers that
-	// signal SIGHUP immediately upon seeing the URL cannot race with setup.
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	serverURL := fmt.Sprintf("http://%s:%d/?token=%s", *hostFlag, srv.Port(), srv.SessionToken())
 	fmt.Printf("\n  JJ View is running at:\n  %s\n\n", serverURL)

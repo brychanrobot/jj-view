@@ -26,6 +26,18 @@ describe('registerWebCommands', () => {
                 writeTextFile: vi.fn(),
             }),
             platform: 'linux',
+            checkUpdate: vi.fn(async () => ({
+                currentVersion: '3.0.0',
+                latestVersion: '3.1.0',
+                canSelfUpdate: true,
+                updateAvailable: true,
+            })),
+            applyUpdate: vi.fn(async () => ({
+                previousVersion: '3.0.0',
+                updatedVersion: '3.1.0',
+                binaryPath: '/tmp/jj-view',
+                restarting: true,
+            })),
         });
 
         const hostEnvironment = new WebHostEnvironment(mockRemoteHost, '/test/workspace', {
@@ -126,6 +138,7 @@ describe('registerWebCommands', () => {
 
         return {
             hostEnvironment,
+            mockRemoteHost,
             mockRepo,
             mockScmModel,
             mockJj,
@@ -154,11 +167,35 @@ describe('registerWebCommands', () => {
             'jj-view.sync',
             'jj-view.prev',
             'jj-view.next',
+            'jj-view.checkForUpdates',
+            'jj-view.installUpdate',
         ];
 
         for (const cmd of commands) {
             expect(hostEnvironment.commands.hasCommand(cmd)).toBe(true);
         }
+    });
+
+    it('delegates jj-view.checkForUpdates and jj-view.installUpdate to host system', async () => {
+        const { hostEnvironment, mockRemoteHost } = setupTestEnvironment();
+
+        const checkRes = await hostEnvironment.commands.executeCommand('jj-view.checkForUpdates');
+        expect(mockRemoteHost.checkUpdate).toHaveBeenCalledWith({ force: true });
+        expect(checkRes).toEqual({
+            currentVersion: '3.0.0',
+            latestVersion: '3.1.0',
+            canSelfUpdate: true,
+            updateAvailable: true,
+        });
+
+        const applyRes = await hostEnvironment.commands.executeCommand('jj-view.installUpdate');
+        expect(mockRemoteHost.applyUpdate).toHaveBeenCalled();
+        expect(applyRes).toEqual({
+            previousVersion: '3.0.0',
+            updatedVersion: '3.1.0',
+            binaryPath: '/tmp/jj-view',
+            restarting: true,
+        });
     });
 
     it('executes jj-view.refresh through commands.executeCommand', async () => {

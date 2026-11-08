@@ -56,6 +56,18 @@ func listProcesses() ([]runningProcess, error) {
 	return procs, nil
 }
 
+func sameExecutablePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if a == "" || b == "" {
+		return false
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra != "" && ra == rb
+}
+
 // findRunningDaemons returns the pids of jj-view daemons launched from
 // binaryPath. Subcommand invocations (install-antigravity-plugin) are
 // excluded; anything whose first argument is a flag (--host, -host, --version)
@@ -63,7 +75,7 @@ func listProcesses() ([]runningProcess, error) {
 func findRunningDaemons(binaryPath string, procs []runningProcess, selfPid int) []int {
 	var pids []int
 	for _, p := range procs {
-		if p.pid == selfPid || len(p.args) == 0 || p.args[0] != binaryPath {
+		if p.pid == selfPid || len(p.args) == 0 || !sameExecutablePath(p.args[0], binaryPath) {
 			continue
 		}
 		if len(p.args) > 1 && !strings.HasPrefix(p.args[1], "-") {
