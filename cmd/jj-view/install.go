@@ -236,3 +236,22 @@ func buildSidecarCommand(binaryPath string, shell string) (command string, args 
 	return binaryPath, defaultArgs, nil
 }
 
+func maybeRefreshAntigravityPlugin(binaryPath string) {
+	if strings.TrimSpace(binaryPath) == "" {
+		return
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		return
+	}
+	configDir := filepath.Join(homeDir, ".gemini", "config")
+	pluginManifest := filepath.Join(configDir, "plugins", "jj-view", "plugin.json")
+	if _, err := os.Stat(pluginManifest); err != nil {
+		return
+	}
+	_ = runInstallAntigravityPlugin([]string{
+		"--config-dir", configDir,
+		"--binary-path", binaryPath,
+		"--no-restart",
+	})
+}

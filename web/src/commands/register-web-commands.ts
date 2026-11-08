@@ -397,6 +397,12 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
     hostEnvironment.commands.registerCommand('workbench.action.openSettings', async (settingId?: string) => {
         await hostEnvironment.nav.openSettings(settingId);
     });
+    hostEnvironment.commands.registerCommand('jj-view.checkForUpdates', async () => {
+        return hostEnvironment.system?.checkUpdate?.({ force: true });
+    });
+    hostEnvironment.commands.registerCommand('jj-view.installUpdate', async () => {
+        return hostEnvironment.system?.applyUpdate?.();
+    });
     hostEnvironment.commands.registerCommand('jj-view.showProcessMonitor', async () => {});
     hostEnvironment.commands.registerCommand('jj-view.killProcess', async (opId?: unknown) => {
         if (typeof opId === 'number') {

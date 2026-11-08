@@ -142,10 +142,36 @@ export interface FuzzyFileMatch {
     readonly score: number;
 }
 
+export interface SystemUpdateInfo {
+    readonly currentVersion: string;
+    readonly latestVersion: string;
+    readonly releaseAsset?: string;
+    readonly canSelfUpdate: boolean;
+    readonly updateAvailable: boolean;
+    readonly prerelease?: boolean;
+    readonly releaseUrl?: string;
+    readonly releaseNotes?: string;
+    readonly publishedAt?: string;
+}
+
+export interface SystemCheckUpdateOptions {
+    readonly force?: boolean;
+    readonly prerelease?: boolean;
+}
+
+export interface SystemApplyUpdateResult {
+    readonly previousVersion: string;
+    readonly updatedVersion: string;
+    readonly binaryPath: string;
+    readonly restarting: boolean;
+}
+
 export interface HostSystem {
     readonly process: HostProcess;
     readonly fs: HostFs;
     readonly watcher: HostWatcher;
     readonly platform: HostPlatform;
     addAllowedRoot?(path: string): Promise<void>;
+    checkUpdate?(options?: SystemCheckUpdateOptions): Promise<SystemUpdateInfo>;
+    applyUpdate?(options?: { prerelease?: boolean }): Promise<SystemApplyUpdateResult>;
 }

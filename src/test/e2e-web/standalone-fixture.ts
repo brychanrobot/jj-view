@@ -43,6 +43,14 @@ export interface StandaloneServerOptions {
      * `.gitcookies` or `config.json` (user settings) here.
      */
     readonly prepareUserData?: (userDataDir: string) => void;
+    /** Extra environment variables passed to the spawned jj-view process. */
+    readonly env?: Readonly<Record<string, string>>;
+    /**
+     * Copies `dist/bin/jj-view` into the per-test temporary directory before
+     * spawning so self-update E2E tests can atomically replace and SIGHUP-reload
+     * their own executable without mutating the shared workspace binary.
+     */
+    readonly copyBinaryToTemp?: boolean;
 }
 
 export class StandaloneServer {
@@ -52,6 +60,7 @@ export class StandaloneServer {
     public sessionToken = '';
     public userDataDir = '';
     public serverTmpDir = '';
+    public binaryPath = '';
 
     private _process: cp.ChildProcess | null = null;
     private _stdout = '';
@@ -76,15 +85,16 @@ export class StandaloneServer {
         }
         this.userDataDir = '';
         this.serverTmpDir = '';
+        this.binaryPath = '';
     }
 
     public async start(): Promise<void> {
         const isWin = process.platform === 'win32';
         const binaryName = isWin ? 'jj-view.exe' : 'jj-view';
-        const binaryPath = path.resolve(__dirname, '../../../dist/bin', binaryName);
+        const sourceBinaryPath = path.resolve(__dirname, '../../../dist/bin', binaryName);
 
-        if (!fs.existsSync(binaryPath)) {
-            throw new Error(`jj-view binary not found at ${binaryPath}. Did you run 'pnpm build:all'?`);
+        if (!fs.existsSync(sourceBinaryPath)) {
+            throw new Error(`jj-view binary not found at ${sourceBinaryPath}. Did you run 'pnpm build:all'?`);
         }
 
         if (this.userDataDir || this.serverTmpDir) {
@@ -100,9 +110,19 @@ export class StandaloneServer {
 
         let proc: cp.ChildProcess;
         try {
+            let spawnBinaryPath = sourceBinaryPath;
+            if (this.options.copyBinaryToTemp) {
+                spawnBinaryPath = path.join(tempServerTmpDir, binaryName);
+                fs.writeFileSync(spawnBinaryPath, fs.readFileSync(sourceBinaryPath));
+                if (!isWin) {
+                    fs.chmodSync(spawnBinaryPath, 0o755);
+                }
+            }
+            this.binaryPath = spawnBinaryPath;
+
             this.options.prepareUserData?.(tempUserDataDir);
             proc = cp.spawn(
-                binaryPath,
+                spawnBinaryPath,
                 [
                     '--host',
                     '127.0.0.1',
@@ -127,6 +147,7 @@ export class StandaloneServer {
                         TMPDIR: tempServerTmpDir,
                         TEMP: tempServerTmpDir,
                         TMP: tempServerTmpDir,
+                        ...this.options.env,
                     },
                 },
             );

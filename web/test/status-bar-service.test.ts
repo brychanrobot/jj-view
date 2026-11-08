@@ -107,4 +107,36 @@ describe('StatusBarService', () => {
         service.setConnectionStatus('disconnected');
         expect(service.state.connection).toBe('disconnected');
     });
+
+    test('should set and clear available update state', () => {
+        const service = new StatusBarService();
+        const states: unknown[] = [];
+        const sub = service.onDidChangeStatus((s) => states.push(s.updateAvailable));
+
+        expect(service.state.updateAvailable).toBeUndefined();
+
+        service.setUpdateAvailable({
+            currentVersion: '3.0.0',
+            latestVersion: '3.1.0',
+            releaseUrl: 'https://github.com/brychanrobot/jj-view/releases/tag/v3.1.0',
+        });
+        expect(service.state.updateAvailable).toEqual({
+            currentVersion: '3.0.0',
+            latestVersion: '3.1.0',
+            releaseUrl: 'https://github.com/brychanrobot/jj-view/releases/tag/v3.1.0',
+        });
+
+        service.setUpdateAvailable({
+            currentVersion: '3.0.0',
+            latestVersion: '3.1.0',
+            updating: true,
+        });
+        expect(service.state.updateAvailable?.updating).toBe(true);
+
+        service.setUpdateAvailable(undefined);
+        expect(service.state.updateAvailable).toBeUndefined();
+        expect(states).toHaveLength(3);
+
+        sub.dispose();
+    });
 });

@@ -22,11 +22,21 @@ export interface WorkingCopyState {
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
 
+export interface UpdateStatusState {
+    readonly currentVersion: string;
+    readonly latestVersion: string;
+    readonly releaseUrl?: string;
+    readonly releaseNotes?: string;
+    readonly prerelease?: boolean;
+    readonly updating?: boolean;
+}
+
 export interface StatusBarState {
     statusMessage?: StatusMessage;
     progress: ProgressState;
     workingCopy?: WorkingCopyState;
     connection: ConnectionStatus;
+    updateAvailable?: UpdateStatusState;
 }
 
 export class StatusBarService {
@@ -39,6 +49,7 @@ export class StatusBarService {
 
     private currentWorkingCopy?: WorkingCopyState;
     private connectionStatus: ConnectionStatus = 'connected';
+    private currentUpdate?: UpdateStatusState;
 
     private readonly listeners = new Set<(state: StatusBarState) => void>();
 
@@ -52,6 +63,7 @@ export class StatusBarService {
             },
             workingCopy: this.currentWorkingCopy,
             connection: this.connectionStatus,
+            ...(this.currentUpdate !== undefined ? { updateAvailable: this.currentUpdate } : {}),
         };
     }
 
@@ -146,6 +158,11 @@ export class StatusBarService {
             return;
         }
         this.connectionStatus = status;
+        this.notifyListeners();
+    }
+
+    public setUpdateAvailable(info: UpdateStatusState | undefined): void {
+        this.currentUpdate = info;
         this.notifyListeners();
     }
 }

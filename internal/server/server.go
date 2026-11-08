@@ -37,6 +37,7 @@ import (
 	"github.com/brychanrobot/jj-view/internal/protocol"
 	"github.com/brychanrobot/jj-view/internal/secret"
 	"github.com/brychanrobot/jj-view/internal/state"
+	"github.com/brychanrobot/jj-view/internal/update"
 	"github.com/brychanrobot/jj-view/internal/watcher"
 	"github.com/brychanrobot/jj-view/web"
 )
@@ -54,6 +55,10 @@ type Config struct {
 	SidecarToken      string
 	CSRFToken         string
 	Version           string
+	ReleaseAsset      string
+	ExecutablePath    string
+	ReleasesURL       string
+	OnReload          func() error
 	UserDataDir       string
 	UserConfigPath    string
 	UserStatePath     string
@@ -72,6 +77,7 @@ type Server struct {
 	stateStore   *state.Store
 	secretStore  *secret.Store
 	gitCreds     *gitcred.Resolver
+	updater      *update.Updater
 	httpServer   *http.Server
 	listener     net.Listener
 	readyCh      chan struct{}
@@ -276,15 +282,22 @@ func NewServer(cfg Config) (*Server, error) {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 
 	s := &Server{
-		cfg:          cfg,
-		fsMgr:        fsMgr,
-		watcherHub:   watcher.NewHub(),
-		readyCh:      make(chan struct{}),
-		bgCtx:        bgCtx,
-		bgCancel:     bgCancel,
-		sseClients:   make(map[string]*sseClient),
-		wsClients:    make(map[*wsConn]struct{}),
-		gitCreds:     gitcred.NewResolver(gitcred.Options{Logf: log.Printf}),
+		cfg:        cfg,
+		fsMgr:      fsMgr,
+		watcherHub: watcher.NewHub(),
+		readyCh:    make(chan struct{}),
+		bgCtx:      bgCtx,
+		bgCancel:   bgCancel,
+		sseClients: make(map[string]*sseClient),
+		wsClients:  make(map[*wsConn]struct{}),
+		gitCreds:   gitcred.NewResolver(gitcred.Options{Logf: log.Printf}),
+		updater: update.NewUpdater(update.Options{
+			CurrentVersion: cfg.Version,
+			ReleaseAsset:   cfg.ReleaseAsset,
+			ExecutablePath: cfg.ExecutablePath,
+			ReleasesURL:    cfg.ReleasesURL,
+			OnReload:       cfg.OnReload,
+		}),
 		fileServer:   http.FileServer(http.FS(web.FS)),
 		assetVersion: computeAssetVersion(cfg.Version),
 	}
@@ -1062,6 +1075,11 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.verifyCSRF(r) {
+		http.Error(w, "Forbidden: invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRPCReadLimit))
 	if err != nil {
 		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
@@ -1295,12 +1313,53 @@ func (s *Server) dispatch(ctx context.Context, clientID string, req *protocol.Re
 			plat = "linux"
 		}
 		return map[string]any{
-			"platform": plat,
-			"version":  s.cfg.Version,
-			"build":    s.assetVersion,
-			"repoRoot": s.cfg.RepoRoot,
-			"tempDir":  s.fsMgr.DaemonTempDir(),
+			"platform":      plat,
+			"version":       s.cfg.Version,
+			"build":         s.assetVersion,
+			"repoRoot":      s.cfg.RepoRoot,
+			"tempDir":       s.fsMgr.DaemonTempDir(),
+			"canSelfUpdate": s.updater != nil && s.updater.CanSelfUpdate(),
+			"releaseAsset":  s.cfg.ReleaseAsset,
 		}, nil
+
+	case "system.checkUpdate":
+		var params update.CheckOptions
+		if len(req.Params) > 0 && string(req.Params) != "null" {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+			}
+		}
+		info, err := s.updater.Check(ctx, params)
+		if err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
+		}
+		if info != nil && info.UpdateAvailable {
+			s.broadcastNotification("system/updateAvailable", info)
+		}
+		return info, nil
+
+	case "system.applyUpdate":
+		var params struct {
+			Prerelease    bool  `json:"prerelease,omitempty"`
+			TriggerReload *bool `json:"triggerReload,omitempty"`
+		}
+		if len(req.Params) > 0 && string(req.Params) != "null" {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+			}
+		}
+		triggerReload := true
+		if params.TriggerReload != nil {
+			triggerReload = *params.TriggerReload
+		}
+		res, err := s.updater.Apply(ctx, update.ApplyOptions{
+			Prerelease:    params.Prerelease,
+			TriggerReload: triggerReload,
+		})
+		if err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInternalError, Message: err.Error()}
+		}
+		return res, nil
 
 	case "http.fetch":
 		var params httpFetchParams

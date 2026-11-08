@@ -18,6 +18,9 @@ import {
     type ProcessResult,
     type ScratchExecRequest,
     type ScratchExecResult,
+    type SystemApplyUpdateResult,
+    type SystemCheckUpdateOptions,
+    type SystemUpdateInfo,
     type TrackableProcess,
     type WatchEvent,
     type WatcherSubscription,
@@ -199,6 +202,38 @@ function isSystemInfoResult(data: unknown): data is SystemInfoResult {
     return typeof d.platform === 'string' && typeof d.version === 'string' && typeof d.repoRoot === 'string';
 }
 
+function isSystemUpdateInfo(val: unknown): val is SystemUpdateInfo {
+    if (typeof val !== 'object' || val === null) {
+        return false;
+    }
+    return (
+        'currentVersion' in val &&
+        typeof val.currentVersion === 'string' &&
+        'latestVersion' in val &&
+        typeof val.latestVersion === 'string' &&
+        'canSelfUpdate' in val &&
+        typeof val.canSelfUpdate === 'boolean' &&
+        'updateAvailable' in val &&
+        typeof val.updateAvailable === 'boolean'
+    );
+}
+
+function isSystemApplyUpdateResult(val: unknown): val is SystemApplyUpdateResult {
+    if (typeof val !== 'object' || val === null) {
+        return false;
+    }
+    return (
+        'previousVersion' in val &&
+        typeof val.previousVersion === 'string' &&
+        'updatedVersion' in val &&
+        typeof val.updatedVersion === 'string' &&
+        'binaryPath' in val &&
+        typeof val.binaryPath === 'string' &&
+        'restarting' in val &&
+        typeof val.restarting === 'boolean'
+    );
+}
+
 declare global {
     interface Window {
         __JJ_VIEW_CONFIG__?: {
@@ -329,6 +364,7 @@ export class RemoteHostSystem implements HostSystem {
     private readonly _configListeners = new Set<(key: string, scope: string) => void>();
     private readonly _stateListeners = new Set<(key: string) => void>();
     private readonly _secretsListeners = new Set<(key: string) => void>();
+    private readonly _updateListeners = new Set<(info: SystemUpdateInfo) => void>();
     private _isDisposed = false;
     private _reconnectAttempts = 0;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -709,13 +745,19 @@ export class RemoteHostSystem implements HostSystem {
 
     private _handleOpen(): void {
         this._reconnectAttempts = 0;
+        const isReconnect = Boolean(this._version || this._build);
 
         // Query system info to populate platform, version, repoRoot, and tempDir
         this._sendRequest<unknown>('system.info')
             .then(async (info) => {
                 if (isSystemInfoResult(info)) {
-                    if (this._build && info.build && info.build !== this._build) {
-                        this._build = info.build;
+                    const buildChanged = Boolean(this._build && info.build && info.build !== this._build);
+                    const versionChanged = Boolean(this._version && info.version && info.version !== this._version);
+                    if (buildChanged || versionChanged) {
+                        if (info.build) {
+                            this._build = info.build;
+                        }
+                        this._version = info.version;
                         if (typeof window !== 'undefined' && typeof window.location?.reload === 'function') {
                             window.location.reload();
                             return;
@@ -734,6 +776,19 @@ export class RemoteHostSystem implements HostSystem {
                 this._ensureWebSocket();
                 await this._reconnectAllowedRoots();
                 void this._reconnectWatchers();
+                if (isReconnect && this._updateListeners.size > 0) {
+                    void this.checkUpdate()
+                        .then((updateInfo) => {
+                            for (const listener of this._updateListeners) {
+                                try {
+                                    listener(updateInfo);
+                                } catch {
+                                    // Ignore listener errors
+                                }
+                            }
+                        })
+                        .catch(() => {});
+                }
                 if (this._readyResolve) {
                     this._readyResolve();
                     this._readyResolve = null;
@@ -843,6 +898,20 @@ export class RemoteHostSystem implements HostSystem {
             for (const listener of this._secretsListeners) {
                 try {
                     listener(key);
+                } catch {
+                    // Ignore listener errors
+                }
+            }
+            return;
+        }
+
+        if (method === 'system/updateAvailable') {
+            if (!isSystemUpdateInfo(params)) {
+                return;
+            }
+            for (const listener of this._updateListeners) {
+                try {
+                    listener(params);
                 } catch {
                     // Ignore listener errors
                 }
@@ -1339,6 +1408,31 @@ export class RemoteHostSystem implements HostSystem {
         await this.request('workspace.addAllowedRoot', { path });
     }
 
+    public onUpdateAvailable(listener: (info: SystemUpdateInfo) => void): { dispose: () => void } {
+        this._updateListeners.add(listener);
+        return {
+            dispose: () => {
+                this._updateListeners.delete(listener);
+            },
+        };
+    }
+
+    public async checkUpdate(options?: SystemCheckUpdateOptions): Promise<SystemUpdateInfo> {
+        const res = await this.request<unknown>('system.checkUpdate', options ?? {});
+        if (!isSystemUpdateInfo(res)) {
+            throw new Error('Invalid response from system.checkUpdate');
+        }
+        return res;
+    }
+
+    public async applyUpdate(options?: { prerelease?: boolean }): Promise<SystemApplyUpdateResult> {
+        const res = await this.request<unknown>('system.applyUpdate', options ?? {});
+        if (!isSystemApplyUpdateResult(res)) {
+            throw new Error('Invalid response from system.applyUpdate');
+        }
+        return res;
+    }
+
     public dispose(): void {
         if (this._isDisposed) {
             return;
@@ -1347,6 +1441,7 @@ export class RemoteHostSystem implements HostSystem {
         this._configListeners.clear();
         this._stateListeners.clear();
         this._secretsListeners.clear();
+        this._updateListeners.clear();
 
         if (this._reconnectTimer) {
             clearTimeout(this._reconnectTimer);
