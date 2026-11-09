@@ -250,7 +250,7 @@ describe('TabDocumentManager', () => {
         activeTab.isDirty = true;
         await manager.handleSaveFile('saved by handleSaveFile');
         expect(savedContent).toBe('saved by handleSaveFile');
-        expect(savedUri).toBe('/repo/test.ts');
+        expect(savedUri).toBeSameFsPath('/repo/test.ts');
         expect(activeTab.isDirty).toBe(false);
         expect(didSaveNotifiedUri?.fsPath).toBeSameFsPath('/repo/test.ts');
         expect(refreshReason).toBe('save-file');
@@ -264,8 +264,93 @@ describe('TabDocumentManager', () => {
         savedUri = undefined;
         await manager.saveUriIfDirty(fileUri);
         expect(savedContent).toBe('modified content');
-        expect(savedUri).toBe('/repo/test.ts');
+        expect(savedUri).toBeSameFsPath('/repo/test.ts');
         expect(activeTab.isDirty).toBe(false);
+    });
+
+    it('updates tab view content and clears isDirty before notifyDidSaveDocument on handleSaveFile', async () => {
+        let notifiedForFileTab = false;
+        let notifiedForDiffTab = false;
+        let snapshotAtFileNotify: { isDirty: boolean | undefined; content: string | undefined } | undefined;
+        let snapshotAtDiffNotify: { isDirty: boolean | undefined; modifiedContent: string | undefined } | undefined;
+
+        const mockHost = createMock<RemoteHostSystem>({
+            fs: createMock<HostFs>({
+                writeTextFile: async () => {},
+            }),
+        });
+
+        let manager: TabDocumentManager;
+        const mockWebHostEnv = createMock<WebHostEnvironment>({
+            documents: createMock<WebHostDocuments>({
+                notifyDidSaveDocument: (uri: Uri) => {
+                    if (uri.path.endsWith('/file.ts')) {
+                        notifiedForFileTab = true;
+                        const tab = manager.activeTab;
+                        if (tab && tab.view.type === 'file') {
+                            snapshotAtFileNotify = {
+                                isDirty: tab.isDirty,
+                                content: tab.view.content,
+                            };
+                        }
+                    } else if (uri.path.endsWith('/diff.ts')) {
+                        notifiedForDiffTab = true;
+                        const tab = manager.activeTab;
+                        if (tab && tab.view.type === 'diff') {
+                            snapshotAtDiffNotify = {
+                                isDirty: tab.isDirty,
+                                modifiedContent: tab.view.modifiedContent,
+                            };
+                        }
+                    }
+                },
+            }),
+        });
+
+        manager = new TabDocumentManager({
+            webHostEnv: mockWebHostEnv,
+            notificationService: new NotificationService(),
+            fsEditService: undefined,
+            fsViewService: undefined,
+            remoteHostSystem: mockHost,
+            resolveScmModelForUri: () => undefined,
+            getCurrentSnapshot: () => undefined,
+            getWorkspaceRoot: () => '/repo',
+            openFileDiffForChange: async () => {},
+            handleAction: async () => {},
+        });
+
+        const fileUri = Uri.file('/repo/file.ts');
+        manager.openOrActivateTab({
+            type: 'file',
+            uri: fileUri,
+            title: 'file.ts',
+            content: 'initial text',
+        });
+        if (manager.activeTab) {
+            manager.activeTab.isDirty = true;
+        }
+        await manager.handleSaveFile('saved text');
+        expect(notifiedForFileTab).toBe(true);
+        expect(snapshotAtFileNotify).toEqual({ isDirty: false, content: 'saved text' });
+
+        const diffRightUri = Uri.file('/repo/diff.ts');
+        const diffLeftUri = Uri.parse('jj-view:/repo/diff.ts');
+        manager.openOrActivateTab({
+            type: 'diff',
+            leftUri: diffLeftUri,
+            rightUri: diffRightUri,
+            title: 'diff.ts',
+            originalContent: 'before',
+            modifiedContent: 'initial diff text',
+            loaded: true,
+        });
+        if (manager.activeTab) {
+            manager.activeTab.isDirty = true;
+        }
+        await manager.handleSaveFile('saved text');
+        expect(notifiedForDiffTab).toBe(true);
+        expect(snapshotAtDiffNotify).toEqual({ isDirty: false, modifiedContent: 'saved text' });
     });
 
     it('saves files via fsEditService for jj-edit scheme', async () => {
@@ -355,6 +440,130 @@ describe('TabDocumentManager', () => {
 
         expect(restoredActionPayload).toBe(stateMock);
         expect(scmRefreshReason).toBe('discard-file');
+        expect(manager.tabs.length).toBe(0);
+    });
+
+    it('propagates host write error during handleSaveFile and leaves tab dirty', async () => {
+        const mockHost = createMock<RemoteHostSystem>({
+            fs: createMock<HostFs>({
+                writeTextFile: async () => {
+                    throw new Error('disk write failed');
+                },
+            }),
+        });
+
+        let refreshed = false;
+        const mockScm = createMock<ScmModel>({
+            refresh: async () => {
+                refreshed = true;
+            },
+        });
+
+        const manager = new TabDocumentManager({
+            webHostEnv: undefined,
+            notificationService: new NotificationService(),
+            fsEditService: undefined,
+            fsViewService: undefined,
+            remoteHostSystem: mockHost,
+            resolveScmModelForUri: () => mockScm,
+            getCurrentSnapshot: () => undefined,
+            getWorkspaceRoot: () => '/repo',
+            openFileDiffForChange: async () => {},
+            handleAction: async () => {},
+        });
+
+        const fileUri = Uri.file('/repo/err.ts');
+        manager.openOrActivateTab({
+            type: 'file',
+            uri: fileUri,
+            title: 'err.ts',
+            content: 'clean',
+        });
+
+        const activeTab = manager.activeTab;
+        expect(activeTab).toBeDefined();
+        if (!activeTab) {
+            return;
+        }
+        activeTab.isDirty = true;
+
+        await expect(manager.handleSaveFile('new-data')).rejects.toThrow('disk write failed');
+        expect(activeTab.isDirty).toBe(true);
+        expect(refreshed).toBe(false);
+    });
+
+    it('saves merge tab and completes merge via persistTabContentAndNotify', async () => {
+        let writtenPath: string | undefined;
+        let writtenText: string | undefined;
+        let notifiedUri: Uri | undefined;
+        let scmReason: string | undefined;
+
+        const mockHost = createMock<RemoteHostSystem>({
+            fs: createMock<HostFs>({
+                writeTextFile: async (filePath: string, text: string) => {
+                    writtenPath = filePath;
+                    writtenText = text;
+                },
+            }),
+        });
+
+        const mockWebHostEnv = createMock<WebHostEnvironment>({
+            documents: createMock<WebHostDocuments>({
+                notifyDidSaveDocument: (uri?: Uri) => {
+                    notifiedUri = uri;
+                },
+            }),
+        });
+
+        const mockScm = createMock<ScmModel>({
+            refresh: async (options?: { reason?: string }) => {
+                scmReason = options?.reason;
+            },
+        });
+
+        const manager = new TabDocumentManager({
+            webHostEnv: mockWebHostEnv,
+            notificationService: new NotificationService(),
+            fsEditService: undefined,
+            fsViewService: undefined,
+            remoteHostSystem: mockHost,
+            resolveScmModelForUri: () => mockScm,
+            getCurrentSnapshot: () => undefined,
+            getWorkspaceRoot: () => '/repo',
+            openFileDiffForChange: async () => {},
+            handleAction: async () => {},
+        });
+
+        const mergeUri = Uri.file('/repo/conflict.txt');
+        manager.openOrActivateTab({
+            type: 'merge',
+            uri: mergeUri,
+            title: 'conflict.txt (Merge)',
+            baseContent: 'base',
+            leftContent: 'left',
+            rightContent: 'right',
+            loaded: true,
+        });
+
+        const activeTab = manager.activeTab;
+        expect(activeTab).toBeDefined();
+        if (!activeTab) {
+            return;
+        }
+
+        activeTab.isDirty = true;
+        await manager.handleSaveFile('partially resolved');
+        expect(writtenText).toBe('partially resolved');
+        expect(writtenPath).toBeSameFsPath('/repo/conflict.txt');
+        expect(activeTab.isDirty).toBe(false);
+        expect(scmReason).toBe('save-file');
+        expect(notifiedUri?.fsPath).toBeSameFsPath('/repo/conflict.txt');
+
+        // Test handleCompleteMerge closes tab and refreshes SCM with complete-merge
+        activeTab.isDirty = true;
+        await manager.handleCompleteMerge('fully resolved');
+        expect(writtenText).toBe('fully resolved');
+        expect(scmReason).toBe('complete-merge');
         expect(manager.tabs.length).toBe(0);
     });
 });
