@@ -46,11 +46,11 @@ describe('JjService Subdirectory Mapping', () => {
     });
 
     test('getDiffContent correctly maps paths in subdirectory workspace', async () => {
-        const workspacePath = path.join(repo.path, 'google3');
+        const workspacePath = path.join(repo.path, 'subdir');
         fs.mkdirSync(workspacePath);
 
         const fileName = 'test.txt';
-        const fileRepoRelativePath = 'google3/test.txt';
+        const fileRepoRelativePath = 'subdir/test.txt';
         const absoluteFilePath = path.join(workspacePath, fileName);
 
         repo.writeFile(fileRepoRelativePath, 'v1');
@@ -67,7 +67,7 @@ describe('JjService Subdirectory Mapping', () => {
             debug: () => {},
         });
 
-        // This should use the bulk cache and find the file at google3/test.txt
+        // This should use the bulk cache and find the file at subdir/test.txt
         const diff = await subService.getDiffContent('@', absoluteFilePath);
 
         expect(diff.left).toBe('v1');

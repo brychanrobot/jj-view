@@ -188,6 +188,35 @@ func (sm *SandboxManager) buildFileIndex(ctx context.Context, validBaseDir strin
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	walkRoot := validBaseDir
+	citcRoot, resolvedBase := findCitcWorkspaceRoot(validBaseDir)
+	if citcRoot != "" {
+		modifiedBase := filepath.Join(citcRoot, ".citc", "modified")
+		baseInfo, baseErr := os.Lstat(modifiedBase)
+		if baseErr != nil || !baseInfo.IsDir() {
+			return []indexedFile{}, []indexedFile{}, true, nil
+		}
+		realModifiedBase, evalBaseErr := filepath.EvalSymlinks(modifiedBase)
+		if evalBaseErr != nil {
+			return []indexedFile{}, []indexedFile{}, true, nil
+		}
+
+		relBase, relErr := filepath.Rel(citcRoot, resolvedBase)
+		modifiedRoot := realModifiedBase
+		if relErr == nil && relBase != "." {
+			modifiedRoot = filepath.Join(realModifiedBase, relBase)
+		}
+		if info, statErr := os.Lstat(modifiedRoot); statErr != nil || !info.IsDir() {
+			return []indexedFile{}, []indexedFile{}, true, nil
+		}
+		realModifiedRoot, evalRootErr := filepath.EvalSymlinks(modifiedRoot)
+		if evalRootErr != nil || (realModifiedRoot != realModifiedBase && !strings.HasPrefix(realModifiedRoot, realModifiedBase+string(filepath.Separator))) {
+			return []indexedFile{}, []indexedFile{}, true, nil
+		}
+		walkRoot = realModifiedRoot
+	}
+
 	walkCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -198,8 +227,8 @@ func (sm *SandboxManager) buildFileIndex(ctx context.Context, validBaseDir strin
 	var dirsVisited atomic.Int64
 	var shardCounter atomic.Uint64
 
-	prefixLen := len(validBaseDir)
-	if !strings.HasSuffix(validBaseDir, string(filepath.Separator)) {
+	prefixLen := len(walkRoot)
+	if !strings.HasSuffix(walkRoot, string(filepath.Separator)) {
 		prefixLen++
 	}
 
@@ -207,14 +236,14 @@ func (sm *SandboxManager) buildFileIndex(ctx context.Context, validBaseDir strin
 		Follow: false,
 	}
 
-	walkErr := fastwalk.Walk(&conf, validBaseDir, func(path string, d os.DirEntry, err error) error {
+	walkErr := fastwalk.Walk(&conf, walkRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if walkCtx.Err() != nil {
 			return errLimitExceeded
 		}
-		if path == validBaseDir || len(path) <= prefixLen {
+		if path == walkRoot || len(path) <= prefixLen {
 			return nil
 		}
 
@@ -229,6 +258,12 @@ func (sm *SandboxManager) buildFileIndex(ctx context.Context, validBaseDir strin
 				return errLimitExceeded
 			}
 			return nil
+		}
+
+		if citcRoot != "" {
+			if info, statErr := os.Stat(filepath.Join(validBaseDir, filepath.FromSlash(relPathSlash))); statErr != nil || info.IsDir() {
+				return nil
+			}
 		}
 
 		entry := makeIndexedFile(relPathSlash)
@@ -256,7 +291,7 @@ func (sm *SandboxManager) buildFileIndex(ctx context.Context, validBaseDir strin
 	for i := range shards {
 		files = append(files, shards[i].files...)
 	}
-	if len(files) == 0 {
+	if len(files) == 0 && citcRoot == "" {
 		complete = false
 	}
 
@@ -308,7 +343,7 @@ func (sm *SandboxManager) getOrBuildFileIndex(opts FuzzyFindOptions, validBaseDi
 		if len(entry.files) < 5000 {
 			freshTTL = 500 * time.Millisecond
 		}
-		if len(entry.files) > 0 && !entry.builtAt.IsZero() && age < freshTTL {
+		if !entry.builtAt.IsZero() && age < freshTTL {
 			files := entry.files
 			shallow := entry.shallow
 			entry.mu.Unlock()
@@ -937,4 +972,3 @@ func scoreGreedyFallback(target string, baseOffset int, qRaw, qLower string, fir
 	}
 	return score
 }
-

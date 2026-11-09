@@ -4,9 +4,11 @@
 package fs
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -216,6 +218,245 @@ func TestFuzzyFindFiles_RankingAndFeatures(t *testing.T) {
 		}
 		if len(resRoot) != 0 {
 			t.Fatalf("expected root data/root_ignored.cc to be excluded by ./data, got %+v", resRoot)
+		}
+	})
+}
+
+func TestFuzzyFindFiles_CitcModifiedScoping(t *testing.T) {
+	rawDir := t.TempDir()
+	baseDir, err := filepath.EvalSymlinks(rawDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s) failed: %v", rawDir, err)
+	}
+
+	citcWs := filepath.Join(baseDir, "citc-ws")
+	citcEmptyWs := filepath.Join(baseDir, "citc-empty-ws")
+	filesToCreate := []string{
+		filepath.Join(citcWs, "unmodified", "deep", "file.txt"),
+		filepath.Join(citcWs, "sub", "edited.go"),
+		filepath.Join(citcWs, ".citc", "modified", "sub", "edited.go"),
+		// Exists only under .citc/modified (simulating a deleted/whiteout file not present in workspace)
+		filepath.Join(citcWs, ".citc", "modified", "deleted.go"),
+	}
+	for _, p := range filesToCreate {
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatalf("failed to create dir for %s: %v", p, err)
+		}
+		if err := os.WriteFile(p, []byte("test"), 0644); err != nil {
+			t.Fatalf("failed to write file %s: %v", p, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(citcEmptyWs, ".citc"), 0755); err != nil {
+		t.Fatalf("failed to create empty .citc dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(citcEmptyWs, "unmodified.txt"), []byte("test"), 0644); err != nil {
+		t.Fatalf("failed to write unmodified.txt: %v", err)
+	}
+
+	sm, err := NewSandboxManager(baseDir)
+	if err != nil {
+		t.Fatalf("NewSandboxManager failed: %v", err)
+	}
+
+	t.Run("Workspace root indexes only existing files under .citc/modified", func(t *testing.T) {
+		allRes, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir:    citcWs,
+			Query:      "",
+			MaxResults: 100,
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles failed: %v", err)
+		}
+		expectedPath := filepath.Join(citcWs, "sub", "edited.go")
+		if len(allRes) != 1 || allRes[0].RelPath != "sub/edited.go" || allRes[0].Path != expectedPath {
+			t.Fatalf("expected only %s (sub/edited.go), got %+v", expectedPath, allRes)
+		}
+
+		editedRes, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: citcWs,
+			Query:   "edited.go",
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles(edited.go) failed: %v", err)
+		}
+		if len(editedRes) != 1 || editedRes[0].Path != expectedPath {
+			t.Fatalf("expected %s, got %+v", expectedPath, editedRes)
+		}
+
+		unmodifiedRes, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: citcWs,
+			Query:   "file.txt",
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles(file.txt) failed: %v", err)
+		}
+		if len(unmodifiedRes) != 0 {
+			t.Fatalf("expected unmodified/deep/file.txt not to be walked, got %+v", unmodifiedRes)
+		}
+
+		deletedRes, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: citcWs,
+			Query:   "deleted.go",
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles(deleted.go) failed: %v", err)
+		}
+		if len(deletedRes) != 0 {
+			t.Fatalf("expected deleted/whiteout file to be excluded, got %+v", deletedRes)
+		}
+	})
+
+	t.Run("Child directory inside .citc workspace scopes to matching .citc/modified subtree", func(t *testing.T) {
+		subDir := filepath.Join(citcWs, "sub")
+		res, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: subDir,
+			Query:   "edited",
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles(subDir) failed: %v", err)
+		}
+		expectedPath := filepath.Join(citcWs, "sub", "edited.go")
+		if len(res) != 1 || res[0].RelPath != "edited.go" || res[0].Path != expectedPath {
+			t.Fatalf("expected edited.go at %s, got %+v", expectedPath, res)
+		}
+	})
+
+	t.Run("Missing .citc/modified marks index complete without walking unmodified tree", func(t *testing.T) {
+		res1, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: citcEmptyWs,
+			Query:   "unmodified.txt",
+		})
+		if err != nil {
+			t.Fatalf("first FuzzyFindFiles(citcEmptyWs) failed: %v", err)
+		}
+		if len(res1) != 0 {
+			t.Fatalf("expected 0 results when .citc/modified is missing, got %+v", res1)
+		}
+
+		sm.indexMu.Lock()
+		entry := sm.fileIndex[citcEmptyWs]
+		sm.indexMu.Unlock()
+		if entry == nil {
+			t.Fatal("expected cache entry for citcEmptyWs")
+		}
+		entry.mu.Lock()
+		builtAt1 := entry.builtAt
+		entry.mu.Unlock()
+		if builtAt1.IsZero() {
+			t.Fatal("expected empty .citc/modified index build to record completion (non-zero builtAt)")
+		}
+
+		res2, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: citcEmptyWs,
+			Query:   "unmodified.txt",
+		})
+		if err != nil {
+			t.Fatalf("second FuzzyFindFiles(citcEmptyWs) failed: %v", err)
+		}
+		if len(res2) != 0 {
+			t.Fatalf("expected 0 results on cached empty .citc/modified lookup, got %+v", res2)
+		}
+
+		entry.mu.Lock()
+		builtAt2 := entry.builtAt
+		entry.mu.Unlock()
+		if !builtAt2.Equal(builtAt1) {
+			t.Fatalf("expected second query on empty .citc workspace to hit fresh cache (builtAt %v != %v)", builtAt2, builtAt1)
+		}
+	})
+
+	t.Run("Symlink .citc/modified or modified subtree pointing outside sandbox is ignored", func(t *testing.T) {
+		rawOutside := t.TempDir()
+		outsideDir, err := filepath.EvalSymlinks(rawOutside)
+		if err != nil {
+			t.Fatalf("EvalSymlinks(%s) failed: %v", rawOutside, err)
+		}
+		outsideFile := filepath.Join(outsideDir, "secret.go")
+		if err := os.WriteFile(outsideFile, []byte("secret"), 0644); err != nil {
+			t.Fatalf("failed to write outside file: %v", err)
+		}
+
+		skipIfWindowsPrivilegeErr := func(err error) {
+			if err != nil {
+				if runtime.GOOS == "windows" && (errors.Is(err, os.ErrPermission) || strings.Contains(strings.ToLower(err.Error()), "privilege")) {
+					t.Skipf("skipping symlink test on Windows without symlink privilege: %v", err)
+				}
+				t.Fatalf("os.Symlink failed: %v", err)
+			}
+		}
+
+		// Case 1: .citc/modified itself is a symlink pointing outside the sandbox.
+		symlinkModWs := filepath.Join(baseDir, "citc-symlink-mod-ws")
+		if err := os.MkdirAll(filepath.Join(symlinkModWs, ".citc"), 0755); err != nil {
+			t.Fatalf("MkdirAll failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(symlinkModWs, "secret.go"), []byte("mirror"), 0644); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+		skipIfWindowsPrivilegeErr(os.Symlink(outsideDir, filepath.Join(symlinkModWs, ".citc", "modified")))
+
+		res1, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: symlinkModWs,
+			Query:   "secret.go",
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles(symlinkModWs) failed: %v", err)
+		}
+		if len(res1) != 0 {
+			t.Fatalf("expected 0 results when .citc/modified is a symlink, got %+v", res1)
+		}
+
+		// Case 2: a subdirectory under .citc/modified is a symlink pointing outside the sandbox.
+		symlinkSubWs := filepath.Join(baseDir, "citc-symlink-sub-ws")
+		if err := os.MkdirAll(filepath.Join(symlinkSubWs, ".citc", "modified"), 0755); err != nil {
+			t.Fatalf("MkdirAll failed: %v", err)
+		}
+		nestedDir := filepath.Join(symlinkSubWs, "nested")
+		if err := os.MkdirAll(nestedDir, 0755); err != nil {
+			t.Fatalf("MkdirAll(nestedDir) failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(nestedDir, "secret.go"), []byte("mirror"), 0644); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+		skipIfWindowsPrivilegeErr(os.Symlink(outsideDir, filepath.Join(symlinkSubWs, ".citc", "modified", "nested")))
+
+		res2, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: nestedDir,
+			Query:   "secret.go",
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles(nestedDir) failed: %v", err)
+		}
+		if len(res2) != 0 {
+			t.Fatalf("expected 0 results when .citc/modified/nested is a symlink escaping .citc/modified, got %+v", res2)
+		}
+
+		// Case 3: an intermediate ancestor under .citc/modified is a symlink pointing outside,
+		// so os.Lstat on the leaf directory succeeds while EvalSymlinks containment rejects it.
+		outsideSub := filepath.Join(outsideDir, "sub")
+		if err := os.MkdirAll(outsideSub, 0755); err != nil {
+			t.Fatalf("MkdirAll(outsideSub) failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(outsideSub, "leak.go"), []byte("leak"), 0644); err != nil {
+			t.Fatalf("WriteFile(leak.go) failed: %v", err)
+		}
+		nestedChildDir := filepath.Join(nestedDir, "sub")
+		if err := os.MkdirAll(nestedChildDir, 0755); err != nil {
+			t.Fatalf("MkdirAll(nestedChildDir) failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(nestedChildDir, "leak.go"), []byte("mirror"), 0644); err != nil {
+			t.Fatalf("WriteFile(mirror leak.go) failed: %v", err)
+		}
+
+		res3, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir: nestedChildDir,
+			Query:   "leak.go",
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles(nestedChildDir) failed: %v", err)
+		}
+		if len(res3) != 0 {
+			t.Fatalf("expected 0 results when intermediate .citc/modified/nested symlink escapes .citc/modified, got %+v", res3)
 		}
 	})
 }
