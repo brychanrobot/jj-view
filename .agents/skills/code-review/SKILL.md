@@ -164,6 +164,8 @@ categories:
         `cp.execFileSync(bin, argsArray)` rather than shell string interpolation
         (`cp.execSync`).
 -   **Deduplicate Dual RPC + SSE Broadcast Notifications**: When a backend RPC handler both broadcasts an SSE notification and returns the same payload to the caller, frontend handlers must deduplicate or dismiss existing toasts for the same state before pushing a new notification.
+-   **Preserve Cleared Controlled Inputs & Scope Refresh Reasons**: Never use `input.value === ''` as an overwrite trigger on controlled inputs (a cleared draft must stay empty across background refreshes once `_lastKnownChangeId` is initialized), and scope command refresh reasons by target revision (e.g., `revision === '@' ? 'after describe' : \`after describe:${revision}\``) so ancestor mutations never clobber working-copy drafts.
+-   **Close Listeners & Mark Shutdown Before Draining Server Clients**: Acquire `mu.Lock()`, enforce idempotent `closed = true`, and close a `onceCloseListener`-wrapped `net.Listener` (so `Start()`/`Listen()` return `http.ErrServerClosed` cleanly and `http.Server.Shutdown(ctx)` does not abort on a second-close `net.ErrClosed`) at the very top of server `Close()` *before* canceling background contexts or draining SSE/WebSocket clients (`handleEvents` must also select on `<-bgDone`).
 
 ### 4. Testing & Visual Verification Quality
 
@@ -190,6 +192,8 @@ categories:
 -   **Await Process Exit Before Deleting Temp Directories (Anti-Pattern)**: Never gate teardown cleanup on `proc.killed` (Node sets it synchronously when sending a signal, before the child exits); check `proc.exitCode !== null || proc.signalCode !== null` and await `'exit'`.
 -   **No Non-Idempotent Actions in `.toPass()` Retries (Anti-Pattern)**: Never put additive actions like `pressSequentially` inside a `.toPass()` retry loop; retry only idempotent state/focus checks.
 -   **Isolate Binaries for Self-Mutating E2E Tests**: When testing self-updating or binary-mutating daemon workflows in Playwright E2E specs (`StandaloneServer`), always set `copyBinaryToTemp: true` so the test spawns, overwrites, and reloads an isolated binary copy rather than mutating the shared `dist/bin/jj-view` workspace binary.
+-   **Disable Live Watchers & Drain Constructor Refreshes in Repository Unit Tests**: Inject a no-op `HostWatcher` via `NodeHostSystem`, `await repo.watcher.dispose()`, and `await repo.activeRefresh` after constructing `JjRepository`/`VsCodeScmProvider` so live `@parcel/watcher` events, 5s `Poller` ticks, and constructor-kicked refreshes never coalesce with test assertions.
+-   **Isolate Subprocess Env Vars & Fake Timers in Watcher/Daemon Tests**: Strip ambient `JJ_VIEW_*`, `ANTIGRAVITY_*`, and proxy env vars (with isolated `HOME`/`USERPROFILE` and `--user-data-dir`) when spawning daemon binaries in Go tests, and test deferred timer logic under `vi.useFakeTimers()` (`vi.advanceTimersByTimeAsync`) rather than real wall-clock waits.
 
 --------------------------------------------------------------------------------
 

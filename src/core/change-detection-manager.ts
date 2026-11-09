@@ -49,9 +49,9 @@ export class ChangeDetectionManager implements HostDisposable {
     }
 
     private _pendingForceSnapshot = false;
+    private _pendingSkipIfOpUnchanged = true;
 
-    private _scheduleDeferredRefresh(forceSnapshot = false) {
-        this._pendingForceSnapshot = this._pendingForceSnapshot || forceSnapshot;
+    private _armDeferredRefreshTimer() {
         if (this._deferredRefreshTimeout) {
             return;
         }
@@ -62,21 +62,37 @@ export class ChangeDetectionManager implements HostDisposable {
             }
             const writes = this.hasActiveOrRecentWrites;
             if (writes) {
-                this._scheduleDeferredRefresh();
+                this._armDeferredRefreshTimer();
             } else {
                 this.lastExternalOpTime = Date.now();
                 const force = this._pendingForceSnapshot;
+                const skipIfOpUnchanged = this._pendingSkipIfOpUnchanged;
                 this._pendingForceSnapshot = false;
-                this.triggerRefresh({ forceSnapshot: force, reason: 'deferred watcher event' });
+                this._pendingSkipIfOpUnchanged = true;
+                this.triggerRefresh({
+                    forceSnapshot: force,
+                    reason: 'deferred watcher event',
+                    ...(skipIfOpUnchanged ? { skipIfOpUnchanged: true } : {}),
+                });
             }
         }, 500);
+    }
+
+    private _scheduleDeferredRefresh(forceSnapshot = false, skipIfOpUnchanged = false) {
+        this._pendingForceSnapshot = this._pendingForceSnapshot || forceSnapshot;
+        this._pendingSkipIfOpUnchanged = this._pendingSkipIfOpUnchanged && skipIfOpUnchanged;
+        this._armDeferredRefreshTimer();
     }
 
     constructor(
         private workspaceRoot: string,
         private jj: JjService,
         private outputChannel: LoggerChannel,
-        private triggerRefresh: (event: { forceSnapshot: boolean; reason: string }) => Promise<void>,
+        private triggerRefresh: (event: {
+            forceSnapshot: boolean;
+            reason: string;
+            skipIfOpUnchanged?: boolean;
+        }) => Promise<void>,
         private readonly host: HostEnvironment,
         private readonly watcherBackend?: BackendType,
     ) {
@@ -84,7 +100,7 @@ export class ChangeDetectionManager implements HostDisposable {
         this._poller = new Poller(5000, async () => {
             // Skip if a write operation is in progress or just finished
             if (!this.hasActiveOrRecentWrites) {
-                await this.triggerRefresh({ forceSnapshot: true, reason: 'poll' });
+                await this.triggerRefresh({ forceSnapshot: true, reason: 'poll', skipIfOpUnchanged: true });
             }
         });
 
@@ -267,11 +283,11 @@ export class ChangeDetectionManager implements HostDisposable {
                 const handleOpHeadChange = () => {
                     const writes = this.hasActiveOrRecentWrites;
                     if (writes) {
-                        this._scheduleDeferredRefresh();
+                        this._scheduleDeferredRefresh(false, true);
                         return;
                     }
                     this.lastExternalOpTime = Date.now();
-                    this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation' });
+                    this.triggerRefresh({ forceSnapshot: false, reason: 'jj operation', skipIfOpUnchanged: true });
                 };
 
                 this._opHeadsWatcher = new DirectoryWatcher(
@@ -409,10 +425,10 @@ export class ChangeDetectionManager implements HostDisposable {
             () => {
                 const writes = this.hasActiveOrRecentWrites;
                 if (writes) {
-                    this._scheduleDeferredRefresh(true);
+                    this._scheduleDeferredRefresh(true, true);
                     return;
                 }
-                this.triggerRefresh({ forceSnapshot: true, reason: 'file watcher event' });
+                this.triggerRefresh({ forceSnapshot: true, reason: 'file watcher event', skipIfOpUnchanged: true });
             },
             this.outputChannel,
             {
@@ -535,6 +551,7 @@ export class ChangeDetectionManager implements HostDisposable {
         }
         this._disposed = true;
         this._pendingForceSnapshot = false;
+        this._pendingSkipIfOpUnchanged = true;
 
         this.disposables.forEach((d) => {
             d.dispose();

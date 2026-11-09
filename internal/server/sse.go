@@ -221,11 +221,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		client.cleanup(s)
 	}()
 
+	var bgDone <-chan struct{}
+	if s.bgCtx != nil {
+		bgDone = s.bgCtx.Done()
+	}
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-client.done:
+			return
+		case <-bgDone:
 			return
 		case <-ticker.C:
 			if err := client.ping(); err != nil {

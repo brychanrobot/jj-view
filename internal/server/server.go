@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"mime"
@@ -65,6 +66,7 @@ type Server struct {
 	httpServer   *http.Server
 	listener     net.Listener
 	readyCh      chan struct{}
+	closed       bool
 	bgCtx        context.Context
 	bgCancel     context.CancelFunc
 	fileServer   http.Handler
@@ -301,11 +303,27 @@ func (s *Server) Ready() <-chan struct{} {
 	return s.readyCh
 }
 
+type onceCloseListener struct {
+	net.Listener
+	once     sync.Once
+	closeErr error
+}
+
+func (l *onceCloseListener) Close() error {
+	l.once.Do(func() {
+		l.closeErr = l.Listener.Close()
+	})
+	return l.closeErr
+}
+
 // Listen binds the TCP listener.
 func (s *Server) Listen() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.closed {
+		return http.ErrServerClosed
+	}
 	if s.listener != nil {
 		return nil
 	}
@@ -315,8 +333,8 @@ func (s *Server) Listen() error {
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
-	s.listener = listener
 	s.cfg.Port = listener.Addr().(*net.TCPAddr).Port
+	s.listener = &onceCloseListener{Listener: listener}
 
 	close(s.readyCh)
 	return nil
@@ -344,11 +362,24 @@ func (s *Server) Start() error {
 	}
 
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return http.ErrServerClosed
+	}
 	s.httpServer = httpSrv
 	listener := s.listener
 	s.mu.Unlock()
 
-	return httpSrv.Serve(listener)
+	err := httpSrv.Serve(listener)
+	if err != nil && errors.Is(err, net.ErrClosed) {
+		s.mu.RLock()
+		closed := s.closed
+		s.mu.RUnlock()
+		if closed {
+			return http.ErrServerClosed
+		}
+	}
+	return err
 }
 
 // Addr returns the server's listening address.
@@ -380,6 +411,20 @@ func (s *Server) AllowedRoots() []string {
 
 // Close gracefully stops the server and closes all active clients.
 func (s *Server) Close(ctx context.Context) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	httpSrv := s.httpServer
+	listener := s.listener
+	s.mu.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
+	}
+
 	if s.bgCancel != nil {
 		s.bgCancel()
 	}
@@ -410,18 +455,11 @@ func (s *Server) Close(ctx context.Context) error {
 		ws.close()
 	}
 
-	s.mu.RLock()
-	httpSrv := s.httpServer
-	listener := s.listener
-	s.mu.RUnlock()
-
 	if httpSrv != nil {
 		if err := httpSrv.Shutdown(ctx); err != nil {
 			_ = httpSrv.Close()
 			return err
 		}
-	} else if listener != nil {
-		_ = listener.Close()
 	}
 	return nil
 }

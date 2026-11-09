@@ -53,6 +53,7 @@ describe('setDescriptionCommand', () => {
         expect(result).toBe('updated parent');
         const description = repo.getDescription('@-');
         expect(description.trim()).toBe('updated parent');
+        expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after describe:@-' });
     });
 
     test('clears description for a non-working-copy commit when provided an empty message', async () => {

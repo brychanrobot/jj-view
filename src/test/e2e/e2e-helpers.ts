@@ -594,16 +594,24 @@ export async function setScmDescription(page: Page, description: string, vscode?
 
     await expect(async () => {
         attempts++;
-        // 1. Ensure the SCM input is visible and focused
-        await pressScmShortcut(page);
-        await scmInputRow.click();
+        // 1. Ensure the SCM input is visible and focused without firing an async focusDescriptionInput
+        // command if the input is already rendered (which can race list.focusFirst against the click below).
+        if (!(await scmInputRow.isVisible().catch(() => false))) {
+            await pressScmShortcut(page);
+            await expect(scmInputRow).toBeVisible({ timeout: 2000 });
+        }
+        await scmInputRow.locator('.monaco-editor').first().click();
 
-        // Wait for the native edit context or a textarea to be active
+        // Wait for the native edit context or textarea inside the SCM input row to be active
         await page
             .waitForFunction(
                 () => {
                     const el = document.activeElement;
-                    return el?.getAttribute('role') === 'textbox' || el?.tagName === 'TEXTAREA';
+                    if (!el) {
+                        return false;
+                    }
+                    const isTextbox = el.getAttribute('role') === 'textbox' || el.tagName === 'TEXTAREA';
+                    return isTextbox && Boolean(el.closest('[aria-label="Source Control Input"]'));
                 },
                 { timeout: 2000 },
             )
@@ -639,7 +647,9 @@ export async function setScmDescription(page: Page, description: string, vscode?
                     if (!scmProvider) {
                         return false;
                     }
-                    return scmProvider.sourceControl.inputBox.value.trim() === (expectedVal as string).trim();
+                    return typeof expectedVal === 'string'
+                        ? scmProvider.sourceControl.inputBox.value.trim() === expectedVal.trim()
+                        : false;
                 }, description);
                 expect(match).toBe(true);
             }).toPass({ timeout: 2000, intervals: [20, 50, 100] });

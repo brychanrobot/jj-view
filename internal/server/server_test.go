@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1344,3 +1346,122 @@ func TestSystemCheckAndApplyUpdateRPC(t *testing.T) {
 	}
 }
 
+func TestServerCloseBeforeStartServe(t *testing.T) {
+	newTestSrv := func(t *testing.T) *Server {
+		t.Helper()
+		dir := t.TempDir()
+		userDataDir := filepath.Join(dir, "userdata")
+		srv, err := NewServer(Config{
+			Host:        "127.0.0.1",
+			Port:        0,
+			RepoRoot:    dir,
+			Version:     "test",
+			UserDataDir: userDataDir,
+		})
+		if err != nil {
+			t.Fatalf("NewServer failed: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = srv.Close(context.Background())
+		})
+		return srv
+	}
+
+	// 1. Deterministic: Close called before Listen.
+	srvPreListen := newTestSrv(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := srvPreListen.Close(ctx); err != nil {
+		t.Fatalf("Close before Listen failed: %v", err)
+	}
+	if err := srvPreListen.Listen(); !errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("Listen after Close = %v, want http.ErrServerClosed", err)
+	}
+	if err := srvPreListen.Start(); !errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("Start after Close = %v, want http.ErrServerClosed", err)
+	}
+
+	// 2. Deterministic: Listen succeeds, Close runs before Start executes Serve.
+	srvPreServe := newTestSrv(t)
+	if err := srvPreServe.Listen(); err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	if err := srvPreServe.Close(ctx); err != nil {
+		t.Fatalf("Close after Listen failed: %v", err)
+	}
+	if err := srvPreServe.Start(); !errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("Start after Listen+Close = %v, want http.ErrServerClosed", err)
+	}
+
+	// 3. Concurrent: Start racing directly against immediate Close across iterations.
+	for i := 0; i < 20; i++ {
+		srv := newTestSrv(t)
+		if err := srv.Listen(); err != nil {
+			t.Fatalf("iteration %d Listen failed: %v", i, err)
+		}
+
+		var wg sync.WaitGroup
+		startErrCh := make(chan error, 1)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			startErrCh <- srv.Start()
+		}()
+		go func() {
+			defer wg.Done()
+			cctx, ccancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer ccancel()
+			if err := srv.Close(cctx); err != nil {
+				t.Errorf("iteration %d Close failed: %v", i, err)
+			}
+		}()
+		wg.Wait()
+
+		startErr := <-startErrCh
+		if startErr != nil && !errors.Is(startErr, http.ErrServerClosed) {
+			t.Fatalf("iteration %d Start returned %v, want nil or http.ErrServerClosed", i, startErr)
+		}
+	}
+
+	// 4. Close immediately after HTTP readiness must never hit second-close net.ErrClosed
+	// when racing Serve vs Shutdown across iterations.
+	t.Run("Close after HTTP readiness never returns net.ErrClosed", func(t *testing.T) {
+		client := &http.Client{
+			Timeout:   time.Second,
+			Transport: &http.Transport{DisableKeepAlives: true},
+		}
+		for i := 0; i < 20; i++ {
+			srv := newTestSrv(t)
+			if err := srv.Listen(); err != nil {
+				t.Fatalf("iteration %d Listen failed: %v", i, err)
+			}
+
+			startErrCh := make(chan error, 1)
+			go func() {
+				startErrCh <- srv.Start()
+			}()
+
+			healthURL := fmt.Sprintf("http://%s/api/health", srv.Addr())
+			resp, err := client.Get(healthURL)
+			if err != nil {
+				t.Fatalf("iteration %d GET /api/health failed: %v", i, err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("iteration %d GET /api/health = %d, want 200", i, resp.StatusCode)
+			}
+
+			cctx, ccancel := context.WithTimeout(context.Background(), 2*time.Second)
+			closeErr := srv.Close(cctx)
+			ccancel()
+			if closeErr != nil {
+				t.Fatalf("iteration %d Close after HTTP readiness returned %v, want nil", i, closeErr)
+			}
+
+			startErr := <-startErrCh
+			if startErr != nil && !errors.Is(startErr, http.ErrServerClosed) {
+				t.Fatalf("iteration %d Start returned %v, want nil or http.ErrServerClosed", i, startErr)
+			}
+		}
+	})
+}
