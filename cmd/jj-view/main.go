@@ -266,7 +266,7 @@ func listenWithReloadRetry(srv *server.Server, isReload bool) error {
 	if err == nil || !isReload {
 		return err
 	}
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		time.Sleep(10 * time.Millisecond)
 		if err = srv.Listen(); err == nil {
 			return nil

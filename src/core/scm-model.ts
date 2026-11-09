@@ -35,6 +35,7 @@ export interface ScmSnapshot {
     hasChild: boolean;
     description: string;
     workingCopyCount: number;
+    reason?: string;
 }
 
 export class ScmModel implements Disposable {
@@ -137,7 +138,7 @@ export class ScmModel implements Disposable {
 
     public async setDescription(message: string): Promise<void> {
         await this.jj.describe(message);
-        await this.repo.refresh();
+        await this.repo.refresh({ reason: 'after describe' });
     }
 
     public getOriginalResourceUri(uri: Uri): Uri | undefined {
@@ -223,6 +224,7 @@ export class ScmModel implements Disposable {
                 hasChild: this._hasChild,
                 description: currentEntry?.description ? currentEntry.description.trim() : '',
                 workingCopyCount: workingCopyChanges.length,
+                reason: event.reason,
             };
 
             await this._onDidChangeSnapshot.fire(this._snapshot);

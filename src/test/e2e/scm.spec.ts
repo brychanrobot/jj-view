@@ -15,6 +15,7 @@ import {
     focusSCM,
     getScmItemLocator,
     hoverAndClick,
+    isMac,
     openScmDiff,
     openScmFile,
     openScmMerge,
@@ -137,23 +138,33 @@ test.describe('SCM Pane E2E', () => {
         await focusSCM(page);
         let scmInput: Locator | undefined;
 
-        // Set Description and Save with Control+S
+        // Set Description and Save with Control+S (Meta+s on macOS)
         await expect(async () => {
-            scmInput = await setScmDescription(page, 'Using keyboard shortcuts', vscode);
-            await page.keyboard.press('Control+S');
+            if (repo.getDescription('@').trim() !== 'Using keyboard shortcuts') {
+                scmInput = await setScmDescription(page, 'Using keyboard shortcuts', vscode);
+                await scmInput.locator('.monaco-editor').first().click();
+                await page.keyboard.press(isMac ? 'Meta+s' : 'Control+S');
+            }
 
-            // Wait for input to be stable (picked up by the backend)
-            expect(repo.getDescription('@').trim()).toBe('Using keyboard shortcuts');
+            await expect(async () => {
+                // Wait for input to be stable (picked up by the backend)
+                expect(repo.getDescription('@').trim()).toBe('Using keyboard shortcuts');
+            }).toPass({ timeout: 5000 });
         }).toPass({ timeout: 15000 });
 
-        // Set Description and Commit with Control+Enter
+        // Set Description and Commit with Control+Enter (Meta+Enter on macOS)
         await expect(async () => {
-            scmInput = await setScmDescription(page, 'Commit via keyboard', vscode);
-            await page.keyboard.press('Control+Enter');
+            if (!repo.log().includes('Commit via keyboard')) {
+                scmInput = await setScmDescription(page, 'Commit via keyboard', vscode);
+                await scmInput.locator('.monaco-editor').first().click();
+                await page.keyboard.press(isMac ? 'Meta+Enter' : 'Control+Enter');
+            }
 
-            // Wait for it to be committed and appear in log
-            const log = repo.log();
-            expect(log).toContain('Commit via keyboard');
+            await expect(async () => {
+                // Wait for it to be committed and appear in log
+                const log = repo.log();
+                expect(log).toContain('Commit via keyboard');
+            }).toPass({ timeout: 5000 });
         }).toPass({ timeout: 15000 });
 
         if (!scmInput) {
@@ -180,42 +191,59 @@ test.describe('SCM Pane E2E', () => {
             'This is a very long body text that should be wrapped onto multiple lines when saved because it exceeds the limit of seventy-two characters.';
         const messageToFormat = `Title line\n\n${longBody}`;
 
+        const expectedDesc =
+            'Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.';
+
         // 1. Test Set Description (Ctrl+S)
-        // Use a toPass block for the entire operation to handle synchronization delays
-        // between the renderer and extension host.
         await expect(async () => {
-            await setScmDescription(page, messageToFormat, vscode);
-            await page.keyboard.press('Control+S');
+            if (repo.getDescription('@') !== expectedDesc) {
+                const scmInput = await setScmDescription(page, messageToFormat, vscode);
+                await scmInput.locator('.monaco-editor').first().click();
+                await page.keyboard.press(isMac ? 'Meta+s' : 'Control+S');
+            }
 
-            const desc = repo.getDescription('@');
-            const expectedDesc =
-                'Title line\n\nThis is a very long body text that should be wrapped onto multiple lines\nwhen saved because it exceeds the limit of seventy-two characters.';
-            expect(desc).toBe(expectedDesc);
-            expect(desc.split('\n').length).toBeGreaterThan(2);
+            await expect(async () => {
+                const desc = repo.getDescription('@');
+                expect(desc).toBe(expectedDesc);
+                expect(desc.split('\n').length).toBeGreaterThan(2);
 
-            // Wait for the UI input box to reflect the formatted text
-            await expectScmDescription(page, expectedDesc);
+                await expectScmDescription(page, expectedDesc);
+                const inputBoxValue = await vscode.evaluate(async (_vscode, api) => {
+                    const focused = api.repositoryManager.focusedRepository;
+                    if (!focused) {
+                        return '';
+                    }
+                    return api.scmProviders.get(focused.rootUri.fsPath)?.inputBoxValue ?? '';
+                });
+                expect(inputBoxValue).toBe(expectedDesc);
+                expect(inputBoxValue).toContain('\n');
+            }).toPass({ timeout: 5000 });
         }).toPass({ timeout: 20000 });
 
         // 2. Test Commit (Ctrl+Enter)
         const longBody2 =
             'Another very long body text that should be wrapped onto multiple lines when committed from the SCM input box.';
         const messageToFormat2 = `Commit Title\n\n${longBody2}`;
+        const expectedDesc2 =
+            'Commit Title\n\nAnother very long body text that should be wrapped onto multiple lines\nwhen committed from the SCM input box.';
 
         await expect(async () => {
-            const scmInput2 = await setScmDescription(page, messageToFormat2, vscode);
+            if (!repo.log().includes('Commit Title')) {
+                const scmInput2 = await setScmDescription(page, messageToFormat2, vscode);
+                await scmInput2.locator('.monaco-editor').first().click();
+                await page.keyboard.press(isMac ? 'Meta+Enter' : 'Control+Enter');
+            }
 
-            await page.keyboard.press('Control+Enter');
-            await expect(scmInput2).not.toContainText('Commit Title', { timeout: 5000 });
-
-            // Wait for it to be committed, formatted, and appear in log
-            const log = repo.log();
-            expect(log).toContain('Commit Title');
-            // Find latest commit description (working copy is parent of the new commit)
-            const desc = repo.getDescription('@-');
-            const expectedDesc = `Commit Title\n\nAnother very long body text that should be wrapped onto multiple lines\nwhen committed from the SCM input box.`;
-            expect(desc).toBe(expectedDesc);
-            expect(desc.split('\n').length).toBeGreaterThan(2);
+            await expect(async () => {
+                await expect(page.getByRole('treeitem', { name: 'Source Control Input' }).first()).not.toContainText(
+                    'Commit Title',
+                );
+                const log = repo.log();
+                expect(log).toContain('Commit Title');
+                const desc = repo.getDescription('@-');
+                expect(desc).toBe(expectedDesc2);
+                expect(desc.split('\n').length).toBeGreaterThan(2);
+            }).toPass({ timeout: 5000 });
         }).toPass({ timeout: 20000 });
     });
 
@@ -411,14 +439,22 @@ test.describe('SCM Pane E2E', () => {
 
         // Create a chain (initial -> wc_commit -> new_wc) to verify squash into a non-immediate ancestor
         await focusSCM(page);
-        const scmInputSquash = await setScmDescription(page, 'commit wc', vscode);
-        await page.keyboard.press('Control+Enter');
-        await expect(scmInputSquash).not.toContainText('commit wc', { timeout: 10000 });
-
         await expect(async () => {
-            expect(repo.getParents('@').length).toBe(1);
-            expect(repo.getDiffSummary('@')).toBe('');
-        }).toPass({ timeout: 10000 });
+            if (!repo.log().includes('commit wc')) {
+                const scmInputSquash = await setScmDescription(page, 'commit wc', vscode);
+                await scmInputSquash.locator('.monaco-editor').first().click();
+                await page.keyboard.press(isMac ? 'Meta+Enter' : 'Control+Enter');
+            }
+            await expect(async () => {
+                expect(repo.log()).toContain('commit wc');
+                expect(repo.getParents('@').length).toBe(1);
+                expect(repo.getDiffSummary('@')).toBe('');
+            }).toPass({ timeout: 5000 });
+        }).toPass({ timeout: 20000 });
+        await expect(page.getByRole('treeitem', { name: 'Source Control Input' }).first()).not.toContainText(
+            'commit wc',
+            { timeout: 10000 },
+        );
         // Now we have initial -> wc_commit -> new_wc
         // Modify file3.txt in the new working copy
         repo.writeFile('file3.txt', 'new mod3');
@@ -517,15 +553,18 @@ test.describe('SCM Pane E2E', () => {
         await focusSCM(page);
 
         // 3. Squash File to Child (Pull from Ancestor)
-        // Click exactly once. Retrying the click inside a toPass loop while the squash is still
-        // in flight can land on a recycled tree row (f1.txt slides into f2.txt's slot once the
-        // tree refreshes), squashing the whole ancestor away.
-        const ancestorF2Row = await expectFileInScmGroup(page, /ancestor/i, 'f2.txt');
-        await clickScmAction(page, ancestorF2Row, SCM_ACTIONS.SquashFilesIntoChild);
-
+        // Guard against double-squashing on a recycled tree row while still retrying if the
+        // initial hover-action click was dropped while focus/tree layout settled.
         await expect(async () => {
-            expect(repo.getDiffSummary('@')).toContain('A f2.txt');
-        }).toPass({ timeout: 15000 });
+            if (!repo.getDiffSummary('@').includes('A f2.txt')) {
+                expect(repo.getDiffSummary(commits.ancestor.changeId)).toContain('f2.txt');
+                const ancestorF2Row = await expectFileInScmGroup(page, /ancestor/i, 'f2.txt');
+                await clickScmAction(page, ancestorF2Row, SCM_ACTIONS.SquashFilesIntoChild);
+            }
+            await expect(async () => {
+                expect(repo.getDiffSummary('@')).toContain('A f2.txt');
+            }).toPass({ timeout: 5000 });
+        }).toPass({ timeout: 20000 });
 
         // Also wait for the UI SCM tree to refresh.
         // In SCM tree under Working Copy group, there should be f2.txt

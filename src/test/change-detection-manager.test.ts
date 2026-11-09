@@ -22,7 +22,9 @@ describe('ChangeDetectionManager', () => {
     let host: FakeHostEnvironment;
     let changeManager: ChangeDetectionManager | undefined;
     let outputChannel: LoggerChannel;
-    let triggerRefreshSpy: Mock<(event: { forceSnapshot: boolean; reason: string }) => Promise<void>>;
+    let triggerRefreshSpy: Mock<
+        (event: { forceSnapshot: boolean; reason: string; skipIfOpUnchanged?: boolean }) => Promise<void>
+    >;
 
     beforeEach(async () => {
         repo = new TestRepo();
@@ -238,6 +240,41 @@ describe('ChangeDetectionManager', () => {
             // 3. File outside workspace
             host.documents.fireDidSaveDocument(Uri.file(path.join(repo.path, '..', 'outside.txt')));
             expect(triggerRefreshSpy).not.toHaveBeenCalled();
+        });
+
+        it('preserves skipIfOpUnchanged when all deferred callers allow it, and clears it when any requires unconditional refresh', async () => {
+            changeManager = new ChangeDetectionManager(repo.path, jj, outputChannel, triggerRefreshSpy, host);
+            await changeManager.awaitWatchersReady();
+            triggerRefreshSpy.mockClear();
+
+            const scheduleDeferred = accessPrivate<(force?: boolean, skipIfOpUnchanged?: boolean) => void>(
+                changeManager,
+                '_scheduleDeferredRefresh',
+            );
+
+            // 1. Both op_heads (false, true) and working_copy (true, true) allow skipping if ops unchanged
+            setPrivate(changeManager, 'lastExternalOpTime', Date.now());
+            scheduleDeferred.call(changeManager, false, true);
+            scheduleDeferred.call(changeManager, true, true);
+
+            await vi.advanceTimersByTimeAsync(500);
+            expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                forceSnapshot: true,
+                reason: 'deferred watcher event',
+                skipIfOpUnchanged: true,
+            });
+
+            // 2. Subsequent batch resets _pendingSkipIfOpUnchanged, then combining (false, true) with (true, false) clears it
+            triggerRefreshSpy.mockClear();
+            setPrivate(changeManager, 'lastExternalOpTime', Date.now());
+            scheduleDeferred.call(changeManager, false, true);
+            scheduleDeferred.call(changeManager, true, false);
+
+            await vi.advanceTimersByTimeAsync(500);
+            expect(triggerRefreshSpy).toHaveBeenCalledWith({
+                forceSnapshot: true,
+                reason: 'deferred watcher event',
+            });
         });
     });
 

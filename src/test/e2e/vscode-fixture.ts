@@ -1642,7 +1642,9 @@ export const test = baseTest.extend<
                                 } else if (
                                     file.isFile() &&
                                     file.name.endsWith('.log') &&
-                                    file.name.toLowerCase().includes('jujutsu')
+                                    (file.name.toLowerCase().includes('jujutsu') ||
+                                        file.name.toLowerCase().includes('jj view') ||
+                                        file.name.toLowerCase().includes('jj-view'))
                                 ) {
                                     results.push(fullPath);
                                 }

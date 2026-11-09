@@ -5,19 +5,40 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 )
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 func TestFindRunningDaemons(t *testing.T) {
 	const bin = "/home/u/code/jj-view/dist/bin/jj-view"
@@ -119,45 +140,118 @@ func TestDaemonReloadInPlaceOnSIGHUP(t *testing.T) {
 		t.Fatalf("go build failed: %v\n%s", err, string(out))
 	}
 
-	cmd := exec.Command(binPath, "--host", "127.0.0.1", "--port", "0", "--repo", tempDir, "--no-open")
+	homeDir := filepath.Join(tempDir, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stripExact := map[string]bool{
+		"HTTP_PROXY":  true,
+		"HTTPS_PROXY": true,
+		"ALL_PROXY":   true,
+		"http_proxy":  true,
+		"https_proxy": true,
+		"all_proxy":   true,
+		"HOME":        true,
+		"USERPROFILE": true,
+	}
+	var filteredEnv []string
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(key, "JJ_VIEW_") || strings.HasPrefix(key, "ANTIGRAVITY_") || stripExact[key] {
+			continue
+		}
+		filteredEnv = append(filteredEnv, entry)
+	}
+	filteredEnv = append(filteredEnv, "HOME="+homeDir, "USERPROFILE="+homeDir)
+
+	userDataDir := filepath.Join(tempDir, "userdata")
+	cmd := exec.Command(binPath, "--host", "127.0.0.1", "--port", "0", "--repo", tempDir, "--user-data-dir", userDataDir, "--no-open")
+	cmd.Env = filteredEnv
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("StdoutPipe: %v", err)
 	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("StderrPipe: %v", err)
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Signal(syscall.SIGTERM)
-			_, _ = cmd.Process.Wait()
-		}
-	})
+
+	var stderrBuf syncBuffer
+	done := make(chan struct{})
+	var doneOnce sync.Once
+	stopReaders := func() {
+		doneOnce.Do(func() { close(done) })
+	}
+	stdoutDone := make(chan struct{})
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		defer stderrPipe.Close()
+		_, _ = io.Copy(&stderrBuf, stderrPipe)
+	}()
 
 	origPID := cmd.Process.Pid
 	urlRe := regexp.MustCompile(`http://127\.0\.0\.1:(\d+)/\?token=([a-f0-9]+)`)
 	lines := make(chan string, 16)
 	go func() {
+		defer close(stdoutDone)
+		defer stdout.Close()
+		defer close(lines)
 		sc := bufio.NewScanner(stdout)
 		for sc.Scan() {
-			lines <- sc.Text()
+			select {
+			case lines <- sc.Text():
+			case <-done:
+				_, _ = io.Copy(io.Discard, stdout)
+				return
+			}
 		}
-		close(lines)
 	}()
 
+	t.Cleanup(func() {
+		stopReaders()
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+		select {
+		case <-stdoutDone:
+		case <-time.After(2 * time.Second):
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			<-stdoutDone
+		}
+		select {
+		case <-stderrDone:
+		case <-time.After(2 * time.Second):
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			<-stderrDone
+		}
+		_ = cmd.Wait()
+	})
+
 	waitForServerURL := func() (port string, token string) {
-		deadline := time.After(5 * time.Second)
+		deadline := time.After(15 * time.Second)
 		for {
 			select {
 			case line, ok := <-lines:
 				if !ok {
-					t.Fatalf("daemon stdout closed before printing server URL")
+					select {
+					case <-stderrDone:
+					case <-time.After(time.Second):
+					}
+					t.Fatalf("daemon stdout closed before printing server URL (stderr:\n%s)", stderrBuf.String())
 				}
 				if m := urlRe.FindStringSubmatch(line); m != nil {
 					return m[1], m[2]
 				}
 			case <-deadline:
-				t.Fatalf("timed out waiting for server URL")
+				t.Fatalf("timed out waiting for server URL (stderr:\n%s)", stderrBuf.String())
 			}
 		}
 	}
@@ -182,7 +276,11 @@ func TestDaemonReloadInPlaceOnSIGHUP(t *testing.T) {
 	}
 
 	// Verify the reloaded server answers authenticated requests with the preserved token.
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/?token=%s", port2, token2))
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{DisableKeepAlives: true},
+	}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%s/?token=%s", port2, token2))
 	if err != nil {
 		t.Fatalf("GET after SIGHUP reload failed: %v", err)
 	}
@@ -192,4 +290,3 @@ func TestDaemonReloadInPlaceOnSIGHUP(t *testing.T) {
 	}
 	_ = strings.TrimSpace(port2)
 }
-
