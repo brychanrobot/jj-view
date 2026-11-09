@@ -394,6 +394,7 @@ export class JjRepositoryManager implements HostDisposable {
         );
 
         // 2. Discover workspace roots via jj root (fast)
+        const folderRepoRoots = new Map<(typeof folders)[number], string>();
         if (this.shouldScanWorkspaceRoots()) {
             await Promise.all(
                 folders.map(async (folder) => {
@@ -404,6 +405,7 @@ export class JjRepositoryManager implements HostDisposable {
                     const rootReal = await this.fs.realpath(rootPath).catch(() => rootPath);
                     const rootDir = await this.findRepoRoot(rootReal);
                     if (rootDir) {
+                        folderRepoRoots.set(folder, rootDir);
                         await addCandidate(rootDir);
                     }
                 }),
@@ -457,16 +459,34 @@ export class JjRepositoryManager implements HostDisposable {
         // without disposing existing cached/dynamic sub-repositories or overwriting storage prematurely.
         const shouldScanSubFolders =
             (autoDetect === true || autoDetect === 'subFolders') && !!this._host.workspace.findFiles;
-        if (shouldScanSubFolders && candidates.length > 0) {
+        let subFolderScanTargets: typeof folders = [];
+        if (shouldScanSubFolders) {
+            const scanEligibility = await Promise.all(
+                folders.map(async (folder) => {
+                    if (this._disposed) {
+                        return { folder, skip: true };
+                    }
+                    const isCitc = await this.isCitcWorkspaceOrChild(folder.uri.fsPath, folderRepoRoots.get(folder));
+                    if (isCitc) {
+                        this._outputChannel.debug(
+                            `[RepositoryManager] Skipping recursive subfolder scan for virtualized (.citc) workspace folder: ${folder.uri.fsPath}`,
+                        );
+                    }
+                    return { folder, skip: isCitc };
+                }),
+            );
+            subFolderScanTargets = scanEligibility.filter((entry) => !entry.skip).map((entry) => entry.folder);
+        }
+        if (subFolderScanTargets.length > 0 && candidates.length > 0) {
             await this.reconcileCandidates(candidates, { disposeMissing: false, persist: false });
         }
 
         // 5. Discover nested sub-repositories via findFiles
-        if (shouldScanSubFolders && this._host.workspace.findFiles) {
+        if (subFolderScanTargets.length > 0 && this._host.workspace.findFiles) {
             const glob = autoDetect === true ? '**/.jj/working_copy/type' : '*/.jj/working_copy/type';
             const findFilesFn = this._host.workspace.findFiles.bind(this._host.workspace);
             await Promise.all(
-                folders.map(async (folder) => {
+                subFolderScanTargets.map(async (folder) => {
                     if (this._disposed) {
                         return;
                     }
@@ -495,6 +515,60 @@ export class JjRepositoryManager implements HostDisposable {
         );
 
         await this.reconcileCandidates(candidates, { disposeMissing: true, persist: true });
+    }
+
+    private async hasCitcDir(dirPath: string): Promise<boolean> {
+        try {
+            const stats = await this.fs.lstat(path.join(dirPath, '.citc'));
+            return stats.isDirectory();
+        } catch {
+            return false;
+        }
+    }
+
+    private isWindowsRootBoundary(dirPath: string): boolean {
+        return /^[a-zA-Z]:(\/)?$/.test(dirPath) || /^\/\/[^/]+(\/[^/]+)?\/?$/.test(dirPath);
+    }
+
+    private async isCitcWorkspaceOrChild(folderPath: string, detectedRepoRoot?: string): Promise<boolean> {
+        const platform = this._host.system?.platform ?? (typeof process !== 'undefined' ? process.platform : undefined);
+        if (platform === 'win32') {
+            return false;
+        }
+
+        if (detectedRepoRoot !== undefined && (await this.hasCitcDir(detectedRepoRoot))) {
+            return true;
+        }
+
+        const realFolder = await this.fs.realpath(folderPath).catch(() => folderPath);
+        let curr = path.normalize(realFolder).replace(/\\/g, '/');
+        while (curr) {
+            if (this.isWindowsRootBoundary(curr)) {
+                break;
+            }
+            try {
+                const stats = await this.fs.lstat(path.join(curr, '.citc'));
+                if (stats.isDirectory()) {
+                    return true;
+                }
+            } catch (err) {
+                const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+                if (
+                    message.includes('outside allowed') ||
+                    message.includes('outside sandbox') ||
+                    message.includes('access denied')
+                ) {
+                    break;
+                }
+            }
+            const parent = path.dirname(curr);
+            if (parent === curr) {
+                break;
+            }
+            curr = parent;
+        }
+
+        return false;
     }
 
     private async reconcileCandidates(

@@ -42,7 +42,7 @@ var (
 
 func isBuiltInExcludedDir(name string, relPathSlash string, patternIncludesJj bool) bool {
 	switch name {
-	case ".git", "node_modules", ".vscode-test", "dist", "out", ".cache", ".cipd", "__pycache__":
+	case ".git", ".citc", "node_modules", ".vscode-test", "dist", "out", ".cache", ".cipd", "__pycache__":
 		return true
 	case ".jj":
 		return !patternIncludesJj
@@ -57,6 +57,51 @@ func isBuiltInExcludedDir(name string, relPathSlash string, patternIncludesJj bo
 		return true
 	}
 	return false
+}
+
+func hasCitcDir(dirPath string) bool {
+	info, err := os.Lstat(filepath.Join(filepath.Clean(dirPath), ".citc"))
+	return err == nil && info.IsDir()
+}
+
+// findCitcWorkspaceRoot walks dirPath and its ancestors (plus EvalSymlinks if needed)
+// looking for a directory containing a ".citc" subdirectory.
+// It returns the discovered workspace root and the resolved form of dirPath used to find it.
+func findCitcWorkspaceRoot(dirPath string) (string, string) {
+	walkUp := func(start string) string {
+		curr := filepath.Clean(start)
+		for {
+			if hasCitcDir(curr) {
+				return curr
+			}
+			parent := filepath.Dir(curr)
+			if parent == curr {
+				return ""
+			}
+			curr = parent
+		}
+	}
+
+	cleanDir := filepath.Clean(dirPath)
+	if root := walkUp(cleanDir); root != "" {
+		return root, cleanDir
+	}
+	if evalDir, err := filepath.EvalSymlinks(cleanDir); err == nil {
+		cleanEval := filepath.Clean(evalDir)
+		if cleanEval != cleanDir {
+			if root := walkUp(cleanEval); root != "" {
+				return root, cleanEval
+			}
+		}
+	}
+	return "", ""
+}
+
+func patternTargetsJjDir(normPattern string) bool {
+	return normPattern == ".jj" ||
+		strings.HasPrefix(normPattern, ".jj/") ||
+		strings.Contains(normPattern, "/.jj/") ||
+		strings.HasSuffix(normPattern, "/.jj")
 }
 
 type parsedExcludes struct {
@@ -198,7 +243,25 @@ func (sm *SandboxManager) FindFiles(opts FindFilesOptions) ([]string, error) {
 	}
 
 	normPattern := filepath.ToSlash(opts.Pattern)
-	patternIncludesJj := strings.Contains(normPattern, ".jj")
+	patternIncludesJj := patternTargetsJjDir(normPattern)
+	citcJjDiscoveryOnly := patternIncludesJj && !strings.ContainsAny(normPattern, "{}")
+
+	var citcDirCache sync.Map
+	isCitcRoot := func(dirPath string) bool {
+		cleanDir := filepath.Clean(dirPath)
+		if val, ok := citcDirCache.Load(cleanDir); ok {
+			return val.(bool)
+		}
+		result := hasCitcDir(cleanDir)
+		citcDirCache.Store(cleanDir, result)
+		return result
+	}
+
+	if citcJjDiscoveryOnly {
+		if citcRoot, resolvedBase := findCitcWorkspaceRoot(validBaseDir); citcRoot != "" && citcRoot != resolvedBase {
+			return []string{}, nil
+		}
+	}
 
 	maxDirs := opts.MaxDirs
 	if maxDirs <= 0 {
@@ -257,6 +320,9 @@ func (sm *SandboxManager) FindFiles(opts FindFilesOptions) ([]string, error) {
 		// Directory branch pruning based on built-in and caller-specified excludes
 		if d.IsDir() {
 			if isBuiltInExcludedDir(name, relPathSlash, patternIncludesJj) || isExcludedEntry(name, relPathSlash, excludes) {
+				return fastwalk.SkipDir
+			}
+			if citcJjDiscoveryOnly && name != ".jj" && isCitcRoot(filepath.Dir(path)) {
 				return fastwalk.SkipDir
 			}
 			if dirsVisited.Add(1) > int64(maxDirs) {
