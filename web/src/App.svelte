@@ -26,6 +26,7 @@ import { openCommandPalette } from './app/command-palette';
 import { ContextMenuController, unpackContextPayload } from './app/context-menu-controller.svelte';
 import EditorWorkspace from './app/EditorWorkspace.svelte';
 import { openQuickOpen } from './app/quick-open';
+import { resolveScmResourceState } from './app/scm-resource-lookup';
 import { TabDocumentManager } from './app/tab-document-manager.svelte';
 import { applyTheme, openThemePicker } from './app/theme-picker';
 import { UpdateCoordinator } from './app/update-coordinator';
@@ -317,27 +318,21 @@ async function openFileDiffForChange(
     options: HostOpenOptions,
     isImmutable?: boolean,
 ): Promise<void> {
-    let editable = isWorkingCopy;
-    if (!editable) {
-        if (isImmutable !== undefined) {
-            editable = !isImmutable;
-        } else {
-            const matchingAncestor = currentSnapshot?.ancestors.find(
-                (a) =>
-                    a.entry.change_id === changeId ||
-                    a.entry.change_id.startsWith(changeId) ||
-                    changeId.startsWith(a.entry.change_id),
-            );
-            if (matchingAncestor) {
-                editable = matchingAncestor.isMutable;
-            }
-        }
-    }
-    const matchingState = createJjResourceState(file, changeId, workspaceRoot, {
-        editable,
-        openDiffOnClick: true,
-        workingCopyChangeId: isWorkingCopy ? changeId : currentSnapshot?.currentEntry?.change_id,
-    });
+    const matchingState =
+        resolveScmResourceState({
+            snapshot: currentSnapshot,
+            workspaceRoot,
+            explicitRevision: changeId,
+            isWorkingCopyOverride: isWorkingCopy,
+            isImmutable,
+            rightUri: Uri.file(path.join(workspaceRoot, file.path)),
+            fallbackEntry: file,
+        }) ??
+        createJjResourceState(file, changeId, workspaceRoot, {
+            editable: isWorkingCopy || (isImmutable !== undefined ? !isImmutable : false),
+            openDiffOnClick: true,
+            workingCopyChangeId: isWorkingCopy ? changeId : currentSnapshot?.currentEntry?.change_id,
+        });
     await tabDocManager.loadDiffFromUris(
         matchingState.leftUri,
         matchingState.rightUri,
@@ -882,74 +877,12 @@ onMount(() => {
                 isSettingsOpen = true;
             },
             onOpenDiff: async (leftUri, rightUri, title, options) => {
-                const normPath = rightUri?.path || leftUri?.path || '';
-                const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
-                const uriRev =
-                    rightUri?.scheme === 'file'
-                        ? '@'
-                        : (rightUri && getRevisionFromUri(rightUri)) || (leftUri && getRevisionFromUri(leftUri)) || '@';
-                const isWc = isWorkingCopyRevision(uriRev, currentSnapshot?.currentEntry?.change_id);
-                let matchingState: JjResourceState | undefined;
-                if (isWc) {
-                    if (currentSnapshot?.conflictedPaths.some((p) => p === cleanPath || normPath.endsWith(p))) {
-                        matchingState = createJjResourceState(
-                            { path: cleanPath, status: 'modified', conflicted: true },
-                            '@',
-                            workspaceRoot,
-                            {
-                                openDiffOnClick: true,
-                                inConflictGroup: true,
-                                workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
-                            },
-                        );
-                    } else {
-                        const change = currentSnapshot?.workingCopyChanges?.find(
-                            (c) => c.path === cleanPath || normPath.endsWith(c.path),
-                        );
-                        if (change) {
-                            matchingState = createJjResourceState(change, '@', workspaceRoot, {
-                                squashable: currentSnapshot.parentMutable,
-                                multipleAncestors: (currentSnapshot.ancestors.length ?? 0) > 1,
-                                openDiffOnClick: true,
-                                hasChild: currentSnapshot.hasChild,
-                                workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
-                            });
-                        }
-                    }
-                } else {
-                    const ancestorIdx =
-                        currentSnapshot?.ancestors.findIndex(
-                            (a) =>
-                                a.entry.change_id === uriRev ||
-                                a.entry.change_id.startsWith(uriRev) ||
-                                uriRev.startsWith(a.entry.change_id),
-                        ) ?? -1;
-                    if (ancestorIdx >= 0 && currentSnapshot?.ancestors[ancestorIdx]) {
-                        const ancestor = currentSnapshot.ancestors[ancestorIdx];
-                        const remainingAncestors = currentSnapshot.ancestors.length - 1 - ancestorIdx;
-                        const change = ancestor.changes.find(
-                            (c) => c.path === cleanPath || normPath.endsWith(c.path),
-                        ) ?? { path: cleanPath, status: 'modified' as const };
-                        matchingState = createJjResourceState(change, ancestor.entry.change_id, workspaceRoot, {
-                            editable: ancestor.isMutable || rightUri?.scheme === 'jj-edit',
-                            squashable: ancestor.canSquash,
-                            multipleAncestors: remainingAncestors > 0,
-                            openDiffOnClick: true,
-                            workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
-                        });
-                    } else if (rightUri?.scheme === 'jj-edit') {
-                        matchingState = createJjResourceState(
-                            { path: cleanPath, status: 'modified' },
-                            uriRev,
-                            workspaceRoot,
-                            {
-                                editable: true,
-                                openDiffOnClick: true,
-                                workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
-                            },
-                        );
-                    }
-                }
+                const matchingState = resolveScmResourceState({
+                    leftUri,
+                    rightUri,
+                    snapshot: currentSnapshot,
+                    workspaceRoot,
+                });
                 await tabDocManager.loadDiffFromUris(leftUri, rightUri, title, matchingState, options);
             },
             onOpenFile: async (uri, options) => {

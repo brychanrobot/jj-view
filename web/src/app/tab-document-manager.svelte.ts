@@ -623,6 +623,35 @@ export class TabDocumentManager {
         }
     }
 
+    private async persistTabContentAndNotify(
+        tab: TabEntry,
+        targetUri: Uri,
+        content: string,
+        refreshReason: string,
+        syncViewContent = false,
+    ): Promise<void> {
+        if (targetUri.scheme === 'jj-edit' && this.deps.fsEditService) {
+            await this.deps.fsEditService.writeFile(targetUri, new TextEncoder().encode(content));
+        } else if (this.deps.remoteHostSystem) {
+            await this.deps.remoteHostSystem.fs.writeTextFile(targetUri.fsPath, content);
+        }
+        if (syncViewContent) {
+            if (tab.view.type === 'diff') {
+                tab.view.modifiedContent = content;
+            } else if (tab.view.type === 'file') {
+                tab.view.content = content;
+            } else if (tab.view.type === 'merge') {
+                tab.view.resolvedContent = content;
+            }
+        }
+        tab.isDirty = false;
+        this.deps.webHostEnv?.documents.notifyDidSaveDocument(targetUri);
+        const targetScm = this.deps.resolveScmModelForUri(targetUri);
+        if (targetScm) {
+            await targetScm.refresh({ reason: refreshReason });
+        }
+    }
+
     async handleSaveFile(newContent: string): Promise<void> {
         const tab = this.activeTab;
         if (!tab) {
@@ -637,24 +666,7 @@ export class TabDocumentManager {
         if (!targetUri) {
             return;
         }
-        if (targetUri.scheme === 'jj-edit' && this.deps.fsEditService) {
-            await this.deps.fsEditService.writeFile(targetUri, new TextEncoder().encode(newContent));
-        } else if (this.deps.remoteHostSystem) {
-            await this.deps.remoteHostSystem.fs.writeTextFile(targetUri.fsPath, newContent);
-        }
-        if (tab.view.type === 'diff') {
-            tab.view.modifiedContent = newContent;
-        } else if (tab.view.type === 'file') {
-            tab.view.content = newContent;
-        } else if (tab.view.type === 'merge') {
-            tab.view.resolvedContent = newContent;
-        }
-        tab.isDirty = false;
-        this.deps.webHostEnv?.documents.notifyDidSaveDocument(targetUri);
-        const targetScm = this.deps.resolveScmModelForUri(targetUri);
-        if (targetScm) {
-            await targetScm.refresh({ reason: 'save-file' });
-        }
+        await this.persistTabContentAndNotify(tab, targetUri, newContent, 'save-file', true);
     }
 
     async saveUriIfDirty(uri: Uri): Promise<void> {
@@ -679,17 +691,7 @@ export class TabDocumentManager {
                 targetUri = targetTab.view.uri;
             }
             if (targetUri) {
-                if (targetUri.scheme === 'jj-edit' && this.deps.fsEditService) {
-                    await this.deps.fsEditService.writeFile(targetUri, new TextEncoder().encode(content));
-                } else if (this.deps.remoteHostSystem) {
-                    await this.deps.remoteHostSystem.fs.writeTextFile(targetUri.fsPath, content);
-                }
-                targetTab.isDirty = false;
-                this.deps.webHostEnv?.documents.notifyDidSaveDocument(targetUri);
-                const targetScm = this.deps.resolveScmModelForUri(targetUri);
-                if (targetScm) {
-                    await targetScm.refresh({ reason: 'save-file' });
-                }
+                await this.persistTabContentAndNotify(targetTab, targetUri, content, 'save-file');
             }
         }
     }
@@ -812,17 +814,7 @@ export class TabDocumentManager {
         }
         const targetUri = tab.view.uri;
         const closingTabId = tab.id;
-        if (targetUri.scheme === 'jj-edit' && this.deps.fsEditService) {
-            await this.deps.fsEditService.writeFile(targetUri, new TextEncoder().encode(resolvedContent));
-        } else if (this.deps.remoteHostSystem) {
-            await this.deps.remoteHostSystem.fs.writeTextFile(targetUri.fsPath, resolvedContent);
-        }
-        tab.isDirty = false;
-        this.deps.webHostEnv?.documents.notifyDidSaveDocument(targetUri);
-        const targetScm = this.deps.resolveScmModelForUri(targetUri);
-        if (targetScm) {
-            await targetScm.refresh({ reason: 'complete-merge' });
-        }
+        await this.persistTabContentAndNotify(tab, targetUri, resolvedContent, 'complete-merge');
         this.closeTabById(closingTabId);
     }
 
