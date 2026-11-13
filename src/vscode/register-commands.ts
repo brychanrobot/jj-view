@@ -37,6 +37,7 @@ import { newAfterCommand } from '../core/commands/new-after';
 import { newBeforeCommand } from '../core/commands/new-before';
 import { nextCommand } from '../core/commands/next';
 import { openChangesCommand, openFileCommand } from '../core/commands/open';
+import { pickChangeCommand } from '../core/commands/pick-change';
 import { prevCommand } from '../core/commands/prev';
 import { rebaseOntoSelectedCommand } from '../core/commands/rebase';
 import { redoCommand } from '../core/commands/redo';
@@ -101,6 +102,7 @@ import { createNewAfterPayload } from './payloads/new-after.payload';
 import { createNewBeforePayload } from './payloads/new-before.payload';
 import { createOpenChangesPayload } from './payloads/open-changes.payload';
 import { createOpenFilePayload } from './payloads/open-file.payload';
+import { createPickChangePayload } from './payloads/pick-change.payload';
 import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
 import {
@@ -272,6 +274,7 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         registerCommand('jj-view.refresh', refreshCommand),
         registerCommandWithPayload('jj-view.openFile', createOpenFilePayload, openFileCommand),
         registerCommandWithPayload('jj-view.openChanges', createOpenChangesPayload, openChangesCommand),
+        registerCommandWithPayload('jj-view.pickChange', createPickChangePayload, pickChangeCommand),
         registerCommand('jj-view.undo', undoCommand),
         registerCommand('jj-view.redo', redoCommand),
         registerCommand('jj-view.prev', prevCommand),
