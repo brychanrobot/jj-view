@@ -28,7 +28,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
     private readonly _parentGroups: vscode.SourceControlResourceGroup[] = [];
     private readonly _conflictGroup: vscode.SourceControlResourceGroup;
     private _lastKnownDescription = '';
-    private _lastKnownCommitId = '';
+    private _lastKnownChangeId = '';
     private readonly _diffTabCleaner: DiffTabCleaner;
 
     public readonly scmModel: ScmModel;
@@ -156,16 +156,21 @@ export class VsCodeScmProvider implements vscode.Disposable {
 
         if (currentEntry) {
             const desc = snapshot.description;
-            const commitId = currentEntry.commit_id;
+            const changeId = currentEntry.change_id;
+            const reasons = snapshot.reason?.split(', ') ?? [];
+            const describedWorkingCopy = reasons.some(
+                (r) => r === 'after describe' || r === `after describe:${changeId}`,
+            );
 
             if (
-                this._sourceControl.inputBox.value === '' ||
-                this._lastKnownCommitId !== commitId ||
+                this._lastKnownChangeId !== changeId ||
+                desc !== this._lastKnownDescription ||
+                describedWorkingCopy ||
                 this._sourceControl.inputBox.value === this._lastKnownDescription
             ) {
                 this._sourceControl.inputBox.value = desc;
                 this._lastKnownDescription = desc;
-                this._lastKnownCommitId = commitId;
+                this._lastKnownChangeId = changeId;
             }
         }
 

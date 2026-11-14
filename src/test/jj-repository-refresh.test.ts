@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { CodeForgeProvider } from '../core/code-forge-provider';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { EventEmitter } from '../core/host/events';
+import { NodeHostSystem } from '../core/host/node-host-system';
 import { JjRepository } from '../core/jj-repository';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { Uri } from '../core/uri-utils';
@@ -191,8 +192,18 @@ describe('JjRepository.refresh cache invalidation', () => {
     let jjRepo: JjRepository;
     let host: FakeHostEnvironment;
 
-    beforeEach(() => {
-        host = new FakeHostEnvironment();
+    beforeEach(async () => {
+        // Use a no-op HostWatcher and dispose ChangeDetectionManager so live OS filesystem watchers
+        // and background polling never coalesce with manual JjRepository.refresh() assertions.
+        host = new FakeHostEnvironment(
+            new NodeHostSystem({
+                watcher: {
+                    watch: async () => ({
+                        unsubscribe: async () => {},
+                    }),
+                },
+            }),
+        );
         repo = new TestRepo();
         repo.init();
         repo.writeFile('a.txt', 'one\n');
@@ -205,6 +216,7 @@ describe('JjRepository.refresh cache invalidation', () => {
             createMockLogOutputChannel(),
             host,
         );
+        await jjRepo.watcher.dispose();
     });
 
     afterEach(async () => {
@@ -252,5 +264,48 @@ describe('JjRepository.refresh cache invalidation', () => {
         const afterRefresh = await jjRepo.jj.getDiffForRevision('@');
         expect(afterRefresh.tempDir).not.toBe(warmed.tempDir);
         expect(fs.existsSync(warmed.tempDir)).toBe(false);
+    });
+
+    test('skips onDidStatusChange on skipIfOpUnchanged when op_heads is unchanged, but fires on op advance or explicit refresh', async () => {
+        const statusListener = vi.fn();
+        jjRepo.onDidStatusChange(statusListener);
+
+        // Initial refresh always fires because previous op heads are unknown
+        await jjRepo.refresh({ reason: 'initial', forceSnapshot: true, skipIfOpUnchanged: true });
+        expect(statusListener).toHaveBeenCalledTimes(1);
+        expect(statusListener.mock.calls[0]?.[0]?.reason).toContain('initial');
+        statusListener.mockClear();
+
+        // No-op background refresh with skipIfOpUnchanged skips firing onDidStatusChange
+        await jjRepo.refresh({ reason: 'poll', forceSnapshot: true, skipIfOpUnchanged: true });
+        expect(statusListener).not.toHaveBeenCalled();
+
+        // Disk change snapshotted by forceSnapshot advances op_heads, so status event fires
+        fs.writeFileSync(path.join(repo.path, 'a.txt'), 'two\n');
+        await jjRepo.refresh({ reason: 'poll', forceSnapshot: true, skipIfOpUnchanged: true });
+        expect(statusListener).toHaveBeenCalledTimes(1);
+        expect(statusListener.mock.calls[0]?.[0]?.reason).toContain('poll');
+        statusListener.mockClear();
+
+        // External jj operation also advances op_heads
+        repo.describe('external op');
+        await jjRepo.refresh({ reason: 'jj operation', skipIfOpUnchanged: true });
+        expect(statusListener).toHaveBeenCalledTimes(1);
+        expect(statusListener.mock.calls[0]?.[0]?.reason).toContain('jj operation');
+        statusListener.mockClear();
+
+        // Explicit refresh (skipIfOpUnchanged omitted/false) fires even when op_heads did not change
+        await jjRepo.refresh({ reason: 'manual' });
+        expect(statusListener).toHaveBeenCalledTimes(1);
+        expect(statusListener.mock.calls[0]?.[0]?.reason).toContain('manual');
+        statusListener.mockClear();
+
+        // Coalescing a skipIfOpUnchanged refresh with an explicit refresh clears skipIfOpUnchanged
+        const firstInFlight = jjRepo.refresh({ reason: 'bg-in-flight', skipIfOpUnchanged: true });
+        const queuedBg = jjRepo.refresh({ reason: 'bg-queued', skipIfOpUnchanged: true });
+        const queuedManual = jjRepo.refresh({ reason: 'manual-queued' });
+        await Promise.all([firstInFlight, queuedBg, queuedManual]);
+        expect(statusListener).toHaveBeenCalledTimes(1);
+        expect(statusListener.mock.calls[0]?.[0]?.reason).toContain('manual-queued');
     });
 });
