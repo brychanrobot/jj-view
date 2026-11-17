@@ -136,6 +136,7 @@ The extension automatically refreshes the view when:
 - `JJ View: Abandon`: Abandon (delete) a change.
 - `JJ View: Discard Change`: Discard all files within a change in the SCM view.
 - `JJ View: Restore`: Restore files in the working copy.
+- `JJ View: Restore File from Revision...`: Restore a specific file in the working copy from a selected revision.
 - `JJ View: Set Description`: Edit the description of the current change.
 - `JJ View: Set Description (Prompt)`: Edit the description of the current change using an interactive prompt.
 - `JJ View: Upload`: Upload the current change (runs configured upload command).

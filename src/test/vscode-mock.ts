@@ -235,10 +235,26 @@ export function createVscodeMock(overrides: Record<string, unknown> = {}): Recor
         FileSystemError,
 
         Uri,
+        TabInputText: class MockTabInputText {
+            constructor(public uri: unknown) {}
+        },
+        TabInputNotebook: class MockTabInputNotebook {
+            constructor(
+                public uri: unknown,
+                public notebookType: string,
+            ) {}
+        },
         TabInputTextDiff: class MockTabInputTextDiff {
             constructor(
                 public original: unknown,
                 public modified: unknown,
+            ) {}
+        },
+        TabInputNotebookDiff: class MockTabInputNotebookDiff {
+            constructor(
+                public original: unknown,
+                public modified: unknown,
+                public notebookType: string,
             ) {}
         },
         TabInputCustom: class MockTabInputCustom {

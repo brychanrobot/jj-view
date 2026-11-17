@@ -763,7 +763,7 @@ export class JjService {
             return;
         }
         const relativePaths = paths.map((p) => this.toRelative(p));
-        const cmdArgs = [...relativePaths];
+        const cmdArgs: string[] = [];
         if (options.changesIn) {
             cmdArgs.push('--changes-in', options.changesIn);
         } else {
@@ -774,6 +774,7 @@ export class JjService {
                 cmdArgs.push('--into', options.into);
             }
         }
+        cmdArgs.push('--', ...relativePaths);
         await this.run('restore', cmdArgs, { isMutation: true, label: 'restore' });
     }
 

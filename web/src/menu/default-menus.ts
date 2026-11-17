@@ -70,6 +70,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             category: 'JJ View',
         },
         {
+            command: 'jj-view.restoreFileFrom',
+            title: 'Restore File from Revision...',
+            category: 'JJ View',
+        },
+        {
             command: 'jj-view.refresh',
             title: 'Refresh',
             category: 'JJ View',
@@ -964,6 +969,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 group: 'jj-view@3',
                 when: "resourceScheme == 'file'",
             },
+            {
+                command: 'jj-view.restoreFileFrom',
+                group: 'jj-view@4',
+                when: "resourceScheme == 'file'",
+            },
         ],
         'editor/context': [
             {
@@ -984,6 +994,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             {
                 command: 'jj-view.viewFileAtRevision',
                 group: 'jj-view@3',
+                when: "resourceScheme == 'file'",
+            },
+            {
+                command: 'jj-view.restoreFileFrom',
+                group: 'jj-view@4',
                 when: "resourceScheme == 'file'",
             },
         ],

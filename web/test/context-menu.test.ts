@@ -180,6 +180,7 @@ describe('Generalized Context Menu System', () => {
             expect(fileCommands).toContain('workbench.action.closeAllEditors');
             expect(fileCommands).toContain('jj-view.compareFileWith');
             expect(fileCommands).toContain('jj-view.viewFileAtRevision');
+            expect(fileCommands).toContain('jj-view.restoreFileFrom');
             expect(fileCommands).not.toContain('jj-view.openFile');
 
             // For a virtual jj-view diff tab
@@ -192,6 +193,7 @@ describe('Generalized Context Menu System', () => {
             const jjViewCommands = jjViewGroups.flatMap((g) => g.items.map((i) => i.command));
             expect(jjViewCommands).toContain('jj-view.openFile');
             expect(jjViewCommands).not.toContain('jj-view.compareFileWith');
+            expect(jjViewCommands).not.toContain('jj-view.restoreFileFrom');
         });
 
         it('returns editor context actions when menuId is editor/context', () => {
@@ -207,6 +209,7 @@ describe('Generalized Context Menu System', () => {
             expect(commands).toContain('jj-view.squashSelectionIntoParent');
             expect(commands).toContain('jj-view.compareFileWith');
             expect(commands).toContain('jj-view.viewFileAtRevision');
+            expect(commands).toContain('jj-view.restoreFileFrom');
 
             // When parent is not mutable
             const immutableParentContext = rootContext.createScoped({

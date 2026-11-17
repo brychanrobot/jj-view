@@ -277,7 +277,6 @@ describe('MenuRegistry & Icon Resolution', () => {
         expect(syncAction?.title).toBe('Sync');
         expect(syncAction?.iconClass).toBe('codicon codicon-sync');
     });
-
     it('resolves jj-view.simplifyParents in webview/context based on jj.canSimplifyParents', () => {
         const registry = new MenuRegistry();
         const cmd = registry.getCommand('jj-view.simplifyParents');
@@ -305,5 +304,45 @@ describe('MenuRegistry & Icon Resolution', () => {
             .getContextActions('webview/context', disallowedContext)
             .flatMap((g) => g.items.map((i) => i.command));
         expect(disallowedCommands).not.toContain('jj-view.simplifyParents');
+    });
+
+    it('resolves jj-view.restoreFileFrom in editor/title/context and editor/context for file scheme only', () => {
+        const registry = new MenuRegistry();
+        const rootContext = new ContextKeyService();
+
+        const cmd = registry.getCommand('jj-view.restoreFileFrom');
+        expect(cmd).toEqual({
+            command: 'jj-view.restoreFileFrom',
+            title: 'Restore File from Revision...',
+            category: 'JJ View',
+        });
+
+        const fileContext = rootContext.createScoped({ resourceScheme: 'file' });
+        const tabGroups = registry.getContextActions('editor/title/context', fileContext);
+        const tabJjGroup = tabGroups.find((g) => g.groupName === 'jj-view');
+        expect(tabJjGroup?.items.map((i) => i.command)).toEqual([
+            'jj-view.compareFileWith',
+            'jj-view.viewFileAtRevision',
+            'jj-view.restoreFileFrom',
+        ]);
+
+        const editorGroups = registry.getContextActions('editor/context', fileContext);
+        const editorJjGroup = editorGroups.find((g) => g.groupName === 'jj-view');
+        expect(editorJjGroup?.items.map((i) => i.command)).toEqual([
+            'jj-view.compareFileWith',
+            'jj-view.viewFileAtRevision',
+            'jj-view.restoreFileFrom',
+        ]);
+
+        const virtualContext = rootContext.createScoped({ resourceScheme: 'jj-view' });
+        const virtualTabCommands = registry
+            .getContextActions('editor/title/context', virtualContext)
+            .flatMap((g) => g.items.map((i) => i.command));
+        expect(virtualTabCommands).not.toContain('jj-view.restoreFileFrom');
+
+        const virtualEditorCommands = registry
+            .getContextActions('editor/context', virtualContext)
+            .flatMap((g) => g.items.map((i) => i.command));
+        expect(virtualEditorCommands).not.toContain('jj-view.restoreFileFrom');
     });
 });
