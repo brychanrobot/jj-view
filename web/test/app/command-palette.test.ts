@@ -39,6 +39,7 @@ describe('command-palette', () => {
         expect(builtInIds).toContain('workbench.action.quickOpen');
         expect(builtInIds).toContain('workbench.action.selectTheme');
         expect(builtInIds).toContain('jj-view.checkForUpdates');
+        expect(builtInIds).toContain('jj-view.simplifyParents');
 
         // Update command should not be present when no update available
         expect(builtInIds).not.toContain('jj-view.installUpdate');

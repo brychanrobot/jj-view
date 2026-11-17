@@ -65,6 +65,12 @@ export function computeCommitActions(
         // Absorb requires at least one mutable parent and single-item context
         'jj.canAbsorb': canAbsorbCommit(commit) && (!isSelected || selectionCount <= 1),
 
+        // Simplify parents applies to mutable merge commits or mutable multi-selections
+        'jj.canSimplifyParents':
+            isMutableCommit(commit) &&
+            (!isSelected || !hasImmutableSelection) &&
+            ((isSelected && selectionCount > 1) || (commit.parents?.length ?? 0) > 1),
+
         preventDefaultContextMenuItems: true,
     };
 

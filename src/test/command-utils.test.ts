@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
     extractBookmarkName,
+    extractSelectedOrArgRevisions,
     maybeFormatDescriptionOnSave,
     RevisionQuery,
     resolveRevisionsWithSelection,
@@ -68,6 +69,28 @@ describe('resolveRevisionsWithSelection', () => {
     it('falls back to default revision when no args or selection exist', () => {
         expect(resolveRevisionsWithSelection([])).toEqual(['@']);
         expect(resolveRevisionsWithSelection([], undefined, 'root()')).toEqual(['root()']);
+    });
+});
+
+describe('extractSelectedOrArgRevisions', () => {
+    it('returns @ for working copy resource group', () => {
+        expect(extractSelectedOrArgRevisions([{ id: 'jj.group.workingCopy', resourceStates: [] }], ['rev1'])).toEqual([
+            '@',
+        ]);
+    });
+
+    it('returns explicit multi-revision args directly', () => {
+        expect(extractSelectedOrArgRevisions(['rev1', 'rev2'], ['sel1'])).toEqual(['rev1', 'rev2']);
+    });
+
+    it('expands clicked revision when included in selection, otherwise returns clicked revision', () => {
+        expect(extractSelectedOrArgRevisions(['sel2'], ['sel1', 'sel2'])).toEqual(['sel1', 'sel2']);
+        expect(extractSelectedOrArgRevisions(['other'], ['sel1', 'sel2'])).toEqual(['other']);
+    });
+
+    it('falls back to selection or empty array when no args are given', () => {
+        expect(extractSelectedOrArgRevisions([], ['sel1', 'sel2'])).toEqual(['sel1', 'sel2']);
+        expect(extractSelectedOrArgRevisions([])).toEqual([]);
     });
 });
 

@@ -8,10 +8,12 @@ import type { HostFs } from '../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
 import type { JjRepository } from '../../src/core/jj-repository';
 import type { JjRepositoryManager } from '../../src/core/jj-repository-manager';
-import type { JjService } from '../../src/core/jj-service';
+import { JjService, NO_OP_LOGGER } from '../../src/core/jj-service';
 import type { ScmModel } from '../../src/core/scm-model';
 import { Uri } from '../../src/core/uri-utils';
+import { buildGraph, TestRepo } from '../../src/test/test-repo';
 import type { LoggerChannel } from '../../src/utils/output-channel';
+import { createSimplifyParentsPayload } from '../src/commands/payloads/simplify-parents.payload';
 import { createSquashSelectionIntoParentPayload } from '../src/commands/payloads/squash-selection.payload';
 import { registerWebCommands } from '../src/commands/register-web-commands';
 import { WebHostEnvironment } from '../src/host/web-host-environment';
@@ -160,6 +162,7 @@ describe('registerWebCommands', () => {
             'jj-view.refresh',
             'jj-view.refreshGraph',
             'jj-view.abandon',
+            'jj-view.simplifyParents',
             'jj-view.restore',
             'jj-view.absorb',
             'jj-view.showDetails',
@@ -252,5 +255,99 @@ describe('registerWebCommands', () => {
         // Without arguments and without selections
         const emptyPayload = createSquashSelectionIntoParentPayload([]);
         expect(emptyPayload).toEqual({});
+    });
+
+    it('creates simplifyParents payload for single, multi-selected, SCM group, and empty inputs', () => {
+        expect(createSimplifyParentsPayload([{ id: 'jj.group.workingCopy', resourceStates: [] }])).toEqual({
+            revisions: ['@'],
+        });
+        expect(createSimplifyParentsPayload([{ changeId: 'rev1' }], ['sel1', 'sel2'])).toEqual({
+            revisions: ['rev1'],
+        });
+        expect(createSimplifyParentsPayload([{ changeId: 'sel1' }], ['sel1', 'sel2'])).toEqual({
+            revisions: ['sel1', 'sel2'],
+        });
+        expect(createSimplifyParentsPayload([], ['sel1', 'sel2'])).toEqual({
+            revisions: ['sel1', 'sel2'],
+        });
+        expect(createSimplifyParentsPayload([], [])).toEqual({
+            revisions: [],
+        });
+    });
+
+    it('executes jj-view.simplifyParents against a real repository using argument or selected commits', async () => {
+        const testRepo = new TestRepo();
+        let hostEnvironment: WebHostEnvironment | undefined;
+
+        try {
+            testRepo.init();
+            const realJj = new JjService(testRepo.path, NO_OP_LOGGER);
+
+            const graph = await buildGraph(testRepo, [
+                { label: 'C', description: 'C' },
+                { label: 'B', parents: ['C'], description: 'B' },
+                { label: 'A1', parents: ['B', 'C'], description: 'A1' },
+                { label: 'A2', parents: ['B', 'C'], description: 'A2', isCurrentWorkingCopy: true },
+            ]);
+
+            const mockRemoteHost = createMock<RemoteHostSystem>({
+                fs: createMock<HostFs>({
+                    readTextFile: vi.fn(),
+                    writeTextFile: vi.fn(),
+                }),
+                platform: 'linux',
+            });
+            hostEnvironment = new WebHostEnvironment(mockRemoteHost, testRepo.path);
+
+            let selectedCommitIds: string[] = [];
+            const realRepo = createMock<JjRepository>({
+                jj: realJj,
+                rootUri: Uri.file(testRepo.path),
+                refresh: vi.fn(async () => {}),
+            });
+            const repoManager = createMock<JjRepositoryManager>({
+                repositories: [realRepo],
+                focusedRepository: realRepo,
+            });
+            const scmModel = createMock<ScmModel>({
+                jj: realJj,
+                getSelectedCommitIds: () => selectedCommitIds,
+                refresh: vi.fn(async () => {}),
+            });
+            const logger = createMock<LoggerChannel>({
+                info: vi.fn(),
+                error: vi.fn(),
+                debug: vi.fn(),
+                warn: vi.fn(),
+            });
+
+            registerWebCommands({
+                repositoryManager: repoManager,
+                hostEnvironment,
+                logger,
+                scmModel,
+            });
+
+            await hostEnvironment.commands.executeCommand('jj-view.simplifyParents', { changeId: graph.A1.changeId });
+            const logsA1 = await realJj.getLog({ revision: graph.A1.changeId, omitChanges: true });
+            expect(logsA1[0].parents.map((p) => p.change_id)).toEqual([graph.B.changeId]);
+
+            const graph2 = await buildGraph(testRepo, [
+                { label: 'C2', description: 'C2' },
+                { label: 'B2', parents: ['C2'], description: 'B2' },
+                { label: 'M1', parents: ['B2', 'C2'], description: 'M1' },
+                { label: 'M2', parents: ['B2', 'C2'], description: 'M2' },
+            ]);
+            selectedCommitIds = [graph2.M1.changeId, graph2.M2.changeId];
+            await hostEnvironment.commands.executeCommand('jj-view.simplifyParents', { changeId: graph2.M1.changeId });
+            const logsM1 = await realJj.getLog({ revision: graph2.M1.changeId, omitChanges: true });
+            const logsM2 = await realJj.getLog({ revision: graph2.M2.changeId, omitChanges: true });
+            expect(logsM1[0].parents.map((p) => p.change_id)).toEqual([graph2.B2.changeId]);
+            expect(logsM2[0].parents.map((p) => p.change_id)).toEqual([graph2.B2.changeId]);
+        } finally {
+            hostEnvironment?.notifications.clearAll();
+            hostEnvironment?.dispose();
+            await testRepo.dispose();
+        }
     });
 });

@@ -43,6 +43,7 @@ import { rebaseOntoSelectedCommand } from '../../../src/core/commands/rebase';
 import { redoCommand } from '../../../src/core/commands/redo';
 import { refreshCommand } from '../../../src/core/commands/refresh';
 import { restoreCommand } from '../../../src/core/commands/restore';
+import { simplifyParentsCommand } from '../../../src/core/commands/simplify-parents';
 import {
     squashFilesIntoAncestorCommand,
     squashFilesIntoChildCommand,
@@ -113,6 +114,7 @@ import { createNewBeforePayload } from './payloads/new-before.payload';
 import { createOpenChangesPayload, createOpenFilePayload } from './payloads/open.payload';
 import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
+import { createSimplifyParentsPayload } from './payloads/simplify-parents.payload';
 import {
     createSquashFilesIntoAncestorPayload,
     createSquashFilesIntoChildPayload,
@@ -292,6 +294,11 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         (args, _host, activeScm) =>
             createRebaseOntoSelectedPayload(args, (activeScm ?? scmModel).getSelectedCommitIds()),
         rebaseOntoSelectedCommand,
+    );
+    registerWithPayload(
+        'jj-view.simplifyParents',
+        (args, _host, activeScm) => createSimplifyParentsPayload(args, (activeScm ?? scmModel).getSelectedCommitIds()),
+        simplifyParentsCommand,
     );
     registerWithPayload('jj-view.absorb', createAbsorbPayload, absorbCommand);
 

@@ -221,6 +221,29 @@ export function extractRevision(args: unknown[]): string | undefined {
 }
 
 /**
+ * Extracts target revisions from command arguments and current graph selection,
+ * returning ['@'] for the working-copy SCM group or [] when neither is present.
+ */
+export function extractSelectedOrArgRevisions(args: unknown[], selectedRevisions: readonly string[] = []): string[] {
+    if (args.some((arg) => isCurrentWorkingCopyResourceGroup(arg))) {
+        return ['@'];
+    }
+
+    const argRevisions = extractRevisions(args);
+    if (argRevisions.length > 1) {
+        return argRevisions;
+    }
+    if (argRevisions.length === 1) {
+        const clicked = argRevisions[0];
+        return selectedRevisions.includes(clicked) ? [...selectedRevisions] : [clicked];
+    }
+    if (selectedRevisions.length > 0) {
+        return [...selectedRevisions];
+    }
+    return [];
+}
+
+/**
  * Resolves target revisions by taking explicit arguments, merging with multi-selection
  * when the clicked revision is part of the selection, or falling back to a default revision.
  */

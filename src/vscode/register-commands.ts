@@ -42,6 +42,7 @@ import { rebaseOntoSelectedCommand } from '../core/commands/rebase';
 import { redoCommand } from '../core/commands/redo';
 import { refreshCommand } from '../core/commands/refresh';
 import { restoreCommand } from '../core/commands/restore';
+import { simplifyParentsCommand } from '../core/commands/simplify-parents';
 import {
     squashFilesIntoAncestorCommand,
     squashFilesIntoChildCommand,
@@ -103,6 +104,7 @@ import { createOpenChangesPayload } from './payloads/open-changes.payload';
 import { createOpenFilePayload } from './payloads/open-file.payload';
 import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
+import { createSimplifyParentsPayload } from './payloads/simplify-parents.payload';
 import {
     createSquashFilesIntoAncestorPayload,
     createSquashFilesIntoChildPayload,
@@ -338,6 +340,7 @@ export function registerCommands(options: RegisterCommandsOptions): void {
             createRebaseOntoSelectedPayload,
             rebaseOntoSelectedCommand,
         ),
+        registerCommandWithPayload('jj-view.simplifyParents', createSimplifyParentsPayload, simplifyParentsCommand),
         registerCommandWithPayload(
             'jj-view.squashFilesIntoParent',
             createSquashFilesIntoParentPayload,

@@ -182,6 +182,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(git-merge)',
         },
         {
+            command: 'jj-view.simplifyParents',
+            title: 'Simplify Parents',
+            category: 'JJ View',
+        },
+        {
             command: 'jj-view.showDetails',
             title: 'Show Details',
             category: 'JJ View',
@@ -808,6 +813,11 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.newMergeChange',
                 when: "webviewSection == 'commit' && jj.canMerge",
                 group: '5_rebase@2',
+            },
+            {
+                command: 'jj-view.simplifyParents',
+                when: "webviewSection == 'commit' && jj.canSimplifyParents",
+                group: '5_rebase@3',
             },
             {
                 command: 'jj-view.setBookmark',

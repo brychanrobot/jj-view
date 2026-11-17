@@ -219,4 +219,33 @@ describe('MenuRegistry & Icon Resolution', () => {
         expect(syncAction?.title).toBe('Sync');
         expect(syncAction?.iconClass).toBe('codicon codicon-sync');
     });
+
+    it('resolves jj-view.simplifyParents in webview/context based on jj.canSimplifyParents', () => {
+        const registry = new MenuRegistry();
+        const cmd = registry.getCommand('jj-view.simplifyParents');
+        expect(cmd).toEqual({
+            command: 'jj-view.simplifyParents',
+            title: 'Simplify Parents',
+            category: 'JJ View',
+        });
+
+        const rootContext = new ContextKeyService();
+        const allowedContext = rootContext.createScoped({
+            webviewSection: 'commit',
+            'jj.canSimplifyParents': true,
+            'jj.canMerge': true,
+        });
+        const allowedGroups = registry.getContextActions('webview/context', allowedContext);
+        const rebaseGroup = allowedGroups.find((g) => g.groupName === '5_rebase');
+        expect(rebaseGroup?.items.map((i) => i.command)).toEqual(['jj-view.newMergeChange', 'jj-view.simplifyParents']);
+
+        const disallowedContext = rootContext.createScoped({
+            webviewSection: 'commit',
+            'jj.canSimplifyParents': false,
+        });
+        const disallowedCommands = registry
+            .getContextActions('webview/context', disallowedContext)
+            .flatMap((g) => g.items.map((i) => i.command));
+        expect(disallowedCommands).not.toContain('jj-view.simplifyParents');
+    });
 });

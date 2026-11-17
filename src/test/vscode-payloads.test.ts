@@ -26,6 +26,7 @@ import { createNewAfterPayload } from '../vscode/payloads/new-after.payload';
 import { createNewBeforePayload } from '../vscode/payloads/new-before.payload';
 import { createRebaseOntoSelectedPayload } from '../vscode/payloads/rebase.payload';
 import { createRestorePayload } from '../vscode/payloads/restore.payload';
+import { createSimplifyParentsPayload } from '../vscode/payloads/simplify-parents.payload';
 import {
     createSquashFilesIntoAncestorPayload,
     createSquashFilesIntoChildPayload,
@@ -66,6 +67,48 @@ describe('vscode payloads', () => {
             });
             const payload = createAbandonPayload([], scmProvider);
             expect(payload.revisions).toEqual(['sel1', 'sel2']);
+        });
+    });
+
+    describe('simplify parents payload', () => {
+        it('extracts working copy when resource group is working copy', () => {
+            const scmGroup = { id: 'jj.group.workingCopy', label: 'Working Copy', resourceStates: [] };
+            const payload = createSimplifyParentsPayload([scmGroup]);
+            expect(payload.revisions).toEqual(['@']);
+        });
+
+        it('extracts single clicked commit when not part of selection', () => {
+            const scmProvider = createMock<VsCodeScmProvider>({
+                getSelectedCommitIds: vi.fn().mockReturnValue(['sel1', 'sel2']),
+            });
+            const payload = createSimplifyParentsPayload([{ changeId: 'other1' }], scmProvider);
+            expect(payload.revisions).toEqual(['other1']);
+        });
+
+        it('expands clicked commit to selection when clicked commit is selected', () => {
+            const scmProvider = createMock<VsCodeScmProvider>({
+                getSelectedCommitIds: vi.fn().mockReturnValue(['sel1', 'sel2']),
+            });
+            const payload = createSimplifyParentsPayload([{ changeId: 'sel1' }], scmProvider);
+            expect(payload.revisions).toEqual(['sel1', 'sel2']);
+        });
+
+        it('extracts multiple revisions from args', () => {
+            const payload = createSimplifyParentsPayload(['rev1', 'rev2']);
+            expect(payload.revisions).toEqual(['rev1', 'rev2']);
+        });
+
+        it('falls back to selected revisions from scmProvider when args are empty', () => {
+            const scmProvider = createMock<VsCodeScmProvider>({
+                getSelectedCommitIds: vi.fn().mockReturnValue(['sel1', 'sel2']),
+            });
+            const payload = createSimplifyParentsPayload([], scmProvider);
+            expect(payload.revisions).toEqual(['sel1', 'sel2']);
+        });
+
+        it('returns empty revisions when args and selection are empty', () => {
+            const payload = createSimplifyParentsPayload([]);
+            expect(payload.revisions).toEqual([]);
         });
     });
 
