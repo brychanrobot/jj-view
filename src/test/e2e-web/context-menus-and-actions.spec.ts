@@ -224,6 +224,7 @@ test.describe('Standalone Web Context Menus and Actions', () => {
         await expect(page.locator('[data-testid="menu-item-workbench.action.closeEditorsToTheRight"]')).toBeVisible();
         await expect(page.locator('[data-testid="menu-item-workbench.action.closeAllEditors"]')).toBeVisible();
         await expect(page.locator('[data-testid="menu-item-jj-view.compareFileWith"]')).toBeVisible();
+        await expect(page.locator('[data-testid="menu-item-jj-view.restoreFileFrom"]')).toBeVisible();
 
         // Capture screenshot of tab context menu
         await page.screenshot({ path: path.join(ARTIFACT_DIR, 'tab-context-menu.png') });
@@ -266,6 +267,7 @@ test.describe('Standalone Web Context Menus and Actions', () => {
         await expect(contextMenu).toBeVisible();
         await expect(page.locator('[data-testid="menu-item-jj-view.compareFileWith"]')).toBeVisible();
         await expect(page.locator('[data-testid="menu-item-jj-view.viewFileAtRevision"]')).toBeVisible();
+        await expect(page.locator('[data-testid="menu-item-jj-view.restoreFileFrom"]')).toBeVisible();
 
         // Capture screenshot of diff editor context menu
         await page.screenshot({ path: path.join(ARTIFACT_DIR, 'diff-editor-context-menu.png') });
@@ -321,7 +323,6 @@ test.describe('Standalone Web Context Menus and Actions', () => {
             await remoteRepo.dispose();
         }
     });
-
     test('should show Simplify Parents on merge commit context menu and remove redundant parent', async ({
         page,
         server,
@@ -366,5 +367,106 @@ test.describe('Standalone Web Context Menus and Actions', () => {
         await expect(contextMenu).not.toBeVisible();
 
         await expect.poll(() => testRepo.getParents(aId), { timeout: 10000 }).toEqual([bId]);
+    });
+
+    test('should restore file from selected revision via tab context menu', async ({ page, server, testRepo }) => {
+        testRepo.writeFile('restore-target.txt', 'v1 original\n');
+        testRepo.describe('base revision');
+        testRepo.new();
+
+        testRepo.writeFile('restore-target.txt', 'v2 middle\n');
+        testRepo.describe('middle revision');
+        testRepo.new();
+
+        testRepo.writeFile('restore-target.txt', 'v3 working copy\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const item = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'restore-target.txt' });
+        await expect(item).toBeVisible();
+        await item.click();
+
+        const tab = page
+            .locator('[data-testid="tab-bar-container"] .tab')
+            .filter({ hasText: 'restore-target.txt' })
+            .first();
+        await expect(tab).toBeVisible();
+        await tab.click({ button: 'right' });
+
+        const restoreFromItem = page.locator('[data-testid="menu-item-jj-view.restoreFileFrom"]');
+        await expect(restoreFromItem).toBeVisible();
+        await restoreFromItem.click();
+
+        const quickInput = page.locator('[data-testid="quick-input-widget"]');
+        await expect(quickInput).toBeVisible();
+        const baseOption = quickInput.locator('.quick-pick-item').filter({ hasText: 'base revision' }).first();
+        await expect(baseOption).toBeVisible();
+        await baseOption.click();
+
+        await expect(quickInput).toHaveCount(0);
+        await expect.poll(() => testRepo.readFile('restore-target.txt'), { timeout: 10000 }).toBe('v1 original\n');
+    });
+
+    test('should flush dirty buffer, restore from revision, and not clobber with stale auto-save', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('dirty-restore.txt', 'v1 baseline\n');
+        testRepo.describe('base revision');
+        testRepo.new();
+
+        testRepo.writeFile('dirty-restore.txt', 'v2 middle\n');
+        testRepo.describe('middle revision');
+        testRepo.new();
+
+        testRepo.writeFile('dirty-restore.txt', 'v3 working copy\n');
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const item = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'dirty-restore.txt' });
+        await expect(item).toBeVisible();
+        await item.click();
+
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+        await expect(diffViewer).toBeVisible();
+        const editorTextbox = diffViewer.getByRole('textbox');
+        await expect(editorTextbox).toBeVisible({ timeout: 5000 });
+        const editableLine = editorTextbox.locator('[data-line]').last();
+        await expect(async () => {
+            await editableLine.click();
+            await expect(editorTextbox).toBeFocused({ timeout: 500 });
+            await expect(editableLine).toHaveAttribute('data-editor-active-line', '', { timeout: 500 });
+        }).toPass({ timeout: 10000 });
+        await editorTextbox.pressSequentially(' unsaved edit', { delay: 15 });
+
+        const tab = page
+            .locator('[data-testid="tab-bar-container"] .tab')
+            .filter({ hasText: 'dirty-restore.txt' })
+            .first();
+        await expect(tab).toHaveClass(/dirty/, { timeout: 5000 });
+
+        await tab.click({ button: 'right' });
+        const restoreFromItem = page.locator('[data-testid="menu-item-jj-view.restoreFileFrom"]');
+        await expect(restoreFromItem).toBeVisible();
+        await restoreFromItem.click();
+
+        const quickInput = page.locator('[data-testid="quick-input-widget"]');
+        await expect(quickInput).toBeVisible();
+        const baseOption = quickInput.locator('.quick-pick-item').filter({ hasText: 'base revision' }).first();
+        await expect(baseOption).toBeVisible();
+        await baseOption.click();
+
+        await expect(quickInput).toHaveCount(0);
+        await expect.poll(() => testRepo.readFile('dirty-restore.txt'), { timeout: 10000 }).toBe('v1 baseline\n');
+        await expect(tab).not.toHaveClass(/dirty/, { timeout: 5000 });
+        await expect(diffViewer).toContainText('v1 baseline', { timeout: 5000 });
+        await expect(diffViewer).not.toContainText('unsaved edit');
     });
 });

@@ -473,6 +473,21 @@ export class TabDocumentManager {
         );
     }
 
+    private isFileNotFoundError(err: unknown): boolean {
+        if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'ENOENT') {
+            return true;
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        const lower = message.toLowerCase();
+        return (
+            lower.includes('enoent') ||
+            lower.includes('no such file') ||
+            lower.includes('cannot find the file') ||
+            lower.includes('does not exist') ||
+            lower.includes('not found')
+        );
+    }
+
     async reloadOpenDocumentTabs(): Promise<void> {
         const generation = ++this.documentReloadGeneration;
         const reloads: Promise<void>[] = [];
@@ -482,22 +497,37 @@ export class TabDocumentManager {
                 const { leftUri, rightUri } = tab.view;
                 reloads.push(
                     (async () => {
-                        const [leftText, rightText] = await Promise.all([
-                            this.resolveUriContent(leftUri),
-                            this.resolveUriContent(rightUri),
-                        ]);
-                        if (generation !== this.documentReloadGeneration) {
-                            return;
-                        }
-                        const target = this.tabs.find((t) => t.id === tabId);
-                        if (!target || target.view.type !== 'diff') {
-                            return;
-                        }
-                        if (target.view.originalContent !== leftText) {
-                            target.view.originalContent = leftText;
-                        }
-                        if (!target.isDirty && target.view.modifiedContent !== rightText) {
-                            target.view.modifiedContent = rightText;
+                        try {
+                            const [leftText, rightText] = await Promise.all([
+                                this.resolveUriContent(leftUri),
+                                this.resolveUriContent(rightUri),
+                            ]);
+                            if (generation !== this.documentReloadGeneration) {
+                                return;
+                            }
+                            const target = this.tabs.find((t) => t.id === tabId);
+                            if (!target || target.view.type !== 'diff') {
+                                return;
+                            }
+                            if (target.view.originalContent !== leftText) {
+                                target.view.originalContent = leftText;
+                            }
+                            if (!target.isDirty && target.view.modifiedContent !== rightText) {
+                                target.view.modifiedContent = rightText;
+                            }
+                        } catch (err) {
+                            const target = this.tabs.find((t) => t.id === tabId);
+                            if (
+                                generation === this.documentReloadGeneration &&
+                                target &&
+                                !target.isDirty &&
+                                rightUri?.scheme === 'file' &&
+                                this.isFileNotFoundError(err)
+                            ) {
+                                this.closeTabById(tabId);
+                            } else {
+                                console.error(`Failed to reload diff tab ${tabId}:`, err);
+                            }
                         }
                     })(),
                 );
@@ -507,20 +537,35 @@ export class TabDocumentManager {
                 const { uri } = tab.view;
                 reloads.push(
                     (async () => {
-                        const content = await this.resolveUriContent(uri);
-                        if (generation !== this.documentReloadGeneration) {
-                            return;
+                        try {
+                            const content = await this.resolveUriContent(uri);
+                            if (generation !== this.documentReloadGeneration) {
+                                return;
+                            }
+                            const target = this.tabs.find((t) => t.id === tabId);
+                            if (
+                                !target ||
+                                target.view.type !== 'file' ||
+                                target.isDirty ||
+                                target.view.content === content
+                            ) {
+                                return;
+                            }
+                            target.view.content = content;
+                        } catch (err) {
+                            const target = this.tabs.find((t) => t.id === tabId);
+                            if (
+                                generation === this.documentReloadGeneration &&
+                                target &&
+                                !target.isDirty &&
+                                uri.scheme === 'file' &&
+                                this.isFileNotFoundError(err)
+                            ) {
+                                this.closeTabById(tabId);
+                            } else {
+                                console.error(`Failed to reload file tab ${tabId}:`, err);
+                            }
                         }
-                        const target = this.tabs.find((t) => t.id === tabId);
-                        if (
-                            !target ||
-                            target.view.type !== 'file' ||
-                            target.isDirty ||
-                            target.view.content === content
-                        ) {
-                            return;
-                        }
-                        target.view.content = content;
                     })(),
                 );
                 continue;
@@ -529,42 +574,42 @@ export class TabDocumentManager {
                 const files = tab.view.files;
                 reloads.push(
                     (async () => {
-                        const contents = await Promise.all(
-                            files.map(async (file) => {
-                                const [originalContent, modifiedContent] = await Promise.all([
-                                    this.resolveUriContent(file.leftUri),
-                                    this.resolveUriContent(file.rightUri),
-                                ]);
-                                return { originalContent, modifiedContent };
-                            }),
-                        );
-                        if (generation !== this.documentReloadGeneration) {
-                            return;
+                        try {
+                            const contents = await Promise.all(
+                                files.map(async (file) => {
+                                    const [originalContent, modifiedContent] = await Promise.all([
+                                        this.resolveUriContent(file.leftUri),
+                                        this.resolveUriContent(file.rightUri),
+                                    ]);
+                                    return { originalContent, modifiedContent };
+                                }),
+                            );
+                            if (generation !== this.documentReloadGeneration) {
+                                return;
+                            }
+                            const target = this.tabs.find((t) => t.id === tabId);
+                            if (!target || target.view.type !== 'multi-diff' || target.view.files !== files) {
+                                return;
+                            }
+                            const changed = files.some(
+                                (file, i) =>
+                                    file.originalContent !== contents[i].originalContent ||
+                                    file.modifiedContent !== contents[i].modifiedContent,
+                            );
+                            if (!changed) {
+                                return;
+                            }
+                            // The multi-diff viewer re-renders on array identity, not on
+                            // nested fields, so swap in a new array rather than mutating.
+                            target.view.files = files.map((file, i) => ({ ...file, ...contents[i] }));
+                        } catch (err) {
+                            console.error(`Failed to reload multi-diff tab ${tabId}:`, err);
                         }
-                        const target = this.tabs.find((t) => t.id === tabId);
-                        if (!target || target.view.type !== 'multi-diff' || target.view.files !== files) {
-                            return;
-                        }
-                        const changed = files.some(
-                            (file, i) =>
-                                file.originalContent !== contents[i].originalContent ||
-                                file.modifiedContent !== contents[i].modifiedContent,
-                        );
-                        if (!changed) {
-                            return;
-                        }
-                        // The multi-diff viewer re-renders on array identity, not on
-                        // nested fields, so swap in a new array rather than mutating.
-                        target.view.files = files.map((file, i) => ({ ...file, ...contents[i] }));
                     })(),
                 );
             }
         }
-        try {
-            await Promise.all(reloads);
-        } catch (err) {
-            console.error('Failed to reload open documents after repository change:', err);
-        }
+        await Promise.allSettled(reloads);
     }
 
     async loadFileFromUri(uri: Uri, options?: HostOpenOptions): Promise<void> {
@@ -691,7 +736,7 @@ export class TabDocumentManager {
                 targetUri = targetTab.view.uri;
             }
             if (targetUri) {
-                await this.persistTabContentAndNotify(targetTab, targetUri, content, 'save-file');
+                await this.persistTabContentAndNotify(targetTab, targetUri, content, 'save-file', true);
             }
         }
     }

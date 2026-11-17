@@ -193,6 +193,8 @@ function cleanupInstances(): void {
     lastAppliedAnnotations = [];
     selectedRanges = undefined;
     selectedLineSide = undefined;
+    canUndo = false;
+    canRedo = false;
     onSelectionChange?.(undefined);
     if (saveDebounceTimer) {
         clearTimeout(saveDebounceTimer);
@@ -239,6 +241,7 @@ async function handleSave(): Promise<void> {
     }
 
     const savingContent = currentContent;
+    let shouldRescheduleSave = false;
     try {
         isSaving = true;
         saveMessage = 'Saving...';
@@ -247,6 +250,11 @@ async function handleSave(): Promise<void> {
             isDirty = false;
             lastLoadedModified = currentContent;
             onDirtyChange?.(false);
+        } else {
+            // Re-assert newer unsaved edits if handleSaveFile cleared tab.isDirty mid-await
+            onDirtyChange?.(true);
+            onContentChange?.(currentContent);
+            shouldRescheduleSave = !saveDebounceTimer;
         }
         saveMessage = 'Saved';
         if (saveMessageTimer) {
@@ -261,6 +269,9 @@ async function handleSave(): Promise<void> {
         saveMessage = 'Failed to save';
     } finally {
         isSaving = false;
+        if (shouldRescheduleSave && !saveDebounceTimer) {
+            scheduleAutoSave();
+        }
     }
 }
 
@@ -294,7 +305,8 @@ function scheduleAutoSave(): void {
         clearTimeout(saveDebounceTimer);
     }
     saveDebounceTimer = setTimeout(() => {
-        handleSave();
+        saveDebounceTimer = null;
+        void handleSave();
     }, 750);
 }
 
@@ -550,6 +562,8 @@ let lastLoadedOriginal = originalContent;
 let lastRenderedWorkingCopy = isWorkingCopy;
 // svelte-ignore state_referenced_locally
 let lastRenderedTheme = themeProp;
+// svelte-ignore state_referenced_locally
+let lastPropDirty = initialDirty;
 
 // Synchronize and re-render when filename, content, or mode change
 $effect(() => {
@@ -559,6 +573,9 @@ $effect(() => {
     const status = fileStatus;
     const wc = isWorkingCopy;
     const th = themeProp;
+    const propDirty = initialDirty;
+    const wasPropDirty = lastPropDirty;
+    lastPropDirty = propDirty;
 
     if (fn !== lastRenderedFilename) {
         if (!orig && !mod && status !== 'added' && status !== 'deleted') {
@@ -576,12 +593,23 @@ $effect(() => {
         lastRenderedWorkingCopy = wc;
         lastRenderedTheme = th;
         currentContent = mod;
-        isDirty = initialDirty;
+        isDirty = propDirty;
         canUndo = false;
         canRedo = false;
-        onDirtyChange?.(initialDirty);
+        onDirtyChange?.(propDirty);
         renderDiff();
-    } else if (
+        return;
+    }
+
+    if (wasPropDirty && !propDirty && !isSaving) {
+        if (saveDebounceTimer) {
+            clearTimeout(saveDebounceTimer);
+            saveDebounceTimer = null;
+        }
+        isDirty = false;
+    }
+
+    if (
         !isDirty &&
         (mod !== lastLoadedModified ||
             orig !== lastLoadedOriginal ||

@@ -39,6 +39,7 @@ import { formatCommitTitle } from '../utils/jj-utils';
 import { NodeHostHttp } from '../utils/node-host-http';
 import type { LoggerChannel } from '../utils/output-channel';
 import { getJjViewConfig } from './config-utils';
+import { getActiveDocumentUriFromWindow, getUriFromTab } from './payloads/payload-helpers';
 
 export class VsCodeHostUi implements HostUi {
     async showInputBox(options?: {
@@ -600,14 +601,7 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
     }
 
     getActiveDocumentUri(): Uri | undefined {
-        const activeTab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
-        if (activeTab) {
-            const tabUri = this.getUriFromTab(activeTab);
-            if (tabUri) {
-                return tabUri;
-            }
-        }
-        return vscode.window.activeTextEditor?.document.uri;
+        return getActiveDocumentUriFromWindow();
     }
 
     getActiveDocumentSelections(): { startLine: number; endLine: number }[] | undefined {
@@ -624,7 +618,7 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
         }
         return tabGroups
             .flatMap((group) => group.tabs)
-            .map((tab) => this.getUriFromTab(tab))
+            .map((tab) => getUriFromTab(tab))
             .filter((uri): uri is Uri => uri !== undefined);
     }
 
@@ -646,26 +640,6 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
                     await vscode.window.tabGroups?.close(tab);
                 },
             }));
-    }
-
-    private getUriFromTab(tab: vscode.Tab): Uri | undefined {
-        const { input } = tab;
-        if (input instanceof vscode.TabInputText) {
-            return input.uri;
-        }
-        if (input instanceof vscode.TabInputCustom) {
-            return input.uri;
-        }
-        if (input instanceof vscode.TabInputNotebook) {
-            return input.uri;
-        }
-        if (input instanceof vscode.TabInputTextDiff) {
-            return input.modified;
-        }
-        if (input instanceof vscode.TabInputNotebookDiff) {
-            return input.modified;
-        }
-        return undefined;
     }
 
     private getSafeRange(doc: vscode.TextDocument, startLine1Based: number, endLine1Based: number): vscode.Range {

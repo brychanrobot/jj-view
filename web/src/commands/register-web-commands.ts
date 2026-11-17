@@ -43,6 +43,7 @@ import { rebaseOntoSelectedCommand } from '../../../src/core/commands/rebase';
 import { redoCommand } from '../../../src/core/commands/redo';
 import { refreshCommand } from '../../../src/core/commands/refresh';
 import { restoreCommand } from '../../../src/core/commands/restore';
+import { restoreFileFromRevisionCommand } from '../../../src/core/commands/restore-file-from-revision';
 import { simplifyParentsCommand } from '../../../src/core/commands/simplify-parents';
 import {
     squashFilesIntoAncestorCommand,
@@ -116,6 +117,7 @@ import { createNewBeforePayload } from './payloads/new-before.payload';
 import { createOpenChangesPayload, createOpenFilePayload } from './payloads/open.payload';
 import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
+import { createRestoreFileFromRevisionPayload } from './payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from './payloads/simplify-parents.payload';
 import {
     createSquashFilesIntoAncestorPayload,
@@ -375,6 +377,11 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         compareFileWithRevisionCommand,
     );
     registerWithPayload('jj-view.viewFileAtRevision', createViewFileAtRevisionPayload, viewFileAtRevisionCommand);
+    registerWithPayload(
+        'jj-view.restoreFileFrom',
+        createRestoreFileFromRevisionPayload,
+        restoreFileFromRevisionCommand,
+    );
 
     // 9. Workspaces
     registerDirect('jj-view.workspaceAdd', workspaceAddCommand);

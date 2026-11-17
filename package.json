@@ -356,6 +356,11 @@
                 "category": "JJ View"
             },
             {
+                "command": "jj-view.restoreFileFrom",
+                "title": "Restore File from Revision...",
+                "category": "JJ View"
+            },
+            {
                 "command": "jj-view.refresh",
                 "title": "Refresh",
                 "category": "JJ View",
@@ -1232,6 +1237,11 @@
                     "command": "jj-view.viewFileAtRevision",
                     "group": "jj-view@3",
                     "when": "resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.restoreFileFrom",
+                    "group": "jj-view@4",
+                    "when": "resourceScheme == 'file'"
                 }
             ],
             "editor/context": [
@@ -1249,6 +1259,11 @@
                     "command": "jj-view.viewFileAtRevision",
                     "group": "jj-view",
                     "when": "resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.restoreFileFrom",
+                    "group": "jj-view",
+                    "when": "resourceScheme == 'file'"
                 }
             ],
             "explorer/context": [
@@ -1261,6 +1276,11 @@
                     "command": "jj-view.viewFileAtRevision",
                     "group": "jj-view",
                     "when": "resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.restoreFileFrom",
+                    "group": "jj-view",
+                    "when": "resourceScheme == 'file' && !explorerResourceIsFolder"
                 }
             ],
             "comments/commentThread/context": [

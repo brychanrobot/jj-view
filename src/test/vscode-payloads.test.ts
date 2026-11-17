@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import type { JjLogEntry } from '../core/jj-types';
 import type { ScmModel, ScmSnapshot } from '../core/scm-model';
 import type { JjResourceState } from '../core/scm-resource-state';
@@ -28,6 +28,7 @@ import { createNewAfterPayload } from '../vscode/payloads/new-after.payload';
 import { createNewBeforePayload } from '../vscode/payloads/new-before.payload';
 import { createRebaseOntoSelectedPayload } from '../vscode/payloads/rebase.payload';
 import { createRestorePayload } from '../vscode/payloads/restore.payload';
+import { createRestoreFileFromRevisionPayload } from '../vscode/payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from '../vscode/payloads/simplify-parents.payload';
 import {
     createSquashFilesIntoAncestorPayload,
@@ -291,6 +292,53 @@ describe('vscode payloads', () => {
             const uri = Uri.file('/path/to/file.txt');
             const payload = createRestorePayload([{ resourceUri: uri, revision: 'r1' }]);
             expect(payload.pathsByRevision.r1).toBeDefined();
+        });
+    });
+
+    describe('restore file from revision payload', () => {
+        it('extracts fileUri and optional revision from args', () => {
+            const uri = Uri.file('/path/to/file.txt');
+            const directUriPayload = createRestoreFileFromRevisionPayload([uri]);
+            expect(directUriPayload.fileUri?.fsPath).toBeSameFsPath(uri.fsPath);
+            expect(directUriPayload.revision).toBeUndefined();
+
+            const objPayload = createRestoreFileFromRevisionPayload([{ resourceUri: uri, revision: 'main' }]);
+            expect(objPayload.fileUri?.fsPath).toBeSameFsPath(uri.fsPath);
+            expect(objPayload.revision).toBe('main');
+        });
+
+        it('falls back to active tab modified URI before activeTextEditor when invoked without args', () => {
+            const activeFileUri = Uri.file('/path/to/active-editor.txt');
+            const leftDiffUri = Uri.parse('jj-view:///path/to/diff-target.txt?jj-revision=@-');
+            const rightDiffUri = Uri.file('/path/to/diff-target.txt');
+            const tabGroup = vscode.window.tabGroups.activeTabGroup as { activeTab?: vscode.Tab };
+            const prevTab = tabGroup.activeTab;
+            const prevEditor = vscode.window.activeTextEditor;
+
+            try {
+                tabGroup.activeTab = undefined;
+                vscode.window.activeTextEditor = createMock<vscode.TextEditor>({
+                    document: createMock<vscode.TextDocument>({ uri: activeFileUri }),
+                });
+
+                const editorFallback = createRestoreFileFromRevisionPayload([]);
+                expect(editorFallback.fileUri?.fsPath).toBeSameFsPath(activeFileUri.fsPath);
+                expect(editorFallback.revision).toBeUndefined();
+
+                vscode.window.activeTextEditor = createMock<vscode.TextEditor>({
+                    document: createMock<vscode.TextDocument>({ uri: leftDiffUri }),
+                });
+                tabGroup.activeTab = createMock<vscode.Tab>({
+                    input: new vscode.TabInputTextDiff(leftDiffUri, rightDiffUri),
+                });
+
+                const diffTabFallback = createRestoreFileFromRevisionPayload([]);
+                expect(diffTabFallback.fileUri?.scheme).toBe('file');
+                expect(diffTabFallback.fileUri?.fsPath).toBeSameFsPath(rightDiffUri.fsPath);
+            } finally {
+                tabGroup.activeTab = prevTab;
+                vscode.window.activeTextEditor = prevEditor;
+            }
         });
     });
 

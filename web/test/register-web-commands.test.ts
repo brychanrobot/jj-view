@@ -14,6 +14,7 @@ import { Uri } from '../../src/core/uri-utils';
 import { buildGraph, TestRepo } from '../../src/test/test-repo';
 import type { LoggerChannel } from '../../src/utils/output-channel';
 import { createShowDetailsPayload } from '../src/commands/payloads/details.payload';
+import { createRestoreFileFromRevisionPayload } from '../src/commands/payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from '../src/commands/payloads/simplify-parents.payload';
 import { createSquashRevisionIntoParentPayload } from '../src/commands/payloads/squash-revision.payload';
 import { createSquashSelectionIntoParentPayload } from '../src/commands/payloads/squash-selection.payload';
@@ -166,6 +167,7 @@ describe('registerWebCommands', () => {
             'jj-view.abandon',
             'jj-view.simplifyParents',
             'jj-view.restore',
+            'jj-view.restoreFileFrom',
             'jj-view.absorb',
             'jj-view.squashRevisionIntoParent',
             'jj-view.squashRevisionIntoParentKeepMessage',
@@ -313,6 +315,7 @@ describe('registerWebCommands', () => {
         const emptyPayload = createSquashSelectionIntoParentPayload([]);
         expect(emptyPayload).toEqual({});
     });
+
     it('creates simplifyParents payload for single, multi-selected, SCM group, and empty inputs', () => {
         expect(createSimplifyParentsPayload([{ id: 'jj.group.workingCopy', resourceStates: [] }])).toEqual({
             revisions: ['@'],
@@ -509,5 +512,31 @@ describe('registerWebCommands', () => {
             revision: 'ancestor-change',
             targetParent: undefined,
         });
+    });
+
+    it('creates restoreFileFrom payload from arguments or active host document fallback', () => {
+        const uri = Uri.file('/test/workspace/file.txt');
+        const payload = createRestoreFileFromRevisionPayload([{ resourceUri: uri, revision: 'main' }]);
+        expect(payload.fileUri?.toString()).toBe(uri.toString());
+        expect(payload.revision).toBe('main');
+
+        const uriOnlyPayload = createRestoreFileFromRevisionPayload([uri]);
+        expect(uriOnlyPayload.fileUri?.toString()).toBe(uri.toString());
+        expect(uriOnlyPayload.revision).toBeUndefined();
+
+        const { hostEnvironment } = setupTestEnvironment();
+        const activeUri = Uri.file('/test/workspace/active.txt');
+        hostEnvironment.documents.setDelegate({
+            getActiveDocumentUri: () => activeUri,
+        });
+        const fallbackPayload = createRestoreFileFromRevisionPayload([], hostEnvironment);
+        expect(fallbackPayload.fileUri).toBe(activeUri);
+        expect(fallbackPayload.revision).toBeUndefined();
+
+        const overridePayload = createRestoreFileFromRevisionPayload([{ resourceUri: uri }], hostEnvironment);
+        expect(overridePayload.fileUri?.toString()).toBe(uri.toString());
+
+        const emptyPayload = createRestoreFileFromRevisionPayload([]);
+        expect(emptyPayload).toEqual({ fileUri: undefined, revision: undefined });
     });
 });

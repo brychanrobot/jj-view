@@ -68,6 +68,8 @@ const isBinary = $derived(!isRasterImage && isBinaryFile(filename, content));
 
 function cleanupInstances(): void {
     selectedRanges = undefined;
+    canUndo = false;
+    canRedo = false;
     onSelectionChange?.(undefined);
     if (saveDebounceTimer) {
         clearTimeout(saveDebounceTimer);
@@ -109,6 +111,7 @@ async function handleSave(): Promise<void> {
     }
 
     const savingContent = currentContent;
+    let shouldRescheduleSave = false;
     try {
         isSaving = true;
         saveMessage = 'Saving...';
@@ -117,6 +120,11 @@ async function handleSave(): Promise<void> {
             isDirty = false;
             lastLoadedContent = currentContent;
             onDirtyChange?.(false);
+        } else {
+            // Re-assert newer unsaved edits if handleSaveFile cleared tab.isDirty mid-await
+            onDirtyChange?.(true);
+            onContentChange?.(currentContent);
+            shouldRescheduleSave = !saveDebounceTimer;
         }
         saveMessage = 'Saved';
         if (saveMessageTimer) {
@@ -131,6 +139,9 @@ async function handleSave(): Promise<void> {
         saveMessage = 'Failed to save';
     } finally {
         isSaving = false;
+        if (shouldRescheduleSave && !saveDebounceTimer) {
+            scheduleAutoSave();
+        }
     }
 }
 
@@ -155,6 +166,7 @@ function scheduleAutoSave(): void {
         clearTimeout(saveDebounceTimer);
     }
     saveDebounceTimer = setTimeout(() => {
+        saveDebounceTimer = null;
         void handleSave();
     }, 750);
 }
@@ -272,23 +284,39 @@ function handleKeyDown(e: KeyboardEvent): void {
 let lastRenderedFilename = '';
 // svelte-ignore state_referenced_locally
 let lastLoadedContent = content;
+// svelte-ignore state_referenced_locally
+let lastPropDirty = initialDirty;
 
 // Synchronize and re-render when filename or content changes
 $effect(() => {
     const fn = filename;
     const c = content;
     const wc = isWorkingCopy;
+    const propDirty = initialDirty;
+    const wasPropDirty = lastPropDirty;
+    lastPropDirty = propDirty;
 
     if (fn !== lastRenderedFilename) {
         lastRenderedFilename = fn;
         lastLoadedContent = c;
         currentContent = c;
-        isDirty = initialDirty;
+        isDirty = propDirty;
         canUndo = false;
         canRedo = false;
-        onDirtyChange?.(initialDirty);
+        onDirtyChange?.(propDirty);
         renderFile();
-    } else if (!isDirty && c !== lastLoadedContent) {
+        return;
+    }
+
+    if (wasPropDirty && !propDirty && !isSaving) {
+        if (saveDebounceTimer) {
+            clearTimeout(saveDebounceTimer);
+            saveDebounceTimer = null;
+        }
+        isDirty = false;
+    }
+
+    if (!isDirty && c !== lastLoadedContent) {
         lastLoadedContent = c;
         currentContent = c;
         renderFile();

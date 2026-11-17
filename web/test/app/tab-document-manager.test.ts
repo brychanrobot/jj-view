@@ -566,4 +566,180 @@ describe('TabDocumentManager', () => {
         expect(scmReason).toBe('complete-merge');
         expect(manager.tabs.length).toBe(0);
     });
+
+    it('closes deleted file tabs and keeps reloading sibling tabs when reloadOpenDocumentTabs hits ENOENT', async () => {
+        const deletedUri = Uri.file('/repo/deleted.ts');
+        const survivingUri = Uri.file('/repo/surviving.ts');
+
+        const mockHost = createMock<RemoteHostSystem>({
+            fs: createMock<HostFs>({
+                readTextFile: async (filePath: string) => {
+                    if (filePath.endsWith('deleted.ts')) {
+                        throw new Error('ENOENT: no such file or directory');
+                    }
+                    return 'reloaded surviving content';
+                },
+            }),
+        });
+
+        const manager = new TabDocumentManager({
+            webHostEnv: undefined,
+            notificationService: new NotificationService(),
+            fsEditService: undefined,
+            fsViewService: undefined,
+            remoteHostSystem: mockHost,
+            resolveScmModelForUri: () => undefined,
+            getCurrentSnapshot: () => undefined,
+            getWorkspaceRoot: () => '/repo',
+            openFileDiffForChange: async () => {},
+            handleAction: async () => {},
+        });
+
+        manager.openOrActivateTab({
+            type: 'file',
+            uri: deletedUri,
+            title: 'deleted.ts',
+            content: 'stale deleted content',
+        });
+        manager.openOrActivateTab(
+            {
+                type: 'file',
+                uri: survivingUri,
+                title: 'surviving.ts',
+                content: 'initial surviving content',
+            },
+            { preview: false },
+        );
+
+        expect(manager.tabs.length).toBe(2);
+        await manager.reloadOpenDocumentTabs();
+
+        expect(manager.tabs.length).toBe(1);
+        expect(manager.tabs[0].title).toBe('surviving.ts');
+        if (manager.tabs[0].view.type === 'file') {
+            expect(manager.tabs[0].view.content).toBe('reloaded surviving content');
+        }
+    });
+
+    it('closes clean diff tabs on ENOENT, preserves dirty tabs on ENOENT, and keeps tabs on non-ENOENT errors', async () => {
+        const cleanDiffUri = Uri.file('/repo/deleted-diff.ts');
+        const localizedEnoentUri = Uri.file('/repo/localized-deleted.ts');
+        const dirtyDiffUri = Uri.file('/repo/dirty-deleted-diff.ts');
+        const dirtyFileUri = Uri.file('/repo/dirty-deleted.ts');
+        const permissionErrUri = Uri.file('/repo/eacces.ts');
+        const survivingUri = Uri.file('/repo/ok.ts');
+
+        const mockHost = createMock<RemoteHostSystem>({
+            fs: createMock<HostFs>({
+                readTextFile: async (filePath: string) => {
+                    if (
+                        filePath.endsWith('deleted-diff.ts') ||
+                        filePath.endsWith('dirty-deleted-diff.ts') ||
+                        filePath.endsWith('dirty-deleted.ts')
+                    ) {
+                        throw new Error('ENOENT: no such file or directory');
+                    }
+                    if (filePath.endsWith('localized-deleted.ts')) {
+                        throw Object.assign(new Error('Das System kann die angegebene Datei nicht finden.'), {
+                            code: 'ENOENT',
+                        });
+                    }
+                    if (filePath.endsWith('eacces.ts')) {
+                        throw new Error('EACCES: permission denied');
+                    }
+                    return 'updated ok content';
+                },
+            }),
+        });
+
+        const manager = new TabDocumentManager({
+            webHostEnv: undefined,
+            notificationService: new NotificationService(),
+            fsEditService: undefined,
+            fsViewService: undefined,
+            remoteHostSystem: mockHost,
+            resolveScmModelForUri: () => undefined,
+            getCurrentSnapshot: () => undefined,
+            getWorkspaceRoot: () => '/repo',
+            openFileDiffForChange: async () => {},
+            handleAction: async () => {},
+        });
+
+        manager.openOrActivateTab(
+            {
+                type: 'diff',
+                leftUri: Uri.parse('jj-view:/repo/deleted-diff.ts'),
+                rightUri: cleanDiffUri,
+                title: 'deleted-diff.ts',
+                originalContent: 'before',
+                modifiedContent: 'after',
+                loaded: true,
+            },
+            { preview: false },
+        );
+        manager.openOrActivateTab(
+            {
+                type: 'file',
+                uri: localizedEnoentUri,
+                title: 'localized-deleted.ts',
+                content: 'stale localized content',
+            },
+            { preview: false },
+        );
+        manager.openOrActivateTab(
+            {
+                type: 'diff',
+                leftUri: Uri.parse('jj-view:/repo/dirty-deleted-diff.ts'),
+                rightUri: dirtyDiffUri,
+                title: 'dirty-deleted-diff.ts',
+                originalContent: 'before',
+                modifiedContent: 'unsaved diff draft',
+                loaded: true,
+            },
+            { preview: false },
+        );
+        manager.tabs[2].isDirty = true;
+
+        manager.openOrActivateTab(
+            {
+                type: 'file',
+                uri: dirtyFileUri,
+                title: 'dirty-deleted.ts',
+                content: 'unsaved draft',
+            },
+            { preview: false },
+        );
+        manager.tabs[3].isDirty = true;
+
+        manager.openOrActivateTab(
+            {
+                type: 'file',
+                uri: permissionErrUri,
+                title: 'eacces.ts',
+                content: 'existing content',
+            },
+            { preview: false },
+        );
+        manager.openOrActivateTab(
+            {
+                type: 'file',
+                uri: survivingUri,
+                title: 'ok.ts',
+                content: 'initial ok content',
+            },
+            { preview: false },
+        );
+
+        await manager.reloadOpenDocumentTabs();
+
+        expect(manager.tabs.map((t) => t.title)).toEqual([
+            'dirty-deleted-diff.ts',
+            'dirty-deleted.ts',
+            'eacces.ts',
+            'ok.ts',
+        ]);
+        if (manager.tabs[3].view.type === 'file') {
+            expect(manager.tabs[3].view.content).toBe('updated ok content');
+        }
+    });
 });
