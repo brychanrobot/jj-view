@@ -1278,6 +1278,15 @@ export class JjService {
         return this.run('abandon', revs, { isMutation: true, label: 'abandon' });
     }
 
+    async simplifyParents(revisions: string[]): Promise<string> {
+        const revs = Array.from(new Set(revisions.map((r) => r.trim()).filter((r) => r.length > 0)));
+        if (revs.length === 0) {
+            throw new Error('At least one revision is required for simplify-parents');
+        }
+        const args = revs.flatMap((rev) => ['-r', rev]);
+        return this.run('simplify-parents', args, { isMutation: true, label: 'simplifyParents' });
+    }
+
     async undo(): Promise<string> {
         return this.run('undo', [], { isMutation: true, label: 'undo' });
     }

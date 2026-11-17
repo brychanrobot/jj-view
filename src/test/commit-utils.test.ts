@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import type { CommitAction, JjLogEntry } from '../core/jj-types';
 import { computeCommitActions } from '../core/webview/log/utils/commit-utils';
@@ -17,6 +17,10 @@ describe('computeCommitActions', () => {
         repo = new TestRepo();
         repo.init();
         jj = new JjService(repo.path, NO_OP_LOGGER);
+    });
+
+    afterEach(async () => {
+        await repo.dispose();
     });
 
     async function getCommit(revision: string): Promise<JjLogEntry> {
@@ -203,5 +207,66 @@ describe('computeCommitActions', () => {
 
         expect(result.visibleActions.edit).toBe(false);
         expect(result.vscodeContext['jj.canEdit']).toBe(false);
+    });
+
+    it('should compute jj.canSimplifyParents for mutable merge commits and multi-selections', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'A', parents: ['root()'] },
+            { label: 'B', parents: ['A'] },
+            { label: 'Merge', parents: ['B', 'A'] },
+        ]);
+
+        const singleParent = await getCommit(ids.B.changeId);
+        const mergeCommit = await getCommit(ids.Merge.changeId);
+        const rootCommit = await getCommit('root()');
+
+        // Unselected single-parent commit cannot simplify parents
+        expect(
+            computeCommitActions(singleParent, new Set(), false, 0, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(false);
+
+        // Single-selected single-parent commit cannot simplify parents
+        expect(
+            computeCommitActions(singleParent, new Set(), true, 1, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(false);
+
+        // Unselected single-parent commit while others are selected cannot simplify parents
+        expect(
+            computeCommitActions(singleParent, new Set(), false, 2, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(false);
+
+        // Multi-selected mutable single-parent commit can simplify parents
+        expect(
+            computeCommitActions(singleParent, new Set(), true, 2, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(true);
+
+        // Mutable merge commit can simplify parents (unselected, single-selected, or multi-selected)
+        expect(
+            computeCommitActions(mergeCommit, new Set(), false, 0, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(true);
+        expect(
+            computeCommitActions(mergeCommit, new Set(), true, 1, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(true);
+        expect(
+            computeCommitActions(mergeCommit, new Set(), true, 2, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(true);
+
+        // Unselected mutable merge commit remains eligible even if an immutable commit is selected elsewhere
+        expect(
+            computeCommitActions(mergeCommit, new Set(), false, 2, true).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(true);
+
+        // Immutable commit or multi-selection containing immutable commit cannot simplify parents
+        expect(
+            computeCommitActions(rootCommit, new Set(), false, 0, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(false);
+        expect(computeCommitActions(mergeCommit, new Set(), true, 2, true).vscodeContext['jj.canSimplifyParents']).toBe(
+            false,
+        );
+
+        const immutableMerge = { ...mergeCommit, is_immutable: true };
+        expect(
+            computeCommitActions(immutableMerge, new Set(), false, 0, false).vscodeContext['jj.canSimplifyParents'],
+        ).toBe(false);
     });
 });

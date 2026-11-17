@@ -130,6 +130,7 @@ categories:
     -   Check error/boundary conditions first and return early rather than
         nesting 4–5 levels of `if` statements.
     -   Place all imports at the top of the file.
+-   **Share Host-Agnostic Payload Extraction in `src/core/commands/command-utils.ts`**: Extract pure helpers taking `readonly string[]` (e.g. `extractSelectedOrArgRevisions`) so VS Code and Web payload adapters share identical single-commit, multi-selection, SCM group, and Command Palette behavior without duplication.
 
 ### 3. Component Lifecycle, Shadow DOM & Virtualized Rendering
 
@@ -167,6 +168,7 @@ categories:
 -   **Preserve Cleared Controlled Inputs & Scope Refresh Reasons**: Never use `input.value === ''` as an overwrite trigger on controlled inputs (a cleared draft must stay empty across background refreshes once `_lastKnownChangeId` is initialized), and scope command refresh reasons by target revision (e.g., `revision === '@' ? 'after describe' : \`after describe:${revision}\``) so ancestor mutations never clobber working-copy drafts.
 -   **Close Listeners & Mark Shutdown Before Draining Server Clients**: Acquire `mu.Lock()`, enforce idempotent `closed = true`, and close a `onceCloseListener`-wrapped `net.Listener` (so `Start()`/`Listen()` return `http.ErrServerClosed` cleanly and `http.Server.Shutdown(ctx)` does not abort on a second-close `net.ErrClosed`) at the very top of server `Close()` *before* canceling background contexts or draining SSE/WebSocket clients (`handleEvents` must also select on `<-bgDone`).
 -   **Guard Marker Directory Probing With `lstat` & `EvalSymlinks` Containment**: Probe non-VCS-reserved workspace marker directories (such as `.citc` and `.citc/modified`) with `lstat` (`os.Lstat` / `fs.lstat`, never `stat`) and verify `filepath.EvalSymlinks` containment before walking so committed symlinks cannot redirect discovery or indexing walks outside the sandbox.
+-   **Do Not `await` Actionless Info/Warning Notifications in Core Commands**: In standalone web mode, `NotificationService.showInformation`/`showWarning` without action buttons resolves only after the 5s/8s auto-dismiss timer, stalling `registerWithPayload`'s post-handler `repo.refresh()`; fire confirmations with `void ctx.host.ui.showInformation(...)` and test non-blocking resolution.
 
 ### 4. Testing & Visual Verification Quality
 
@@ -197,6 +199,7 @@ categories:
 -   **Isolate Subprocess Env Vars & Fake Timers in Watcher/Daemon Tests**: Strip ambient `JJ_VIEW_*`, `ANTIGRAVITY_*`, and proxy env vars (with isolated `HOME`/`USERPROFILE` and `--user-data-dir`) when spawning daemon binaries in Go tests, and test deferred timer logic under `vi.useFakeTimers()` (`vi.advanceTimersByTimeAsync`) rather than real wall-clock waits.
 -   **Pin `host.system.platform` in `FakeHostEnvironment` Unit Tests**: Explicitly set `host.system = { ...host.system, platform: 'linux' }` when unit-testing POSIX-specific host logic (such as `.citc` discovery) so `windows-latest` CI runners do not inherit `process.platform === 'win32'` and fail or pass vacuously.
 -   **Never Compare `fs.realpathSync(uri.fsPath) === fs.realpathSync(rawPath)` Directly (Anti-Pattern)**: On Windows, `Uri.file(...).fsPath` lowercases the drive letter (`c:\...`) while `os.tmpdir()`/`ScopedTestRepo` returns uppercase (`C:\...`), and Node's JS `fs.realpathSync` preserves input drive-letter case (`'c:\...' !== 'C:\...'`). Always use `.toBeSameFsPath(...)` / `expect.toBeSameFsPath(...)` or `fs.realpathSync.native` + lowercase normalization on `win32` inside mock predicates.
+-   **Dispose `TestRepo` and Clear Web Notifications in `afterEach`/`finally`**: Call `await repo.dispose()` (and `hostEnvironment?.notifications.clearAll(); hostEnvironment?.dispose()` for `WebHostEnvironment`) in `afterEach`/`finally`—entering `try` immediately after `new TestRepo()` before `init()`/`buildGraph()`—so temp repos, `~/.config/jj/repos/*` entries, and 5s/8s notification timers never leak on setup errors or across tests.
 
 --------------------------------------------------------------------------------
 

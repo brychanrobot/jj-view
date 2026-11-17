@@ -321,4 +321,50 @@ test.describe('Standalone Web Context Menus and Actions', () => {
             await remoteRepo.dispose();
         }
     });
+
+    test('should show Simplify Parents on merge commit context menu and remove redundant parent', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('base.txt', 'base\n');
+        testRepo.describe('base C');
+        const cId = testRepo.getChangeId('@');
+
+        testRepo.new([cId], 'child B');
+        const bId = testRepo.getChangeId('@');
+        testRepo.writeFile('b.txt', 'b\n');
+
+        testRepo.new([bId, cId], 'merge A');
+        const aId = testRepo.getChangeId('@');
+        expect(testRepo.getParents(aId)).toEqual([bId, cId]);
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const contextMenu = page.locator('[data-testid="context-menu"]');
+        const simplifyItem = page.locator('[data-testid="menu-item-jj-view.simplifyParents"]');
+
+        // Single-parent commit B should not expose Simplify Parents in context menu
+        const commitRowB = page.locator('.commit-row').filter({ hasText: 'child B' }).first();
+        await expect(commitRowB).toBeVisible({ timeout: 10000 });
+        await commitRowB.click({ button: 'right' });
+        await expect(contextMenu).toBeVisible();
+        await expect(simplifyItem).toHaveCount(0);
+
+        await page.keyboard.press('Escape');
+        await expect(contextMenu).not.toBeVisible();
+
+        // Merge commit A should expose Simplify Parents and remove redundant parent C
+        const commitRowA = page.locator('.commit-row').filter({ hasText: 'merge A' }).first();
+        await expect(commitRowA).toBeVisible();
+        await commitRowA.click({ button: 'right' });
+        await expect(contextMenu).toBeVisible();
+        await expect(simplifyItem).toBeVisible();
+
+        await simplifyItem.click();
+        await expect(contextMenu).not.toBeVisible();
+
+        await expect.poll(() => testRepo.getParents(aId), { timeout: 10000 }).toEqual([bId]);
+    });
 });

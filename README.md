@@ -161,6 +161,7 @@ The extension automatically refreshes the view when:
 - `JJ View: Absorb`: Move changes into the mutable ancestor where they belong.
 - `JJ View: New Merge Change`: Create a merge commit.
 - `JJ View: Rebase onto Selected`: Rebase the current change onto a selected target.
+- `JJ View: Simplify Parents`: Remove redundant parent edges that are also indirect ancestors through other parents.
 
 ## Configuration
 
