@@ -5,6 +5,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type * as vscode from 'vscode';
+import type { JjLogEntry } from '../core/jj-types';
+import type { ScmModel, ScmSnapshot } from '../core/scm-model';
 import type { JjResourceState } from '../core/scm-resource-state';
 import { Uri } from '../core/uri-utils';
 import { createAbandonPayload } from '../vscode/payloads/abandon.payload';
@@ -187,6 +189,35 @@ describe('vscode payloads', () => {
         it('extracts revision from string arg', () => {
             const payload = createShowDetailsPayload(['rev1']);
             expect(payload.revision).toBe('rev1');
+        });
+
+        it('returns undefined revision when invoked without arguments', () => {
+            const payload = createShowDetailsPayload([]);
+            expect(payload).toEqual({ revision: undefined });
+        });
+
+        it('resolves empty ancestor group revision via scmProvider snapshot', () => {
+            const emptyAncestorGroup = { id: 'ancestor-0', resourceStates: [] };
+            const scmProvider = createMock<VsCodeScmProvider>({
+                scmModel: createMock<ScmModel>({
+                    snapshot: createMock<ScmSnapshot>({
+                        ancestors: [
+                            {
+                                entry: createMock<JjLogEntry>({ change_id: 'parent-rev-id' }),
+                                prefix: '@-1',
+                                isMutable: true,
+                                canSquash: false,
+                                changes: [],
+                                label: '@-1',
+                                contextValue: 'jj.group.allowShowDetails',
+                            },
+                        ],
+                    }),
+                }),
+            });
+
+            const payload = createShowDetailsPayload([emptyAncestorGroup], scmProvider);
+            expect(payload).toEqual({ revision: 'parent-rev-id' });
         });
     });
 

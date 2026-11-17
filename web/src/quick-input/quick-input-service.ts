@@ -17,6 +17,30 @@ export class QuickInputService {
     private nextSessionId = 1;
     private readonly listeners: Set<(session: QuickInputSession | null) => void> = new Set();
 
+    private buildPickItems<
+        T extends {
+            id?: string;
+            label: string;
+            value?: unknown;
+            description?: string;
+            detail?: string;
+            iconClass?: string;
+            filterText?: string;
+            alwaysShow?: boolean;
+        },
+    >(items: T[]): QuickPickItem[] {
+        return items.map((item, index) => ({
+            id: item.id ?? String(item.value ?? item.label ?? index),
+            label: item.label,
+            description: item.description,
+            detail: item.detail,
+            iconClass: item.iconClass,
+            filterText: item.filterText,
+            alwaysShow: item.alwaysShow,
+            value: item,
+        }));
+    }
+
     public get activeSession(): QuickInputSession | null {
         return this.currentSession;
     }
@@ -79,16 +103,7 @@ export class QuickInputService {
         this.cancel();
         const sessionId = this.nextSessionId++;
 
-        const pickItems: QuickPickItem[] = items.map((item, index) => ({
-            id: item.id ?? String(item.value ?? item.label ?? index),
-            label: item.label,
-            description: item.description,
-            detail: item.detail,
-            iconClass: item.iconClass,
-            filterText: item.filterText,
-            alwaysShow: item.alwaysShow,
-            value: item,
-        }));
+        const pickItems = this.buildPickItems(items);
 
         let activePickItem: QuickPickItem | undefined;
         if (options?.activeItem) {
@@ -133,6 +148,29 @@ export class QuickInputService {
                         resolve(undefined);
                         return;
                     }
+                    const isCustomEntry =
+                        Boolean(selected.isCustom) ||
+                        (Boolean(options?.acceptCustomValue) && typeof selected.value === 'string');
+                    if (isCustomEntry) {
+                        if (!options?.acceptCustomValue) {
+                            resolve(undefined);
+                            return;
+                        }
+                        const rawCustom =
+                            typeof selected.value === 'string' ? selected.value.trim() : selected.label.trim();
+                        if (rawCustom.length === 0) {
+                            resolve(undefined);
+                            return;
+                        }
+                        const customItem = Object.assign({} as T, {
+                            label: rawCustom,
+                            value: rawCustom,
+                            detail: rawCustom,
+                            customValue: rawCustom,
+                        });
+                        resolve(customItem);
+                        return;
+                    }
                     if (selected.value !== undefined) {
                         resolve(selected.value as T);
                         return;
@@ -160,16 +198,7 @@ export class QuickInputService {
         if (!this.currentSession || this.currentSession.type !== 'quick-pick') {
             return;
         }
-        const pickItems: QuickPickItem[] = items.map((item, index) => ({
-            id: item.id ?? String(item.value ?? item.label ?? index),
-            label: item.label,
-            description: item.description,
-            detail: item.detail,
-            iconClass: item.iconClass,
-            filterText: item.filterText,
-            alwaysShow: item.alwaysShow,
-            value: item,
-        }));
+        const pickItems = this.buildPickItems(items);
         this.currentSession = {
             ...this.currentSession,
             options: {
@@ -294,6 +323,21 @@ export class QuickInputService {
             session.resolve(Array.isArray(value) ? (value as QuickPickItem[]) : undefined);
             return;
         }
+    }
+
+    public acceptCustomValue(customText: string): void {
+        const session = this.currentSession;
+        if (!session || session.type !== 'quick-pick' || !session.options.acceptCustomValue) {
+            return;
+        }
+        const trimmed = customText.trim();
+        this.currentSession = null;
+        this.notifyListeners();
+        if (trimmed.length === 0) {
+            session.resolve(undefined);
+            return;
+        }
+        session.resolve({ id: trimmed, label: trimmed, value: trimmed, isCustom: true });
     }
 
     public cancel(): void {

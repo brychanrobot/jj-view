@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { CommandContext } from '../host/command-context';
-import { showJjError } from '../host/ui-helpers';
+import { promptForRevision, showJjError } from '../host/ui-helpers';
+import { RevisionQuery } from './command-utils';
 
 export interface ShowDetailsPayload {
     revision?: string;
@@ -15,15 +16,36 @@ export async function showDetailsCommand(ctx: CommandContext, payload?: ShowDeta
         host: { ui, nav },
     } = ctx;
     const { jj } = repo;
-    const revision = payload?.revision || '@';
 
     try {
-        const [logEntry] = await ui.withProgress('Loading details...', () =>
-            jj.getLog({ revision, omitChanges: true }),
+        let revision = payload?.revision?.trim();
+        if (!revision) {
+            const prompted = await promptForRevision(ui, jj, {
+                placeHolder: 'Select or enter a revision to view details',
+                emptyPrompt: 'Enter a revision expression to view details',
+                revisionQuery: RevisionQuery.visible(),
+                repoRoot: repo.rootUri,
+                nav,
+            });
+            revision = prompted?.trim();
+        }
+
+        if (!revision) {
+            return;
+        }
+
+        const entries = await ui.withProgress('Loading details...', () =>
+            jj.getLog({ revision, limit: 2, omitChanges: true }),
         );
-        if (!logEntry) {
+        if (entries.length === 0) {
             throw new Error(`No log entry found for revision: ${revision}`);
         }
+        if (entries.length > 1) {
+            throw new Error(
+                `Revision "${revision}" matched multiple commits. Specify a single revision (e.g. a commit ID or divergent offset).`,
+            );
+        }
+        const [logEntry] = entries;
         await nav.openCommitDetails(
             repo.rootUri,
             logEntry.change_id,

@@ -123,7 +123,11 @@ export async function promptForRevision(
         });
 
         const items = entries.map((entry) => {
-            const shortId = entry.change_id.substring(0, 8);
+            const baseId = entry.change_id.split('/')[0].substring(0, 8);
+            const shortId =
+                entry.is_divergent && entry.change_id_offset !== undefined
+                    ? `${baseId}/${entry.change_id_offset}`
+                    : baseId;
             const desc = entry.description || '(no description set)';
             const shortDesc = desc.split('\n')[0].substring(0, 50);
 

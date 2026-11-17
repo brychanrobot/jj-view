@@ -14,7 +14,7 @@ interface Props {
 
 let { service }: Props = $props();
 
-let sessionState = $state<QuickInputSession | null>(null);
+let sessionState = $state.raw<QuickInputSession | null>(null);
 const session = $derived(sessionState ?? service.activeSession);
 
 let inputOverride = $state<string | null>(null);
@@ -182,8 +182,11 @@ function handleKeyDown(e: KeyboardEvent): void {
             const item = filteredItems[selectedIndex];
             if (item) {
                 service.accept(item);
-            } else if (session.options.acceptCustomValue && inputValue) {
-                service.accept({ id: inputValue, label: inputValue, value: inputValue });
+            } else if (session.options.acceptCustomValue) {
+                const custom = inputValue.trim();
+                if (custom.length > 0) {
+                    service.acceptCustomValue(custom);
+                }
             }
             return;
         }

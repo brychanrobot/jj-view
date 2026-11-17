@@ -5,6 +5,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { buildGraph } from '../test-repo';
 import {
     ARTIFACT_DIR,
     expect,
@@ -298,5 +299,73 @@ test.describe('Standalone Web Quick Input & Command Palette', () => {
         });
 
         expect(fs.existsSync(gifOutputPath)).toBe(true);
+    });
+
+    test('should prompt for revision when running Show Details from command palette (list item and arbitrary commit SHA)', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        const ids = await buildGraph(testRepo, [
+            {
+                label: 'bookmarked',
+                description: 'feat: bookmarked ancestor',
+                files: { 'a.txt': 'a\n' },
+                bookmarks: ['base-bm'],
+            },
+            {
+                label: 'target',
+                parents: ['bookmarked'],
+                description: 'feat: target by sha',
+                files: { 'b.txt': 'b\n' },
+            },
+            {
+                label: 'wc',
+                parents: ['target'],
+                description: 'working copy',
+                files: { 'c.txt': 'c\n' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const widget = page.locator('[data-testid="quick-input-widget"]');
+        const input = page.locator('[data-testid="quick-input-text-input"]');
+        const detailsView = page.locator('[data-testid="commit-details-view"]');
+
+        // 1. Pick a bookmarked revision from the Show Details QuickPick list
+        await page.keyboard.press('Control+Shift+P');
+        await expect(widget).toBeVisible();
+        await input.fill('Show Details');
+        const showDetailsCmd = page.locator('[data-testid="quick-pick-item-jj-view.showDetails"]');
+        await expect(showDetailsCmd).toBeVisible();
+        await page.keyboard.press('Enter');
+
+        await expect(input).toHaveAttribute('placeholder', 'Select or enter a revision to view details');
+        await input.fill('base-bm');
+        const bmItem = page.locator(`[data-testid="quick-pick-item-${ids.bookmarked.changeId}"]`);
+        await expect(bmItem).toBeVisible();
+        await page.keyboard.press('Enter');
+
+        await expect(widget).toHaveCount(0);
+        await expect(detailsView).toBeVisible({ timeout: 5000 });
+        await expect(detailsView.locator('.commit-textarea')).toHaveValue('feat: bookmarked ancestor');
+
+        // 2. Enter an arbitrary commit SHA not matched in the list via acceptCustomValue
+        await page.keyboard.press('Control+Shift+P');
+        await expect(widget).toBeVisible();
+        await input.fill('Show Details');
+        await expect(showDetailsCmd).toBeVisible();
+        await page.keyboard.press('Enter');
+
+        await expect(input).toHaveAttribute('placeholder', 'Select or enter a revision to view details');
+        await input.fill(ids.target.commitId);
+        await expect(page.locator('[data-testid="quick-pick-no-results"]')).toBeVisible();
+        await page.keyboard.press('Enter');
+
+        await expect(widget).toHaveCount(0);
+        await expect(detailsView.locator('.commit-textarea')).toHaveValue('feat: target by sha');
     });
 });

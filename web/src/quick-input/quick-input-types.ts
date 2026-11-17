@@ -12,6 +12,7 @@ export interface QuickPickItem<T = unknown> {
     filterText?: string;
     value?: T;
     alwaysShow?: boolean;
+    isCustom?: boolean;
 }
 
 export type InputBoxValidationMessage = string | null | undefined;

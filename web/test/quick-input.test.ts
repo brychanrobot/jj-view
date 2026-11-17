@@ -169,6 +169,55 @@ describe('WebHostUi Integration with QuickInputService', () => {
             quickInput.accept(quickInput.activeSession.options.items[0]);
         }
         expect(await pickPromise).toEqual({ label: 'Alpha', value: '1' });
+
+        // Picking an existing list item under acceptCustomValue (even via Svelte $state Proxy) returns the original item
+        const bookmarkedPromise = ui.showQuickPick(
+            [
+                {
+                    label: 'qpvunstz (main)',
+                    description: 'initial commit',
+                    value: 'qpvunstz_full_change_id',
+                },
+            ],
+            { acceptCustomValue: true },
+        );
+        if (quickInput.activeSession?.type === 'quick-pick') {
+            quickInput.accept(new Proxy(quickInput.activeSession.options.items[0], {}));
+        }
+        expect(await bookmarkedPromise).toEqual({
+            label: 'qpvunstz (main)',
+            description: 'initial commit',
+            value: 'qpvunstz_full_change_id',
+        });
+
+        // Custom value acceptance via dedicated acceptCustomValue API and raw-value accept preserves item shape
+        const customViaMethodPromise = ui.showQuickPick([{ label: 'Known', value: 'known-id' }], {
+            acceptCustomValue: true,
+        });
+        quickInput.acceptCustomValue('  deadbeef1234  ');
+        expect(await customViaMethodPromise).toMatchObject({
+            label: 'deadbeef1234',
+            value: 'deadbeef1234',
+            customValue: 'deadbeef1234',
+        });
+
+        const customPromise = ui.showQuickPick([{ label: 'Known', value: 'known-id' }], {
+            acceptCustomValue: true,
+        });
+        quickInput.accept({ id: 'deadbeef1234', label: 'deadbeef1234', value: 'deadbeef1234' });
+        const customResult = await customPromise;
+        expect(customResult).toMatchObject({
+            label: 'deadbeef1234',
+            value: 'deadbeef1234',
+            customValue: 'deadbeef1234',
+        });
+
+        // Whitespace-only custom value is rejected as undefined
+        const blankPromise = ui.showQuickPick([{ label: 'Known', value: 'known-id' }], {
+            acceptCustomValue: true,
+        });
+        quickInput.acceptCustomValue('   ');
+        expect(await blankPromise).toBeUndefined();
     });
 
     it('injects quickInput into WebHostEnvironment and connects ui', () => {
