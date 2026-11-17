@@ -117,7 +117,7 @@ The extension automatically refreshes the view when:
 
 - `JJ View: Refresh`: Refresh the current status and log.
 - `JJ View: Show Current Change`: Focus the graph on the current working copy change.
-- `JJ View: Show Details`: Open a dedicated panel with full details of the selected commit.
+- `JJ View: Show Details`: Open a dedicated panel with full details of the selected commit, or prompt for an arbitrary revision when invoked from the Command Palette.
 - `JJ View: Show Repository in JJ Log`: Focus the repository in the JJ Log view.
 - `JJ View: Focus SCM Description Input`: Focus the description input field in the Source Control view.
 - `JJ View: Undo`: Undo the last `jj` operation.

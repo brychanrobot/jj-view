@@ -13,6 +13,7 @@ import type { ScmModel } from '../../src/core/scm-model';
 import { Uri } from '../../src/core/uri-utils';
 import { buildGraph, TestRepo } from '../../src/test/test-repo';
 import type { LoggerChannel } from '../../src/utils/output-channel';
+import { createShowDetailsPayload } from '../src/commands/payloads/details.payload';
 import { createSimplifyParentsPayload } from '../src/commands/payloads/simplify-parents.payload';
 import { createSquashSelectionIntoParentPayload } from '../src/commands/payloads/squash-selection.payload';
 import { registerWebCommands } from '../src/commands/register-web-commands';
@@ -227,6 +228,57 @@ describe('registerWebCommands', () => {
 
         await hostEnvironment.commands.executeCommand('jj-view.showDetails', 'my-change-id');
         expect(openedCommitDetails).toContain('my-change-id');
+    });
+
+    it('creates showDetails payload without hardcoding @ and resolves custom or cancelled quick-pick input', async () => {
+        expect(createShowDetailsPayload([])).toEqual({ revision: undefined });
+        expect(createShowDetailsPayload(['abc'])).toEqual({ revision: 'abc' });
+
+        const { hostEnvironment, openedCommitDetails } = setupTestEnvironment();
+
+        // 1. User cancels the QuickInput prompt
+        const cancelSessionSeen = new Promise<void>((resolve) => {
+            const sub = hostEnvironment.quickInput.onDidChangeSession((session) => {
+                if (session?.type === 'quick-pick') {
+                    expect(session.options.placeHolder).toBe('Select or enter a revision to view details');
+                    expect(session.options.acceptCustomValue).toBe(true);
+                    sub.dispose();
+                    hostEnvironment.quickInput.cancel();
+                    resolve();
+                }
+            });
+        });
+
+        await Promise.all([hostEnvironment.commands.executeCommand('jj-view.showDetails'), cancelSessionSeen]);
+        expect(openedCommitDetails).toHaveLength(0);
+
+        // 2. User submits a custom arbitrary revision expression through QuickInputService.acceptCustomValue
+        const customSessionSeen = new Promise<void>((resolve) => {
+            const sub = hostEnvironment.quickInput.onDidChangeSession((session) => {
+                if (session?.type === 'quick-pick') {
+                    sub.dispose();
+                    hostEnvironment.quickInput.acceptCustomValue('custom-sha-123');
+                    resolve();
+                }
+            });
+        });
+
+        await Promise.all([hostEnvironment.commands.executeCommand('jj-view.showDetails'), customSessionSeen]);
+        expect(openedCommitDetails).toEqual(['my-change-id']);
+
+        // 3. User picks an existing list item (even when wrapped in a Proxy)
+        const existingSessionSeen = new Promise<void>((resolve) => {
+            const sub = hostEnvironment.quickInput.onDidChangeSession((session) => {
+                if (session?.type === 'quick-pick') {
+                    sub.dispose();
+                    hostEnvironment.quickInput.accept(new Proxy(session.options.items[0], {}));
+                    resolve();
+                }
+            });
+        });
+
+        await Promise.all([hostEnvironment.commands.executeCommand('jj-view.showDetails'), existingSessionSeen]);
+        expect(openedCommitDetails).toEqual(['my-change-id', 'my-change-id']);
     });
 
     it('creates squashSelectionIntoParent payload from arguments or host documents fallback', () => {

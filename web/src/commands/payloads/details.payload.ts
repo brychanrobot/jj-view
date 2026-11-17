@@ -7,6 +7,6 @@ import { extractRevision } from '../../../../src/core/commands/command-utils';
 import type { ShowDetailsPayload } from '../../../../src/core/commands/details';
 
 export function createShowDetailsPayload(args: unknown[]): ShowDetailsPayload {
-    const revision = extractRevision(args) || '@';
+    const revision = extractRevision(args);
     return { revision };
 }
