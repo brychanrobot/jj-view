@@ -133,7 +133,7 @@ jobs:
                       media/custom-icons/
                       src/core/webview/themes.generated.ts
                       media/themes.generated.css
-                  retention-days: 1
+                  retention-days: 7
 
     unit-tests:
         needs: prepare
