@@ -86,7 +86,11 @@ categories:
     tints, recessed channels, or accent borders that must work across all dark
     and light `jj-view` themes (`pierre-dark-soft`, `pierre-light-soft`,
     `github-light`, `dracula`, `catppuccin-mocha`, etc.), combine
-    `var(--vscode-...)` variables with `color-mix(in srgb, ...)`:
+    `var(--vscode-...)` variables with `color-mix(in srgb, ...)`. For small text
+    or badge foregrounds over light surfaces, verify WCAG contrast in both dark
+    and light themes by mixing accent tokens with foreground (e.g.,
+    `color-mix(in srgb, var(--vscode-charts-orange, var(--vscode-editorWarning-foreground)) 55%, var(--vscode-foreground))`)
+    and avoiding color collisions with `.status-modified`:
 
     ```css
     /* GOOD: Adapts automatically to any configured dark or light jj-view theme */
@@ -177,6 +181,8 @@ categories:
 -   **Return Resolved Relative Paths, Guard `..` / Drive Roots, Use Canonical `HostFs` Paths & Escape Filesets**: Return resolved workspace-relative paths from `HostFs.realpath` containment checks (instead of passing raw `uri.fsPath` to `JjService.toRelative`), check `rel !== '..' && !rel.startsWith('../') && !/^[a-zA-Z]:(?:$|[/\\])/.test(rel)` while halting `realpath` climbs at `/^[a-zA-Z]:([/\\])?$/`, pass `path.join(workspaceRoot, relPath)` to subsequent `HostFs` calls (`stat`/`lstat`) so `RemoteHostFs` sandbox checks operate on canonical paths, and escape exact file targets as `root-file:"..."` (with `--` after flags in `JjService.restore`).
 -   **File-Command Payload Active-Document Parity & `explorer/context` Folder Guards**: Web payload creators (`web/src/commands/payloads/`) exposed in `commandPalette` must fall back to `host?.documents.getActiveDocumentUri?.()`, VS Code payload helpers (`src/vscode/payloads/payload-helpers.ts`) must share `tabGroups?.activeTabGroup?.activeTab` resolution (`TabInputTextDiff.modified` / `TabInputCustom.uri`) before `activeTextEditor?.document.uri`, and file-mutating `explorer/context` items must include `!explorerResourceIsFolder` (plus handler directory guards) because `jj` treats bare directory paths as recursive prefix-globs.
 -   **Sync External Dirty Clears, Reset Undo/Redo & Isolate Per-Tab Reloads**: Sync `initialDirty: true -> false` in `PierreDiffViewer`/`PierreFileViewer` only when `!isSaving` (re-asserting `onDirtyChange`/`onContentChange` and re-arming `scheduleAutoSave()` if `currentContent !== savingContent` after `onSave`), reset `canUndo`/`canRedo` inside `cleanupInstances()`, and isolate `reloadOpenDocumentTabs()` with `Promise.allSettled` (checking structured `err.code === 'ENOENT'` before OS-locale message substrings).
+-   **Stop `onkeydown` Propagation on Nested Action Buttons**: Nested `<button>` elements inside `onkeydown`-handling row containers (`CommitNode.svelte`) must stop `onkeydown` propagation on `Enter`/`Space` alongside `onclick` so parent row selection never hijacks keyboard button activation.
+-   **Differentiate `404` vs Transient Errors in `AsyncCache` & Regenerate Schema Files**: Return `undefined` only on confirmed `404`/not-found responses and throw on transient HTTP/process errors so `AsyncCache` (`keepStaleOnError: true`) does not negatively cache failures; regenerate tracked generated files (`web/src/settings/package-settings.generated.ts` via `node tooling/generate-settings-schema.ts`) whenever `package.json` configuration changes.
 
 ### 4. Testing & Visual Verification Quality
 
@@ -210,6 +216,7 @@ categories:
 -   **Dispose `TestRepo` and Clear Web Notifications in `afterEach`/`finally`**: Call `await repo.dispose()` (and `hostEnvironment?.notifications.clearAll(); hostEnvironment?.dispose()` for `WebHostEnvironment`) in `afterEach`/`finally`—entering `try` immediately after `new TestRepo()` before `init()`/`buildGraph()`—so temp repos, `~/.config/jj/repos/*` entries, and 5s/8s notification timers never leak on setup errors or across tests.
 -   **Verify `QuickInput` Custom-Value Flows Through `QuickInputService` (Anti-Pattern: Spy-Only `showQuickPick` Mocks)**: Never rely solely on mocking `ui.showQuickPick` to `undefined` when testing prompt-based commands; drive `QuickInputService` (`accept(...)`) directly so `pickItems` wrapping/unwrapping and `acceptCustomValue` contracts are exercised end-to-end.
 -   **Attach Node Error Codes via `Object.assign` in Tests**: Prefer `Object.assign(new Error(...), { code: 'ENOENT' })` over `as Error & { code: string }` type assertions when constructing synthetic filesystem/process errors in tests.
+-   **Subclass `NodeHostProcess` Instead of Object-Spreading & Delete Restored `undefined` Env Vars**: When stubbing single host commands in tests, subclass `NodeHostProcess` (avoiding `{ ...baseSystem.process }`, which drops prototype methods like `execFileInScratchDir`); when restoring `process.env.KEY` in `afterEach`, `delete process.env.KEY` if the saved original value was `undefined` instead of assigning `"undefined"`.
 
 --------------------------------------------------------------------------------
 

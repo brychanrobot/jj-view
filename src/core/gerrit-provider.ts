@@ -22,7 +22,10 @@ import type {
     CommentRange,
     CommentSide,
     GitRemote,
+    UploadedFileRequest,
+    UploadedRevisionDetails,
 } from './code-forge-provider';
+import { decodeBase64ToUint8Array, verifyLocalContentSync } from './code-forge-sync-utils';
 import { type Event, EventEmitter } from './host/events';
 import type { HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
@@ -776,79 +779,30 @@ export class GerritProvider implements CodeForgeProvider {
             return 'checked';
         }
 
-        const gerritFiles = info.files;
-        let getChangesMs = 0;
-        let blobHashesMs = 0;
-        let gerritFileCount = 0;
         const syncStart = performance.now();
 
         try {
-            let localChanges = changes;
-            if (!localChanges) {
-                const changesStart = performance.now();
-                localChanges = await jj.getChanges(commitId);
-                getChangesMs = performance.now() - changesStart;
+            const verified = await verifyLocalContentSync({
+                commitId,
+                description,
+                info,
+                jj,
+                changes,
+                normalizeDescription: stripGerritTrailers,
+            });
+            if (verified !== undefined) {
+                this.setContentSyncCache(syncCacheKey, verified);
             }
-            const localPaths = new Set(localChanges.filter((c) => c.status !== 'deleted').map((c) => c.path));
-            const localDeletedPaths = new Set<string>();
-            for (const c of localChanges) {
-                if (c.status === 'deleted' && !localPaths.has(c.path)) {
-                    localDeletedPaths.add(c.path);
-                } else if (c.status === 'renamed' && c.oldPath && !localPaths.has(c.oldPath)) {
-                    localDeletedPaths.add(c.oldPath);
-                }
-            }
-
-            const gerritPaths = Object.keys(gerritFiles).filter((p) => gerritFiles[p].status !== 'D');
-            gerritFileCount = gerritPaths.length;
-            const gerritPathSet = new Set(gerritPaths);
-            const gerritDeletedPaths = new Set<string>();
-            for (const [p, f] of Object.entries(gerritFiles)) {
-                if (f.status === 'D' && !gerritPathSet.has(p)) {
-                    gerritDeletedPaths.add(p);
-                } else if (f.status === 'R' && f.oldPath && !gerritPathSet.has(f.oldPath)) {
-                    gerritDeletedPaths.add(f.oldPath);
-                }
-            }
-
-            if (
-                localPaths.difference(gerritPathSet).size > 0 ||
-                gerritPathSet.difference(localPaths).size > 0 ||
-                localDeletedPaths.difference(gerritDeletedPaths).size > 0 ||
-                gerritDeletedPaths.difference(localDeletedPaths).size > 0
-            ) {
-                this.setContentSyncCache(syncCacheKey, false);
-                return 'checked';
-            }
-
-            if (gerritPaths.length > 0) {
-                const hashesStart = performance.now();
-                const localHashes = await jj.getGitBlobHashes(commitId, gerritPaths);
-                blobHashesMs = performance.now() - hashesStart;
-
-                for (const file of gerritPaths) {
-                    const gerritFile = gerritFiles[file];
-                    const localSha = localHashes.get(file);
-
-                    if (!localSha || localSha !== gerritFile.newSha) {
-                        this.setContentSyncCache(syncCacheKey, false);
-                        return 'checked';
-                    }
-                }
-            }
-
-            this.setContentSyncCache(syncCacheKey, true);
             return 'checked';
         } catch (e) {
             this.outputChannel?.error(`[GerritProvider] Content sync verification failed for ${commitId}: ${e}`);
             return 'checked';
         } finally {
             const totalMs = performance.now() - syncStart;
-            if (getChangesMs > 0 || blobHashesMs > 0) {
-                this.outputChannel?.info(
-                    `[timing] [Gerrit] local diff/hashes for ${commitId.slice(0, 8)} took ${totalMs.toFixed(0)}ms (${getChangesMs.toFixed(0)}ms diff, ${blobHashesMs.toFixed(0)}ms ls-tree, ${gerritFileCount} files)`,
-                );
-            }
+            const fileCount = Object.keys(info.files).filter((p) => info.files?.[p]?.status !== 'D').length;
+            this.outputChannel?.info(
+                `[timing] [Gerrit] local diff/hashes for ${commitId.slice(0, 8)} took ${totalMs.toFixed(0)}ms (${fileCount} files)`,
+            );
         }
     }
 
@@ -1338,19 +1292,61 @@ export class GerritProvider implements CodeForgeProvider {
         this._onDidUpdate.fire();
     }
 
-    public async getUploadedFileContent(
-        changeNumber: number,
-        revisionId: string,
-        filePath: string,
-    ): Promise<Uint8Array | undefined> {
+    public normalizeDescription(description: string): string {
+        return stripGerritTrailers(description);
+    }
+
+    public async fetchUploadedRevisionDetails(info: CodeForgeChangeInfo): Promise<UploadedRevisionDetails | undefined> {
+        if (info.files !== undefined) {
+            return {
+                files: info.files,
+                remoteDescription: info.remoteDescription,
+            };
+        }
         if (!this.gerritHost) {
             return undefined;
         }
-        const cleanPath = filePath.replace(/^\/+/, '');
-        const cacheKey = `${changeNumber}:${revisionId}:${cleanPath}`;
+        const changeRef = info.number > 0 ? String(info.number) : encodeURIComponent(info.id);
+        const url = `${this.gerritHost}/changes/${changeRef}/?o=CURRENT_REVISION&o=CURRENT_FILES&o=CURRENT_COMMIT`;
+        const response = await this.fetchGerrit(url);
+        if (response.status === 404) {
+            return undefined;
+        }
+        if (!response.ok) {
+            throw new Error(`Gerrit change details request failed with status ${response.status}`);
+        }
+        const rawText = await response.text();
+        const parsedJson = parseGerritJsonResponse<unknown>(rawText);
+        const validation = GerritChangeSchema.safeParse(parsedJson);
+        if (!validation.success) {
+            throw new Error(`Validation failed for Gerrit change details: ${validation.error.message}`);
+        }
+        const parsedInfo = this.parseGerritChange(validation.data);
+        if (!parsedInfo || parsedInfo.files === undefined) {
+            return undefined;
+        }
+        return {
+            files: parsedInfo.files,
+            remoteDescription: parsedInfo.remoteDescription,
+        };
+    }
+
+    public async getUploadedFileContent(request: UploadedFileRequest): Promise<Uint8Array | undefined> {
+        if (!this.gerritHost) {
+            return undefined;
+        }
+        const changeRef =
+            request.changeNumber !== undefined && request.changeNumber > 0
+                ? String(request.changeNumber)
+                : encodeURIComponent(request.changeId);
+        if (!changeRef) {
+            return undefined;
+        }
+        const cleanPath = request.filePath.replace(/^\/+/, '');
+        const cacheKey = `${changeRef}:${request.revisionId}:${cleanPath}`;
         return this.uploadedFileContentCache.getOrFetch(cacheKey, async () => {
             const encodedPath = cleanPath === 'COMMIT_MSG' ? '%2FCOMMIT_MSG' : encodeURIComponent(cleanPath);
-            const url = `${this.gerritHost}/changes/${changeNumber}/revisions/${encodeURIComponent(revisionId)}/files/${encodedPath}/content`;
+            const url = `${this.gerritHost}/changes/${changeRef}/revisions/${encodeURIComponent(request.revisionId)}/files/${encodedPath}/content`;
             const response = await this.fetchGerrit(url);
             if (response.status === 404) {
                 return undefined;
@@ -1359,8 +1355,7 @@ export class GerritProvider implements CodeForgeProvider {
                 throw new Error(`Gerrit file content request failed with status ${response.status}`);
             }
             const base64 = await response.text();
-            const cleaned = base64.replace(/\s+/g, '');
-            return Uint8Array.from(atob(cleaned), (c) => c.charCodeAt(0));
+            return decodeBase64ToUint8Array(base64);
         });
     }
 

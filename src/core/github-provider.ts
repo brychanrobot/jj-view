@@ -5,6 +5,9 @@
 
 import { z } from 'zod';
 import { chunkArray } from '../utils/array-utils';
+import { AsyncCache } from '../utils/async-cache';
+import { Duration } from '../utils/duration';
+import { LruCache } from '../utils/lru-cache';
 import type { LoggerChannel } from '../utils/output-channel';
 import type { AuthCredential, AuthResult, CodeForgeAuthManager } from './code-forge-auth';
 import type {
@@ -16,7 +19,15 @@ import type {
     GitRemote,
     StackCommitNode,
     StackSyncResult,
+    UploadedFileRequest,
+    UploadedRevisionDetails,
+    UploadedRevisionFile,
 } from './code-forge-provider';
+import {
+    decodeBase64ToUint8Array,
+    getBookmarkCachedChangeInfo,
+    resolveUploadedAndVerifyBookmarkSync,
+} from './code-forge-sync-utils';
 import { type Event, EventEmitter } from './host/events';
 import type { HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
@@ -29,6 +40,8 @@ export const GitHubPrNodeSchema = z.object({
     mergeable: z.string(),
     reviewDecision: z.string().nullable().optional(),
     url: z.string(),
+    baseRefName: z.string().nullable().optional(),
+    baseRefOid: z.string().nullable().optional(),
     headRepository: z
         .object({
             owner: z.object({
@@ -280,6 +293,26 @@ export const GitHubStackRecordSchema = z.object({
 });
 export type GitHubStackRecord = z.infer<typeof GitHubStackRecordSchema>;
 
+const GitHubPullRequestFileSchema = z.object({
+    filename: z.string(),
+    previous_filename: z.string().optional(),
+    status: z.string(),
+    sha: z.string().nullable().optional(),
+});
+
+const GitHubBlobResponseSchema = z.object({
+    content: z.string().optional(),
+    encoding: z.string().optional(),
+});
+
+const GITHUB_STATUS_MAP: Readonly<Record<string, string>> = {
+    added: 'A',
+    removed: 'D',
+    renamed: 'R',
+    copied: 'C',
+    modified: 'M',
+};
+
 export class GitHubProvider implements CodeForgeProvider {
     public readonly id = 'github';
     public readonly displayName = 'GitHub';
@@ -289,6 +322,18 @@ export class GitHubProvider implements CodeForgeProvider {
     public readonly isAuthManageable = true;
 
     private cache = new Map<string, CodeForgeChangeInfo>();
+    private contentSyncCache = new LruCache<string, boolean>({ maxEntries: 500 });
+    private prOwnerRepoByKey = new LruCache<string, { owner: string; repo: string }>({ maxEntries: 500 });
+    private uploadedDetailsCache = new AsyncCache<string, UploadedRevisionDetails | undefined>({
+        ttl: Duration.minutes(5),
+        maxEntries: 200,
+        keepStaleOnError: true,
+    });
+    private uploadedBlobCache = new AsyncCache<string, Uint8Array | undefined>({
+        ttl: Duration.minutes(10),
+        maxEntries: 200,
+        keepStaleOnError: true,
+    });
     private owner: string | undefined;
     private repo: string | undefined;
     private allowedOwners = new Set<string>();
@@ -397,30 +442,25 @@ export class GitHubProvider implements CodeForgeProvider {
         bookmarks?: string[],
         commitId?: string,
     ): CodeForgeChangeInfo | undefined {
-        if (bookmarks && bookmarks.length > 0) {
-            for (const bookmark of bookmarks) {
-                const info = this.cache.get(bookmark);
-                if (info) {
-                    const contentSynced = commitId ? commitId === info.currentRevision : undefined;
-                    return { ...info, contentSynced };
-                }
-            }
-        }
-        return undefined;
+        return getBookmarkCachedChangeInfo(this.cache, this.contentSyncCache, bookmarks, commitId);
     }
 
-    public async fetchStatuses(changes: ChangeStatusRequest[], _jj: JjService): Promise<boolean> {
+    public async fetchStatuses(changes: ChangeStatusRequest[], jj: JjService): Promise<boolean> {
         if (!this.owner || !this.repo || changes.length === 0) {
             return false;
         }
 
         const bookmarkNames = new Set<string>();
         const bookmarkToCommitId = new Map<string, string>();
+        const bookmarkToChanges = new Map<string, ChangeStatusRequest[]>();
         for (const change of changes) {
             if (change.bookmarks) {
                 for (const bookmark of change.bookmarks) {
                     bookmarkNames.add(bookmark);
                     bookmarkToCommitId.set(bookmark, change.commitId);
+                    const list = bookmarkToChanges.get(bookmark) ?? [];
+                    list.push(change);
+                    bookmarkToChanges.set(bookmark, list);
                 }
             }
         }
@@ -443,6 +483,28 @@ export class GitHubProvider implements CodeForgeProvider {
                     const oldInfo = this.cache.get(bookmark);
 
                     if (info) {
+                        const target = this.resolvePrOwnerRepo(info);
+                        if (target) {
+                            if (info.id) {
+                                this.prOwnerRepoByKey.set(info.id, target);
+                            }
+                            if (info.number > 0) {
+                                this.prOwnerRepoByKey.set(String(info.number), target);
+                            }
+                        }
+
+                        const syncChanged = await resolveUploadedAndVerifyBookmarkSync({
+                            provider: this,
+                            info,
+                            matchingChanges: bookmarkToChanges.get(bookmark) ?? [],
+                            jj,
+                            contentSyncCache: this.contentSyncCache,
+                            normalizeDescription: (desc) => desc.trim(),
+                        });
+                        if (syncChanged) {
+                            changed = true;
+                        }
+
                         this.cache.set(bookmark, info);
                     } else {
                         this.cache.delete(bookmark);
@@ -451,9 +513,11 @@ export class GitHubProvider implements CodeForgeProvider {
                     if (
                         oldInfo?.status !== info?.status ||
                         oldInfo?.currentRevision !== info?.currentRevision ||
+                        oldInfo?.remoteBaseRevision !== info?.remoteBaseRevision ||
                         oldInfo?.submittable !== info?.submittable ||
                         oldInfo?.unresolvedComments !== info?.unresolvedComments ||
                         oldInfo?.remoteDescription !== info?.remoteDescription ||
+                        JSON.stringify(oldInfo?.files) !== JSON.stringify(info?.files) ||
                         JSON.stringify(oldInfo?.remoteParents) !== JSON.stringify(info?.remoteParents)
                     ) {
                         changed = true;
@@ -501,6 +565,8 @@ export class GitHubProvider implements CodeForgeProvider {
                     url
                     mergeable
                     reviewDecision
+                    baseRefName
+                    baseRefOid
                     headRefName
                     headRepository {
                         owner {
@@ -650,7 +716,173 @@ export class GitHubProvider implements CodeForgeProvider {
             currentRevision,
             remoteParents,
             remoteDescription,
+            remoteBaseRevision: pr.baseRefOid ?? undefined,
+            remoteBaseRefName: pr.baseRefName ?? undefined,
         };
+    }
+
+    private resolvePrOwnerRepo(info?: { url?: string }): { owner: string; repo: string } | undefined {
+        if (info?.url) {
+            const match = /^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\/pull\/\d+/.exec(info.url);
+            if (match) {
+                return { owner: match[1], repo: match[2] };
+            }
+        }
+        if (this.owner && this.repo) {
+            return { owner: this.owner, repo: this.repo };
+        }
+        return undefined;
+    }
+
+    public async fetchUploadedRevisionDetails(info: CodeForgeChangeInfo): Promise<UploadedRevisionDetails | undefined> {
+        if (info.files !== undefined) {
+            return { files: info.files, remoteDescription: info.remoteDescription };
+        }
+        if (!info.currentRevision || info.number <= 0) {
+            return undefined;
+        }
+        const target = this.resolvePrOwnerRepo(info);
+        if (!target) {
+            return undefined;
+        }
+        if (info.id) {
+            this.prOwnerRepoByKey.set(info.id, target);
+        }
+        this.prOwnerRepoByKey.set(String(info.number), target);
+
+        const credential = await this.getSessionCredential();
+        if (!credential) {
+            return undefined;
+        }
+
+        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
+        const restBaseUrl = this.getRestApiBaseUrl(apiUrl);
+        const cacheKey = `${target.owner}/${target.repo}#${info.number}@${info.currentRevision}:${info.remoteBaseRevision ?? ''}`;
+
+        return this.uploadedDetailsCache.getOrFetch(cacheKey, async () => {
+            const files: Record<string, UploadedRevisionFile> = {};
+            for (let page = 1; page <= 10; page++) {
+                const endpoint = `${restBaseUrl}/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/pulls/${info.number}/files?per_page=100&page=${page}`;
+                const response = await this.githubFetch(endpoint, credential, {
+                    method: 'GET',
+                    headers: {
+                        Accept: 'application/vnd.github+json',
+                        'X-GitHub-Api-Version': '2022-11-28',
+                    },
+                });
+                if (response.status === 401) {
+                    await this.clearInvalidCredential(credential);
+                    throw new Error('GitHub PR files request failed: 401 Unauthorized');
+                }
+                if (response.status === 404) {
+                    return page === 1 ? undefined : { files, remoteDescription: info.remoteDescription };
+                }
+                if (!response.ok) {
+                    throw new Error(`GitHub PR files request failed with status ${response.status}`);
+                }
+
+                const rawJson: unknown = await response.json();
+                const parsed = z.array(GitHubPullRequestFileSchema).safeParse(rawJson);
+                if (!parsed.success) {
+                    throw new Error(`Failed to parse GitHub PR files response: ${parsed.error.message}`);
+                }
+
+                for (const item of parsed.data) {
+                    const mappedStatus = GITHUB_STATUS_MAP[item.status] ?? 'M';
+                    files[item.filename] = {
+                        status: mappedStatus,
+                        newSha: item.status === 'removed' ? undefined : (item.sha ?? undefined),
+                        ...(item.previous_filename ? { oldPath: item.previous_filename } : {}),
+                    };
+                }
+
+                if (parsed.data.length < 100) {
+                    break;
+                }
+            }
+
+            return {
+                files,
+                remoteDescription: info.remoteDescription,
+            };
+        });
+    }
+
+    public async getUploadedFileContent(request: UploadedFileRequest): Promise<Uint8Array | undefined> {
+        const cachedInfo = Array.from(this.cache.values()).find(
+            (entry) =>
+                entry.id === request.changeId ||
+                (request.changeNumber !== undefined && entry.number === request.changeNumber),
+        );
+        const mappedTarget =
+            this.prOwnerRepoByKey.get(request.changeId) ??
+            (request.changeNumber !== undefined && request.changeNumber > 0
+                ? this.prOwnerRepoByKey.get(String(request.changeNumber))
+                : undefined);
+        const target = cachedInfo ? this.resolvePrOwnerRepo(cachedInfo) : (mappedTarget ?? this.resolvePrOwnerRepo());
+        if (!target) {
+            return undefined;
+        }
+        const credential = await this.getSessionCredential();
+        if (!credential) {
+            return undefined;
+        }
+
+        const cleanPath = request.filePath.replace(/^\/+/, '');
+        const apiUrl = process.env.JJ_VIEW_GITHUB_API_URL || 'https://api.github.com/graphql';
+        const restBaseUrl = this.getRestApiBaseUrl(apiUrl);
+        const cacheKey = `${target.owner}/${target.repo}:${request.revisionId}:${cleanPath}:${request.blobSha ?? ''}`;
+
+        return this.uploadedBlobCache.getOrFetch(cacheKey, async () => {
+            if (request.blobSha && /^[0-9a-fA-F]{4,64}$/.test(request.blobSha)) {
+                const blobUrl = `${restBaseUrl}/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/git/blobs/${request.blobSha}`;
+                const blobResp = await this.githubFetch(blobUrl, credential, {
+                    method: 'GET',
+                    headers: {
+                        Accept: 'application/vnd.github+json',
+                        'X-GitHub-Api-Version': '2022-11-28',
+                    },
+                });
+                if (blobResp.status === 401) {
+                    await this.clearInvalidCredential(credential);
+                    throw new Error('GitHub git blob request failed: 401 Unauthorized');
+                }
+                if (blobResp.ok) {
+                    const rawBlob: unknown = await blobResp.json();
+                    const parsedBlob = GitHubBlobResponseSchema.safeParse(rawBlob);
+                    if (
+                        parsedBlob.success &&
+                        parsedBlob.data.encoding === 'base64' &&
+                        parsedBlob.data.content !== undefined
+                    ) {
+                        return decodeBase64ToUint8Array(parsedBlob.data.content);
+                    }
+                } else if (blobResp.status !== 404) {
+                    throw new Error(`GitHub git blob request failed with status ${blobResp.status}`);
+                }
+            }
+
+            const encodedPath = cleanPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+            const contentsUrl = `${restBaseUrl}/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/contents/${encodedPath}?ref=${encodeURIComponent(request.revisionId)}`;
+            const contentsResp = await this.githubFetch(contentsUrl, credential, {
+                method: 'GET',
+                headers: {
+                    Accept: 'application/vnd.github.raw+json',
+                    'X-GitHub-Api-Version': '2022-11-28',
+                },
+            });
+            if (contentsResp.status === 401) {
+                await this.clearInvalidCredential(credential);
+                throw new Error('GitHub file content request failed: 401 Unauthorized');
+            }
+            if (contentsResp.status === 404) {
+                return undefined;
+            }
+            if (!contentsResp.ok) {
+                throw new Error(`GitHub file content request failed with status ${contentsResp.status}`);
+            }
+            return new Uint8Array(await contentsResp.arrayBuffer());
+        });
     }
 
     public getUploadCommand(
@@ -1455,6 +1687,10 @@ export class GitHubProvider implements CodeForgeProvider {
 
     public clearCache(): void {
         this.cache.clear();
+        this.contentSyncCache.clear();
+        this.prOwnerRepoByKey.clear();
+        void this.uploadedDetailsCache.clear();
+        void this.uploadedBlobCache.clear();
         this.forkCheck = undefined;
         this._onDidUpdate.fire();
     }

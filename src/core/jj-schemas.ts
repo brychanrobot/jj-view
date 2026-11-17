@@ -137,6 +137,10 @@ export const CodeForgeChangeInfoSchema = z.object({
     remoteParents: z.array(z.string()).optional(),
     /** The full commit message of the current remote revision */
     remoteDescription: z.string().optional(),
+    /** The base commit SHA of the PR/MR/change on the remote forge */
+    remoteBaseRevision: z.string().optional(),
+    /** The target/base branch name of the PR/MR on the remote forge */
+    remoteBaseRefName: z.string().optional(),
     /** Whether the file contents match exactly between local and remote */
     contentSynced: z.boolean().optional(),
 });

@@ -1237,16 +1237,36 @@ describe('GerritProvider', () => {
             server.registerFileContent(123, 'rev-1', 'src/logo.png', pngBytes);
             server.registerTextFileContent(123, 'rev-1', '/COMMIT_MSG', 'Remote commit message');
 
-            const logoBytes = await provider.getUploadedFileContent(123, 'rev-1', '/src/logo.png');
+            const logoBytes = await provider.getUploadedFileContent({
+                changeId: 'I12345',
+                changeNumber: 123,
+                revisionId: 'rev-1',
+                filePath: '/src/logo.png',
+            });
             expect(logoBytes).toEqual(pngBytes);
 
-            const commitMsgBytes = await provider.getUploadedFileContent(123, 'rev-1', 'COMMIT_MSG');
+            const commitMsgBytes = await provider.getUploadedFileContent({
+                changeId: 'I12345',
+                changeNumber: 123,
+                revisionId: 'rev-1',
+                filePath: 'COMMIT_MSG',
+            });
             expect(new TextDecoder().decode(commitMsgBytes)).toBe('Remote commit message');
             expect(server.requests.some((r) => r.includes('/files/%2FCOMMIT_MSG/content'))).toBe(true);
 
             // 404 returns undefined and is cached
-            const missing1 = await provider.getUploadedFileContent(123, 'rev-1', 'missing.txt');
-            const missing2 = await provider.getUploadedFileContent(123, 'rev-1', 'missing.txt');
+            const missing1 = await provider.getUploadedFileContent({
+                changeId: 'I12345',
+                changeNumber: 123,
+                revisionId: 'rev-1',
+                filePath: 'missing.txt',
+            });
+            const missing2 = await provider.getUploadedFileContent({
+                changeId: 'I12345',
+                changeNumber: 123,
+                revisionId: 'rev-1',
+                filePath: 'missing.txt',
+            });
             expect(missing1).toBeUndefined();
             expect(missing2).toBeUndefined();
             expect(server.requests.filter((r) => r.includes('missing.txt'))).toHaveLength(1);
@@ -1254,10 +1274,22 @@ describe('GerritProvider', () => {
             // Transient 500 throws and is NOT negatively cached
             server.registerTextFileContent(123, 'rev-1', 'flaky.txt', 'recovered content');
             server.failFileContentWithStatus = 500;
-            await expect(provider.getUploadedFileContent(123, 'rev-1', 'flaky.txt')).rejects.toThrow(/status 500/);
+            await expect(
+                provider.getUploadedFileContent({
+                    changeId: 'I12345',
+                    changeNumber: 123,
+                    revisionId: 'rev-1',
+                    filePath: 'flaky.txt',
+                }),
+            ).rejects.toThrow(/status 500/);
 
             server.failFileContentWithStatus = undefined;
-            const recovered = await provider.getUploadedFileContent(123, 'rev-1', 'flaky.txt');
+            const recovered = await provider.getUploadedFileContent({
+                changeId: 'I12345',
+                changeNumber: 123,
+                revisionId: 'rev-1',
+                filePath: 'flaky.txt',
+            });
             expect(new TextDecoder().decode(recovered)).toBe('recovered content');
         });
     });

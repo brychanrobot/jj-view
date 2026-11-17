@@ -5,6 +5,13 @@
 
 import * as http from 'node:http';
 
+export interface FakePrFile {
+    filename: string;
+    previous_filename?: string;
+    status: string;
+    sha?: string | null;
+}
+
 export interface FakePrInfo {
     id: string;
     number: number;
@@ -12,10 +19,13 @@ export interface FakePrInfo {
     mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
     url: string;
     baseRefName?: string;
+    baseRefOid?: string;
+    commitMessage?: string;
     currentRevision?: string;
     remoteParents?: string[];
     unresolvedComments?: number;
     headOwner?: string;
+    files?: FakePrFile[];
 }
 
 export interface FakeComment {
@@ -43,6 +53,7 @@ interface GqlPrNode {
     mergeable: string;
     url: string;
     baseRefName?: string;
+    baseRefOid?: string;
     headRefName?: string;
     headRepository?: {
         owner?: {
@@ -102,7 +113,10 @@ export class FakeGitHubServer {
     private prs = new Map<string, FakePrInfo[]>();
     private parentPrs = new Map<string, FakePrInfo[]>(); // PRs in the parent repo, visible only when isFork
     private threads = new Map<string, FakeReviewThread[]>(); // prId -> FakeReviewThread[]
+    private blobs = new Map<string, Uint8Array>();
+    private contents = new Map<string, Uint8Array>(); // `${rev}:${filePath}`
     private server: http.Server | undefined;
+    public failRestWithStatus: number | undefined;
     public url = '';
     public requests: { url: string; body: string }[] = [];
     public createdPrs: Array<{
@@ -139,6 +153,22 @@ export class FakeGitHubServer {
         this.threads.set(prId, threads);
     }
 
+    public registerBlob(sha: string, content: Uint8Array) {
+        this.blobs.set(sha, content);
+    }
+
+    public registerTextBlob(sha: string, content: string) {
+        this.blobs.set(sha, new TextEncoder().encode(content));
+    }
+
+    public registerContent(revisionId: string, filePath: string, content: Uint8Array) {
+        this.contents.set(`${revisionId}:${filePath}`, content);
+    }
+
+    public registerTextContent(revisionId: string, filePath: string, content: string) {
+        this.contents.set(`${revisionId}:${filePath}`, new TextEncoder().encode(content));
+    }
+
     public clear() {
         this.requests = [];
         this.createdPrs = [];
@@ -149,9 +179,12 @@ export class FakeGitHubServer {
         this.stacksResponseStatus = 201;
         this.defaultBranch = 'main';
         this.isFork = false;
+        this.failRestWithStatus = undefined;
         this.prs.clear();
         this.parentPrs.clear();
         this.threads.clear();
+        this.blobs.clear();
+        this.contents.clear();
     }
 
     public clearRequests() {
@@ -174,6 +207,78 @@ export class FakeGitHubServer {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(this.stacks));
                 return;
+            }
+
+            if (req.method === 'GET') {
+                this.requests.push({ url: urlStr, body: '' });
+                if (this.failRestWithStatus) {
+                    res.writeHead(this.failRestWithStatus, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ message: 'REST error' }));
+                    return;
+                }
+
+                const urlObj = new URL(urlStr, `http://${req.headers.host || 'localhost'}`);
+                const pathname = urlObj.pathname;
+
+                const prFilesMatch = pathname.match(/\/repos\/[^/]+\/[^/]+\/pulls\/(\d+)\/files$/);
+                if (prFilesMatch) {
+                    const prNum = parseInt(prFilesMatch[1], 10);
+                    const allPrs = [
+                        ...Array.from(this.prs.values()).flat(),
+                        ...Array.from(this.parentPrs.values()).flat(),
+                    ];
+                    const found = allPrs.find((p) => p.number === prNum);
+                    if (!found) {
+                        res.writeHead(404);
+                        res.end('Not Found');
+                        return;
+                    }
+                    const allFiles = found.files ?? [];
+                    const perPage = Number(urlObj.searchParams.get('per_page') || '100');
+                    const page = Math.max(1, Number(urlObj.searchParams.get('page') || '1'));
+                    const start = (page - 1) * perPage;
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(allFiles.slice(start, start + perPage)));
+                    return;
+                }
+
+                const blobMatch = pathname.match(/\/repos\/[^/]+\/[^/]+\/git\/blobs\/([0-9a-fA-F]+)$/);
+                if (blobMatch) {
+                    const bytes = this.blobs.get(blobMatch[1]);
+                    if (!bytes) {
+                        res.writeHead(404);
+                        res.end('Not Found');
+                        return;
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(
+                        JSON.stringify({
+                            sha: blobMatch[1],
+                            encoding: 'base64',
+                            content: Buffer.from(bytes).toString('base64'),
+                            size: bytes.length,
+                        }),
+                    );
+                    return;
+                }
+
+                const contentsMatch = pathname.match(/\/repos\/[^/]+\/[^/]+\/contents\/(.+)$/);
+                if (contentsMatch) {
+                    const filePath = contentsMatch[1]
+                        .split('/')
+                        .map((seg) => decodeURIComponent(seg))
+                        .join('/');
+                    const ref = urlObj.searchParams.get('ref') || '';
+                    const bytes = this.contents.get(`${ref}:${filePath}`);
+                    if (!bytes) {
+                        res.writeHead(404);
+                        res.end('Not Found');
+                        return;
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+                    res.end(Buffer.from(bytes));
+                    return;
+                }
             }
 
             if (req.method === 'POST') {
@@ -531,6 +636,7 @@ export class FakeGitHubServer {
             mergeable: pr.mergeable,
             url: pr.url,
             baseRefName: pr.baseRefName || 'main',
+            baseRefOid: pr.baseRefOid,
             headRefName: bookmarkName,
             headRepository: {
                 owner: {
@@ -554,7 +660,7 @@ export class FakeGitHubServer {
                     {
                         commit: {
                             oid: pr.currentRevision,
-                            message: 'Mock PR Commit Description',
+                            message: pr.commitMessage ?? 'Mock PR Commit Description',
                             parents: {
                                 nodes: parentNodes,
                             },

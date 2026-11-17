@@ -6,8 +6,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { AuthCredential, CodeForgeAuthManager } from '../core/code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest, StackCommitNode } from '../core/code-forge-provider';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { CodeForgeService } from '../core/code-forge-service';
+import { computeUnuploadedComparison } from '../core/commands/compare-with-uploaded';
 import { GitHubProvider } from '../core/github-provider';
 import type { HostSecrets } from '../core/host/host-environment';
+import type { JjRepository } from '../core/jj-repository';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { FakeHostEnvironment } from './fake-host-environment';
@@ -699,7 +703,11 @@ describe('GitHubProvider', () => {
 
         afterEach(async () => {
             await server.stop();
-            process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+            if (originalApiUrl === undefined) {
+                delete process.env.JJ_VIEW_GITHUB_API_URL;
+            } else {
+                process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+            }
         });
 
         test('getCommentThreads fetches threads from GitHub', async () => {
@@ -972,7 +980,11 @@ describe('GitHubProvider', () => {
 
         afterEach(async () => {
             await server.stop();
-            process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+            if (originalApiUrl === undefined) {
+                delete process.env.JJ_VIEW_GITHUB_API_URL;
+            } else {
+                process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+            }
         });
 
         test('creates chained PRs when none exist', async () => {
@@ -1379,7 +1391,11 @@ describe('GitHubProvider', () => {
         afterEach(async () => {
             await server.stop();
             await testRepo.dispose();
-            process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+            if (originalApiUrl === undefined) {
+                delete process.env.JJ_VIEW_GITHUB_API_URL;
+            } else {
+                process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+            }
         });
 
         test('omits the parent block for a repo that is not a fork', async () => {
@@ -1583,6 +1599,471 @@ describe('GitHubProvider', () => {
 
             expect(provider.getCachedChangeInfo(undefined, undefined, ['a}b'])?.number).toBe(4);
             expect(provider.getCachedChangeInfo(undefined, undefined, ['c{d'])?.number).toBe(5);
+        });
+    });
+
+    describe('Uploaded revision comparison & rebase-aware content sync', () => {
+        let server: FakeGitHubServer;
+        let testRepo: TestRepo;
+        let jj: JjService;
+        let originalApiUrl: string | undefined;
+
+        beforeEach(async () => {
+            testRepo = new TestRepo();
+            testRepo.init();
+            testRepo.addRemote('origin', 'https://github.com/test-owner/test-repo.git');
+            jj = new JjService(testRepo.path, NO_OP_LOGGER);
+            server = new FakeGitHubServer();
+            await server.start();
+            originalApiUrl = process.env.JJ_VIEW_GITHUB_API_URL;
+            process.env.JJ_VIEW_GITHUB_API_URL = server.url;
+            setPrivate(provider, 'owner', 'test-owner');
+            setPrivate(provider, 'repo', 'test-repo');
+        });
+
+        afterEach(async () => {
+            await server.stop();
+            await testRepo.dispose();
+            if (originalApiUrl === undefined) {
+                delete process.env.JJ_VIEW_GITHUB_API_URL;
+            } else {
+                process.env.JJ_VIEW_GITHUB_API_URL = originalApiUrl;
+            }
+        });
+
+        test('populates remoteBaseRevision and keeps contentSynced true after clean rebase via local git store', async () => {
+            testRepo.new(['root()'], 'base 1');
+            testRepo.writeFile('base.txt', 'v1\n');
+            const base1Sha = testRepo.getCommitId('@');
+            testRepo.bookmark('main', base1Sha);
+
+            testRepo.new([base1Sha], 'Feat title\n\nFeat body');
+            testRepo.writeFile('a.ts', 'export const a = 1;\n');
+            const featOrig = testRepo.getChangeAndCommitId('@');
+            const uploadedSha = featOrig.commitId;
+            testRepo.bookmark('feat-bm', '@');
+
+            testRepo.new([base1Sha], 'upstream advance');
+            testRepo.writeFile('upstream.ts', 'export const upstream = true;\n');
+            const base2Sha = testRepo.getCommitId('@');
+            testRepo.bookmarkMove('main', base2Sha);
+
+            testRepo.rebase({ revision: featOrig.changeId, destination: base2Sha });
+            const [rebasedEntry] = await jj.getLog({ revision: featOrig.changeId, limit: 1, omitChanges: false });
+            expect(rebasedEntry).toBeDefined();
+            expect(rebasedEntry.commit_id).not.toBe(uploadedSha);
+
+            server.registerPR('feat-bm', {
+                id: 'PR_sync_1',
+                number: 101,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/test-owner/test-repo/pull/101',
+                baseRefName: 'main',
+                baseRefOid: base1Sha,
+                remoteParents: [base1Sha],
+                currentRevision: uploadedSha,
+                commitMessage: 'Feat title\n\nFeat body',
+                headOwner: 'test-owner',
+            });
+
+            await provider.fetchStatuses(
+                [
+                    {
+                        commitId: rebasedEntry.commit_id,
+                        changeId: rebasedEntry.change_id,
+                        description: rebasedEntry.description,
+                        bookmarks: ['feat-bm'],
+                        parents: rebasedEntry.parents,
+                        changes: rebasedEntry.changes,
+                    },
+                ],
+                jj,
+            );
+
+            const cached = provider.getCachedChangeInfo(
+                rebasedEntry.change_id,
+                rebasedEntry.description,
+                ['feat-bm'],
+                rebasedEntry.commit_id,
+            );
+            expect(cached).toBeDefined();
+            expect(cached?.remoteBaseRevision).toBe(base1Sha);
+            expect(cached?.remoteBaseRefName).toBe('main');
+            expect(cached?.files?.['a.ts']?.newSha).toMatch(/^[0-9a-f]{40}$/);
+            expect(cached?.contentSynced).toBe(true);
+            expect(server.requests.filter((r) => r.url.includes('/pulls/'))).toEqual([]);
+
+            // Editing a file locally marks contentSynced false
+            testRepo.edit(featOrig.changeId);
+            testRepo.writeFile('a.ts', 'export const a = 2;\n');
+            const [editedEntry] = await jj.getLog({ revision: featOrig.changeId, limit: 1, omitChanges: false });
+            await provider.fetchStatuses(
+                [
+                    {
+                        commitId: editedEntry.commit_id,
+                        changeId: editedEntry.change_id,
+                        description: editedEntry.description,
+                        bookmarks: ['feat-bm'],
+                        parents: editedEntry.parents,
+                        changes: editedEntry.changes,
+                    },
+                ],
+                jj,
+            );
+
+            const editedCached = provider.getCachedChangeInfo(
+                editedEntry.change_id,
+                editedEntry.description,
+                ['feat-bm'],
+                editedEntry.commit_id,
+            );
+            expect(editedCached?.contentSynced).toBe(false);
+        });
+
+        test('supports multi-commit branch PR clean rebase and scoped computeUnuploadedComparison', async () => {
+            testRepo.new(['root()'], 'base 1');
+            testRepo.writeFile('base.txt', 'v1\n');
+            const base1Sha = testRepo.getCommitId('@');
+            testRepo.bookmark('main', base1Sha);
+
+            testRepo.new([base1Sha], 'Branch commit 1');
+            testRepo.writeFile('c1.ts', 'export const c1 = 1;\n');
+            const c1Orig = testRepo.getChangeAndCommitId('@');
+
+            testRepo.new([c1Orig.commitId], 'Branch commit 2\n\nDetails');
+            testRepo.writeFile('c2.ts', 'export const c2 = 2;\n');
+            const c2Orig = testRepo.getChangeAndCommitId('@');
+            const uploadedHeadSha = c2Orig.commitId;
+            testRepo.bookmark('branch-bm', '@');
+
+            testRepo.new([base1Sha], 'upstream advance');
+            testRepo.writeFile('upstream.ts', 'export const upstream = true;\n');
+            const base2Sha = testRepo.getCommitId('@');
+            testRepo.bookmarkMove('main', base2Sha);
+
+            testRepo.rebase({ source: c1Orig.changeId, destination: base2Sha });
+            const [rebasedC2] = await jj.getLog({ revision: c2Orig.changeId, limit: 1, omitChanges: false });
+            expect(rebasedC2).toBeDefined();
+
+            server.registerPR('branch-bm', {
+                id: 'PR_branch_1',
+                number: 102,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/test-owner/test-repo/pull/102',
+                baseRefName: 'main',
+                baseRefOid: base1Sha,
+                remoteParents: [c1Orig.commitId],
+                currentRevision: uploadedHeadSha,
+                commitMessage: 'Branch commit 2\n\nDetails',
+                headOwner: 'test-owner',
+            });
+
+            const registry = new CodeForgeRegistry();
+            registry.register({
+                id: 'github',
+                create: () => provider,
+            });
+            const codeForge = new CodeForgeService(testRepo.path, jj, registry, host, NO_OP_LOGGER);
+
+            try {
+                await codeForge.detectActiveProvider();
+                await codeForge.ensureFreshStatuses([
+                    {
+                        commitId: rebasedC2.commit_id,
+                        changeId: rebasedC2.change_id,
+                        description: rebasedC2.description,
+                        bookmarks: ['branch-bm'],
+                        parents: rebasedC2.parents,
+                        changes: rebasedC2.changes,
+                    },
+                ]);
+
+                const syncedCached = provider.getCachedChangeInfo(
+                    rebasedC2.change_id,
+                    rebasedC2.description,
+                    ['branch-bm'],
+                    rebasedC2.commit_id,
+                );
+                expect(syncedCached?.contentSynced).toBe(true);
+
+                // Modify c2.ts locally while keeping c1.ts and upstream.ts unchanged
+                testRepo.edit(c2Orig.changeId);
+                testRepo.writeFile('c2.ts', 'export const c2 = 99;\n');
+                const [editedC2] = await jj.getLog({ revision: c2Orig.changeId, limit: 1, omitChanges: false });
+                await codeForge.ensureFreshStatuses([
+                    {
+                        commitId: editedC2.commit_id,
+                        changeId: editedC2.change_id,
+                        description: editedC2.description,
+                        bookmarks: ['branch-bm'],
+                        parents: editedC2.parents,
+                        changes: editedC2.changes,
+                    },
+                ]);
+
+                const result = await computeUnuploadedComparison(
+                    createMock<JjRepository>({ jj, codeForge }),
+                    c2Orig.changeId,
+                );
+                expect(result.unuploadedFilePaths).toEqual(['c2.ts']);
+                expect(result.unuploadedFilePaths).not.toContain('c1.ts');
+                expect(result.unuploadedFilePaths).not.toContain('upstream.ts');
+            } finally {
+                codeForge.dispose();
+                registry.dispose();
+            }
+        });
+
+        test('falls back to REST for uncached PR files, binary blobs, 404 caching, and 500 errors', async () => {
+            const remoteSha = 'deadbeef'.repeat(5);
+            const addedBlobSha = 'aa11'.repeat(10);
+            const fallbackBlobSha = 'ff99'.repeat(10);
+            const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
+            const rawFallbackBytes = new Uint8Array([0x01, 0x02, 0x00, 0xfe, 0xff]);
+
+            server.registerPR('tier2-bm', {
+                id: 'PR_tier2',
+                number: 202,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/test-owner/test-repo/pull/202',
+                baseRefName: 'main',
+                currentRevision: remoteSha,
+                headOwner: 'test-owner',
+                files: [
+                    { filename: 'added.png', status: 'added', sha: addedBlobSha },
+                    { filename: 'modified.ts', status: 'modified', sha: 'bb22'.repeat(10) },
+                    { filename: 'deleted.ts', status: 'removed', sha: null },
+                    {
+                        filename: 'new-name.ts',
+                        previous_filename: 'old-name.ts',
+                        status: 'renamed',
+                        sha: 'cc33'.repeat(10),
+                    },
+                ],
+            });
+            server.registerBlob(addedBlobSha, pngBytes);
+            server.registerContent(remoteSha, 'fallback.bin', rawFallbackBytes);
+
+            await provider.fetchStatuses([{ commitId: 'local-commit', bookmarks: ['tier2-bm'] }], jj);
+            const cachedInfo = provider.getCachedChangeInfo(undefined, undefined, ['tier2-bm']);
+            expect(cachedInfo).toBeDefined();
+            expect(cachedInfo?.files).toBeUndefined();
+
+            if (!cachedInfo) {
+                throw new Error('Expected cachedInfo to be defined');
+            }
+
+            const details = await provider.fetchUploadedRevisionDetails(cachedInfo);
+            expect(details?.files).toEqual({
+                'added.png': { status: 'A', newSha: addedBlobSha },
+                'modified.ts': { status: 'M', newSha: 'bb22'.repeat(10) },
+                'deleted.ts': { status: 'D' },
+                'new-name.ts': { status: 'R', oldPath: 'old-name.ts', newSha: 'cc33'.repeat(10) },
+            });
+
+            // Binary blob via /git/blobs/:sha
+            const fetchedPng = await provider.getUploadedFileContent({
+                changeId: cachedInfo.id,
+                changeNumber: cachedInfo.number,
+                revisionId: remoteSha,
+                filePath: 'added.png',
+                blobSha: addedBlobSha,
+            });
+            expect(fetchedPng).toEqual(pngBytes);
+
+            // Fallback via /contents/:path?ref=... when blobSha is missing in /git/blobs (404)
+            const fetchedRaw = await provider.getUploadedFileContent({
+                changeId: cachedInfo.id,
+                changeNumber: cachedInfo.number,
+                revisionId: remoteSha,
+                filePath: '/fallback.bin',
+                blobSha: fallbackBlobSha,
+            });
+            expect(fetchedRaw).toEqual(rawFallbackBytes);
+
+            // 404 returns undefined and is cached
+            const reqCountBeforeMissing = server.requests.length;
+            const missingFirst = await provider.getUploadedFileContent({
+                changeId: cachedInfo.id,
+                changeNumber: cachedInfo.number,
+                revisionId: remoteSha,
+                filePath: 'does-not-exist.txt',
+            });
+            expect(missingFirst).toBeUndefined();
+            const missingSecond = await provider.getUploadedFileContent({
+                changeId: cachedInfo.id,
+                changeNumber: cachedInfo.number,
+                revisionId: remoteSha,
+                filePath: 'does-not-exist.txt',
+            });
+            expect(missingSecond).toBeUndefined();
+            expect(server.requests.length).toBe(reqCountBeforeMissing + 1);
+
+            // 500 throws without caching so retry succeeds once healthy
+            const retryBytes = new Uint8Array([10, 20, 30, 40]);
+            server.registerContent(remoteSha, 'transient.bin', retryBytes);
+            server.failRestWithStatus = 500;
+            await expect(
+                provider.getUploadedFileContent({
+                    changeId: cachedInfo.id,
+                    changeNumber: cachedInfo.number,
+                    revisionId: remoteSha,
+                    filePath: 'transient.bin',
+                }),
+            ).rejects.toThrow('status 500');
+
+            server.failRestWithStatus = undefined;
+            const recovered = await provider.getUploadedFileContent({
+                changeId: cachedInfo.id,
+                changeNumber: cachedInfo.number,
+                revisionId: remoteSha,
+                filePath: 'transient.bin',
+            });
+            expect(recovered).toEqual(retryBytes);
+        });
+
+        test('treats locally split commits matching a 1-commit PR as contentSynced', async () => {
+            testRepo.new(['root()'], 'base');
+            testRepo.writeFile('base.txt', 'base\n');
+            const baseSha = testRepo.getCommitId('@');
+            testRepo.bookmark('main', baseSha);
+
+            // Uploaded commit adds f1.ts and f2.ts together in a single remote commit
+            testRepo.new([baseSha], 'Combined PR\n\nBody');
+            testRepo.writeFile('f1.ts', 'export const f1 = 1;\n');
+            testRepo.writeFile('f2.ts', 'export const f2 = 2;\n');
+            const uploaded = testRepo.getChangeAndCommitId('@');
+
+            // Local history splits the same changes into 2 commits above main
+            testRepo.new([baseSha], 'Part 1');
+            testRepo.writeFile('f1.ts', 'export const f1 = 1;\n');
+            const part1 = testRepo.getChangeAndCommitId('@');
+
+            testRepo.new([part1.commitId], 'Combined PR\n\nBody');
+            testRepo.writeFile('f2.ts', 'export const f2 = 2;\n');
+            const part2 = testRepo.getChangeAndCommitId('@');
+            testRepo.bookmark('split-bm', '@');
+
+            server.registerPR('split-bm', {
+                id: 'PR_split',
+                number: 103,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/test-owner/test-repo/pull/103',
+                baseRefName: 'main',
+                baseRefOid: baseSha,
+                remoteParents: [baseSha],
+                currentRevision: uploaded.commitId,
+                commitMessage: 'Combined PR\n\nBody',
+                headOwner: 'test-owner',
+            });
+
+            const [part2Entry] = await jj.getLog({ revision: part2.changeId, limit: 1, omitChanges: false });
+            await provider.fetchStatuses(
+                [
+                    {
+                        commitId: part2Entry.commit_id,
+                        changeId: part2Entry.change_id,
+                        description: part2Entry.description,
+                        bookmarks: ['split-bm'],
+                        parents: part2Entry.parents,
+                        changes: part2Entry.changes,
+                    },
+                ],
+                jj,
+            );
+
+            const cached = provider.getCachedChangeInfo(
+                part2Entry.change_id,
+                part2Entry.description,
+                ['split-bm'],
+                part2Entry.commit_id,
+            );
+            expect(cached?.contentSynced).toBe(true);
+        });
+
+        test('paginates /pulls/:number/files across multiple pages, handles 401, and avoids partial local range fallback', async () => {
+            const files = Array.from({ length: 105 }, (_, i) => ({
+                filename: `src/file-${String(i).padStart(3, '0')}.ts`,
+                status: 'modified',
+                sha: `${i.toString(16).padStart(4, '0')}${'a'.repeat(36)}`,
+            }));
+            const remoteSha = 'abcd1234'.repeat(5);
+            const missingBaseSha = '99990000'.repeat(5);
+
+            // Create a local commit that exists in .git, while remoteBaseRevision does NOT exist locally
+            testRepo.new(['root()'], 'Local head present');
+            testRepo.writeFile('head-only.ts', 'export const h = 1;\n');
+            const localHead = testRepo.getChangeAndCommitId('@');
+            testRepo.bookmark('multi-page-bm', '@');
+
+            server.registerPR('multi-page-bm', {
+                id: 'PR_paged',
+                number: 303,
+                state: 'OPEN',
+                mergeable: 'MERGEABLE',
+                url: 'https://github.com/upstream-org/upstream-repo/pull/303',
+                baseRefName: 'main',
+                baseRefOid: missingBaseSha,
+                remoteParents: ['88887777'.repeat(5)], // multi-commit / shifted base
+                currentRevision: localHead.commitId,
+                commitMessage: 'Local head present',
+                files,
+            });
+
+            await provider.fetchStatuses(
+                [
+                    {
+                        commitId: localHead.commitId,
+                        changeId: localHead.changeId,
+                        description: 'Local head present',
+                        bookmarks: ['multi-page-bm'],
+                    },
+                ],
+                jj,
+            );
+            const cachedAfterFetch = provider.getCachedChangeInfo(undefined, undefined, ['multi-page-bm']);
+            // Must NOT populate partial 1-commit local files when remoteBaseRevision is missing from local .git
+            expect(cachedAfterFetch?.files).toBeUndefined();
+
+            if (!cachedAfterFetch) {
+                throw new Error('Expected cachedAfterFetch to be defined');
+            }
+            const pagedDetails = await provider.fetchUploadedRevisionDetails(cachedAfterFetch);
+            expect(Object.keys(pagedDetails?.files ?? {})).toHaveLength(105);
+            expect(pagedDetails?.files['src/file-104.ts']?.newSha).toBe(files[104].sha);
+            expect(server.requests.some((r) => r.url.includes('page=2'))).toBe(true);
+
+            // Clearing main bookmark cache still preserves prOwnerRepoByKey target for /upstream-org/upstream-repo/
+            (setPrivate as (obj: unknown, key: string, val: unknown) => void)(provider, 'cache', new Map());
+            const page2Blob = new Uint8Array([1, 2, 3, 4]);
+            server.registerBlob(files[104].sha, page2Blob);
+            const fetchedAfterCacheEvict = await provider.getUploadedFileContent({
+                changeId: cachedAfterFetch.id,
+                changeNumber: cachedAfterFetch.number,
+                revisionId: remoteSha,
+                filePath: 'src/file-104.ts',
+                blobSha: files[104].sha,
+            });
+            expect(fetchedAfterCacheEvict).toEqual(page2Blob);
+            expect(server.requests.some((r) => r.url.includes('/repos/upstream-org/upstream-repo/git/blobs/'))).toBe(
+                true,
+            );
+
+            // HTTP 401 clears invalid credential
+            server.failRestWithStatus = 401;
+            await expect(
+                provider.getUploadedFileContent({
+                    changeId: cachedAfterFetch.id,
+                    changeNumber: cachedAfterFetch.number,
+                    revisionId: remoteSha,
+                    filePath: 'auth-fail.ts',
+                }),
+            ).rejects.toThrow('401 Unauthorized');
+            expect(mockAuthManager.clearInvalidCredential).toHaveBeenCalled();
         });
     });
 });

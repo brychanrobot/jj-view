@@ -151,8 +151,14 @@ export class JjViewFsService implements Disposable {
                 }
             }
 
-            if (query.changeNumber && rev) {
-                const remoteContent = await repo.codeForge.getUploadedFileContent(query.changeNumber, rev, relPath);
+            if (rev && (query.changeId || query.changeNumber !== undefined || query.blobSha)) {
+                const remoteContent = await repo.codeForge.getUploadedFileContent({
+                    changeId: query.changeId,
+                    changeNumber: query.changeNumber,
+                    revisionId: rev,
+                    filePath: relPath,
+                    blobSha: query.blobSha,
+                });
                 if (remoteContent !== undefined) {
                     return remoteContent;
                 }

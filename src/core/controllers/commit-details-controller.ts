@@ -318,19 +318,23 @@ export class CommitDetailsController implements Disposable {
                 this._receiver.sender.update(finalState);
             }
 
-            if (
-                log.codeForgeChange?.status === 'NEW' &&
-                log.codeForgeChange.currentRevision &&
-                log.codeForgeChange.files !== undefined &&
-                this.repo
-            ) {
-                const comparisonPromise = this._refreshUnuploadedComparison(currentLoadId, log, changes);
-                this._activeComparison = comparisonPromise;
-                void comparisonPromise.finally(() => {
-                    if (this._activeComparison === comparisonPromise) {
-                        this._activeComparison = undefined;
+            if (log.codeForgeChange?.status === 'NEW' && log.codeForgeChange.currentRevision && this.repo) {
+                if (log.codeForgeChange.contentSynced === true) {
+                    this._descriptionModifiedFromRemote = false;
+                    this._unuploadedFilePaths = [];
+                    const syncedState = this.getState();
+                    if (syncedState) {
+                        this._receiver.sender.update(syncedState);
                     }
-                });
+                } else {
+                    const comparisonPromise = this._refreshUnuploadedComparison(currentLoadId, log, changes);
+                    this._activeComparison = comparisonPromise;
+                    void comparisonPromise.finally(() => {
+                        if (this._activeComparison === comparisonPromise) {
+                            this._activeComparison = undefined;
+                        }
+                    });
+                }
             }
 
             const duration = performance.now() - start;
