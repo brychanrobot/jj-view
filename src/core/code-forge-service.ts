@@ -5,7 +5,12 @@
 
 import type { LoggerChannel } from '../utils/output-channel';
 import { TimerBucket } from '../utils/timer-bucket';
-import type { ChangeStatusRequest, CodeForgeProvider } from './code-forge-provider';
+import type {
+    ChangeStatusRequest,
+    CodeForgeProvider,
+    UploadedFileRequest,
+    UploadedRevisionDetails,
+} from './code-forge-provider';
 import type { CodeForgeProviderFactory } from './code-forge-provider-factory';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { CustomCliForgeProvider } from './custom-cli-forge-provider';
@@ -306,15 +311,25 @@ export class CodeForgeService implements Disposable {
         return this.activeProviderInstance.fetchStatuses(changes, this.jjService);
     }
 
-    public async getUploadedFileContent(
-        changeNumber: number,
-        revisionId: string,
-        filePath: string,
-    ): Promise<Uint8Array | undefined> {
+    public normalizeDescription(description: string): string {
+        if (this.activeProviderInstance?.normalizeDescription) {
+            return this.activeProviderInstance.normalizeDescription(description);
+        }
+        return description.trim();
+    }
+
+    public async fetchUploadedRevisionDetails(info: CodeForgeChangeInfo): Promise<UploadedRevisionDetails | undefined> {
+        if (!this.activeProviderInstance?.fetchUploadedRevisionDetails) {
+            return undefined;
+        }
+        return this.activeProviderInstance.fetchUploadedRevisionDetails(info, this.jjService);
+    }
+
+    public async getUploadedFileContent(request: UploadedFileRequest): Promise<Uint8Array | undefined> {
         if (!this.activeProviderInstance?.getUploadedFileContent) {
             return undefined;
         }
-        return this.activeProviderInstance.getUploadedFileContent(changeNumber, revisionId, filePath);
+        return this.activeProviderInstance.getUploadedFileContent(request);
     }
 
     private verifyStructureSync(

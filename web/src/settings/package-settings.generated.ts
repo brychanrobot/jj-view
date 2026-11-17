@@ -77,7 +77,7 @@ export const PACKAGE_SETTINGS: readonly SettingDefinition[] = [
         key: 'codeForge.adapterCommand',
         title: 'Code Forge Adapter Command',
         description:
-            'Path to an external CLI executable implementing the jj-view CodeForge adapter protocol (detect, statuses, upload, list-comments, reply-comment, resolve-comment).',
+            'Path to an external CLI executable implementing the jj-view CodeForge adapter protocol (detect, statuses, upload, get-file-content, list-comments, reply-comment, resolve-comment).',
         category: 'General',
         type: 'string',
         default: '',

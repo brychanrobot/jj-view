@@ -445,7 +445,7 @@ const hasActiveBookmarkAlready = $derived(
                             <span class="codicon codicon-cloud"></span>
                         </div>
                     {:else}
-                        {#if codeForgeChange.currentRevision && codeForgeChange.files !== undefined && codeForgeChange.contentSynced === false}
+                        {#if codeForgeChange.currentRevision && codeForgeChange.contentSynced === false}
                             <button
                                 type="button"
                                 onclick={(e) => {

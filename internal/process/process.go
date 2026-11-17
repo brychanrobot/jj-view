@@ -58,12 +58,13 @@ var blockedEnvPrefixes = []string{
 }
 
 var allowedForgeSubcommands = map[string]bool{
-	"detect":          true,
-	"statuses":        true,
-	"upload":          true,
-	"list-comments":   true,
-	"reply-comment":   true,
-	"resolve-comment": true,
+	"detect":           true,
+	"statuses":         true,
+	"upload":           true,
+	"get-file-content": true,
+	"list-comments":    true,
+	"reply-comment":    true,
+	"resolve-comment":  true,
 }
 
 // ExecParams defines the parameters for process execution.

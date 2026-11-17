@@ -300,7 +300,13 @@ describe('JjViewFsService Unit Tests', () => {
             changeNumber: 4242,
         });
         const remoteBytes = await service.readFile(remoteOnlyUri);
-        expect(spy).toHaveBeenCalledWith(4242, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'banner.png');
+        expect(spy).toHaveBeenCalledWith({
+            changeId: 'Iimgremote',
+            changeNumber: 4242,
+            revisionId: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+            filePath: 'banner.png',
+            blobSha: '0123456789abcdef0123456789abcdef01234567',
+        });
         expect(Buffer.from(remoteBytes).equals(pngBytes)).toBe(true);
     });
 

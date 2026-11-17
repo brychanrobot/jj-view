@@ -20,6 +20,25 @@ export interface ChangeStatusRequest {
     changes?: JjStatusEntry[];
 }
 
+export interface UploadedRevisionFile {
+    newSha?: string;
+    status?: string;
+    oldPath?: string;
+}
+
+export interface UploadedRevisionDetails {
+    files: Record<string, UploadedRevisionFile>;
+    remoteDescription?: string;
+}
+
+export interface UploadedFileRequest {
+    changeId: string;
+    changeNumber?: number;
+    revisionId: string;
+    filePath: string;
+    blobSha?: string;
+}
+
 export interface CodeForgeProvider {
     /** Unique ID of the provider (e.g. 'gerrit', 'github') */
     readonly id: string;
@@ -87,12 +106,17 @@ export interface CodeForgeProvider {
     /** Resolve/unresolve a comment thread */
     resolveCommentThread?(changeId: string, thread: CodeForgeCommentThread, resolved: boolean): Promise<void>;
 
+    /** Normalizes a commit description according to forge conventions (e.g. stripping forge trailers) */
+    normalizeDescription?(description: string): string;
+
+    /** Lazily resolves uploaded revision files and description when unavailable locally */
+    fetchUploadedRevisionDetails?(
+        info: CodeForgeChangeInfo,
+        jj: JjService,
+    ): Promise<UploadedRevisionDetails | undefined>;
+
     /** Fetch the raw content of a file in an uploaded revision/patchset from the forge */
-    getUploadedFileContent?(
-        changeNumber: number,
-        revisionId: string,
-        filePath: string,
-    ): Promise<Uint8Array | undefined>;
+    getUploadedFileContent?(request: UploadedFileRequest): Promise<Uint8Array | undefined>;
 
     /** Preemptively retarget inverted PRs/MRs before pushing commits to prevent forge auto-closure */
     prepareStackedChanges?(stack: StackCommitNode[]): Promise<void>;

@@ -157,8 +157,8 @@ func TestAllowedForgeCommand(t *testing.T) {
 		return scriptPath
 	})
 
-	// 3. Test all 6 allowed subcommands
-	allowed := []string{"detect", "statuses", "upload", "list-comments", "reply-comment", "resolve-comment"}
+	// 3. Test all 7 allowed subcommands
+	allowed := []string{"detect", "statuses", "upload", "get-file-content", "list-comments", "reply-comment", "resolve-comment"}
 	for _, sub := range allowed {
 		res, err := mgr.ExecFile(ctx, ExecParams{
 			File: scriptPath,

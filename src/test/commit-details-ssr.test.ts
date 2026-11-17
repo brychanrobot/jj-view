@@ -279,4 +279,38 @@ describe('CommitDetailsApp SSR Rendering', () => {
         expect(html).toContain('Parent differs from CL/999');
         expect(html).not.toContain('banner-action-button');
     });
+
+    it('hides unuploaded badges and Modified since upload button when change status is MERGED', () => {
+        const initialCommit: CommitDetailsPayload = {
+            changeId: 'krsyowswxmxnqznrtlpuyutskyzrpunp',
+            commitId: 'abcdef1234567890abcdef1234567890abcdef12',
+            description: 'feat: merged change',
+            files: [{ path: 'src/index.ts', status: 'modified' }],
+            isLoadingFiles: false,
+            isImmutable: false,
+            codeForgeChange: {
+                id: 'I12345',
+                number: 999,
+                displayLabel: 'CL/999',
+                providerName: 'Gerrit',
+                status: 'MERGED',
+                submittable: false,
+                url: 'https://example.com/999',
+                unresolvedComments: 0,
+                currentRevision: 'uploaded-rev-123',
+                synced: true,
+                contentSynced: false,
+            },
+            codeForgeNeedsUpload: false,
+            descriptionModifiedFromRemote: true,
+            unuploadedFilePaths: ['src/index.ts'],
+        };
+
+        const result = render(CommitDetailsApp, { props: { initialCommit } });
+        const html = result.body;
+
+        expect(html).not.toContain('status-unuploaded');
+        expect(html).not.toContain('Modified since upload');
+        expect(html).not.toContain('Compare with Uploaded');
+    });
 });

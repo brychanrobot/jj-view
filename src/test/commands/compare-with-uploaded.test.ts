@@ -4,14 +4,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CodeForgeProvider } from '../../core/code-forge-provider';
 import type { CodeForgeService } from '../../core/code-forge-service';
 import { compareWithUploadedCommand, computeUnuploadedComparison } from '../../core/commands/compare-with-uploaded';
+import { type ProcessExecOptions, ProcessExitError, type ProcessResult } from '../../core/host/host-system';
+import { NodeHostProcess, NodeHostSystem } from '../../core/host/node-host-system';
 import type { JjRepository } from '../../core/jj-repository';
 import type { CodeForgeChangeInfo } from '../../core/jj-schemas';
 import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
 import { decodeJjViewQuery } from '../../core/uri-utils';
 import { FakeCommandContext } from '../fake-host-environment';
-import { TestRepo } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 describe('compareWithUploaded', () => {
@@ -214,7 +217,7 @@ describe('compareWithUploaded', () => {
         );
     });
 
-    it('throws when info.files is undefined in Stage 1', async () => {
+    it('throws when neither local git store nor forge can resolve uploaded revision details', async () => {
         repo.writeFile('app.ts', 'console.log(1);');
         repo.describe('feat: github style change without files');
         const changeId = repo.getChangeId('@');
@@ -228,12 +231,227 @@ describe('compareWithUploaded', () => {
             submittable: true,
             url: 'https://github.com/owner/repo/pull/42',
             unresolvedComments: 0,
-            currentRevision: 'abc12345',
+            currentRevision: '0123456789abcdef0123456789abcdef01234567',
         };
 
         await expect(computeUnuploadedComparison(mockJjRepo, changeId)).rejects.toThrow(
             /Uploaded file metadata is not available/,
         );
+    });
+
+    it('resolves Tier 1 uploaded files locally from git when info.files is undefined', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'base', description: 'base', files: { 'app.ts': 'base\n' } },
+            {
+                label: 'uploaded',
+                parents: ['base'],
+                description: 'feat: uploaded v1',
+                files: { 'app.ts': 'uploaded v1\n' },
+            },
+            {
+                label: 'local',
+                parents: ['base'],
+                description: 'feat: local v2',
+                files: { 'app.ts': 'local v2\n' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const fetchUploadedRevisionDetails = vi.fn();
+        const githubLikeCodeForge = createMock<CodeForgeService>({
+            activeProvider: createMock<CodeForgeProvider>({ changeTerm: 'PR', uploadModel: 'branch-stack' }),
+            normalizeDescription: (d) => d.trim(),
+            fetchUploadedRevisionDetails,
+            populateCodeForgeInfo: (commits) => {
+                for (const c of commits) {
+                    c.codeForgeChange = {
+                        id: 'PR_kwDOlocal',
+                        number: 77,
+                        displayLabel: '',
+                        providerName: 'GitHub',
+                        status: 'NEW',
+                        submittable: true,
+                        url: 'https://github.com/owner/repo/pull/77',
+                        unresolvedComments: 0,
+                        currentRevision: ids.uploaded.commitId,
+                        remoteBaseRevision: ids.base.commitId,
+                    };
+                }
+            },
+        });
+        const tier1Repo = createMock<JjRepository>({ jj, codeForge: githubLikeCodeForge });
+
+        const result = await computeUnuploadedComparison(tier1Repo, ids.local.changeId);
+        expect(fetchUploadedRevisionDetails).not.toHaveBeenCalled();
+        expect(result.displayLabel).toBe('PR 77');
+        expect(result.descriptionModified).toBe(true);
+        expect(result.unuploadedFilePaths).toEqual(['app.ts']);
+        expect(result.resources.map((r) => r.label)).toEqual(['COMMIT_MSG', 'app.ts']);
+    });
+
+    it('falls back to Tier 2 fetchUploadedRevisionDetails when remote commit is absent locally', async () => {
+        repo.writeFile('remote-only.ts', 'local edit');
+        repo.describe('feat: tier 2 fallback');
+        const changeId = repo.getChangeId('@');
+
+        const fetchUploadedRevisionDetails = vi.fn(async () => ({
+            files: { 'remote-only.ts': { newSha: '1111222233334444555566667777888899990000', status: 'M' } },
+            remoteDescription: 'feat: tier 2 fallback',
+        }));
+
+        const tier2CodeForge = createMock<CodeForgeService>({
+            activeProvider: createMock<CodeForgeProvider>({ changeTerm: 'Change', uploadModel: 'revision' }),
+            normalizeDescription: (d) => d.trim(),
+            fetchUploadedRevisionDetails,
+            populateCodeForgeInfo: (commits) => {
+                for (const c of commits) {
+                    c.codeForgeChange = {
+                        id: 'cl-custom-abc',
+                        number: 0,
+                        displayLabel: '',
+                        providerName: 'Custom Forge',
+                        status: 'NEW',
+                        submittable: false,
+                        url: 'https://forge.example.com/cl-custom-abc',
+                        unresolvedComments: 0,
+                        currentRevision: 'fedcba9876543210fedcba9876543210fedcba98',
+                    };
+                }
+            },
+        });
+
+        const tier2Repo = createMock<JjRepository>({ jj, codeForge: tier2CodeForge });
+        const result = await computeUnuploadedComparison(tier2Repo, changeId);
+        expect(fetchUploadedRevisionDetails).toHaveBeenCalledTimes(1);
+        expect(result.displayLabel).toMatch(/^Change /);
+        expect(result.unuploadedFilePaths).toEqual(['remote-only.ts']);
+        const query = decodeJjViewQuery(result.resources[0].leftUri);
+        expect(query.mode).toBe('uploaded');
+        if (query.mode === 'uploaded') {
+            expect(query.changeId).toBe('cl-custom-abc');
+            expect(query.changeNumber).toBe(0);
+        }
+    });
+
+    it('supports multi-commit branch PR comparison spanning unbookmarked mutable ancestors', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'main', description: 'main', files: { 'a.txt': 'v0\n', 'b.txt': 'v0\n' } },
+            { label: 'remote1', parents: ['main'], description: 'part 1', files: { 'a.txt': 'v1\n' } },
+            { label: 'remote2', parents: ['remote1'], description: 'part 2', files: { 'b.txt': 'v1\n' } },
+            { label: 'local1', parents: ['main'], description: 'part 1', files: { 'a.txt': 'v1\n' } },
+            {
+                label: 'local2',
+                parents: ['local1'],
+                description: 'part 2 edited',
+                files: { 'b.txt': 'v2\n' },
+                bookmarks: ['feature-branch'],
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const branchProvider = createMock<CodeForgeProvider>({
+            changeTerm: 'PR',
+            uploadModel: 'branch-stack',
+            getCachedChangeInfo: () => undefined,
+        });
+        const branchCodeForge = createMock<CodeForgeService>({
+            activeProvider: branchProvider,
+            normalizeDescription: (d) => d.trim(),
+            populateCodeForgeInfo: (commits) => {
+                for (const c of commits) {
+                    if (c.commit_id === ids.local2.commitId) {
+                        c.codeForgeChange = {
+                            id: 'PR_branch',
+                            number: 99,
+                            displayLabel: 'PR #99',
+                            providerName: 'GitHub',
+                            status: 'NEW',
+                            submittable: true,
+                            url: 'https://github.com/owner/repo/pull/99',
+                            unresolvedComments: 0,
+                            currentRevision: ids.remote2.commitId,
+                            remoteBaseRevision: ids.main.commitId,
+                            remoteParents: [ids.remote1.commitId],
+                        };
+                    }
+                }
+            },
+        });
+        const branchRepo = createMock<JjRepository>({ jj, codeForge: branchCodeForge });
+
+        const result = await computeUnuploadedComparison(branchRepo, ids.local2.changeId);
+        // a.txt matches remote range (v1 == v1), only COMMIT_MSG + b.txt (v1 -> v2) differ
+        expect(result.descriptionModified).toBe(true);
+        expect(result.unuploadedFilePaths).toEqual(['b.txt']);
+    });
+
+    it('falls back to binary byte comparison on non-Git workspaces without gitRoot', async () => {
+        repo.new(['root()'], 'citc remote');
+        const remotePng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x01]);
+        const localDiffPng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xfe, 0x02]);
+        repo.writeFile('same.txt', 'identical');
+        repo.writeFile('diff.txt', 'old');
+        repo.writeBinaryFile('same.png', remotePng);
+        repo.writeBinaryFile('diff.png', remotePng);
+        const remoteCommitId = repo.getCommitId('@');
+
+        repo.new(['root()'], 'citc remote');
+        repo.writeFile('same.txt', 'identical');
+        repo.writeFile('diff.txt', 'new');
+        repo.writeBinaryFile('same.png', remotePng);
+        repo.writeBinaryFile('diff.png', localDiffPng);
+        const localIds = repo.getChangeAndCommitId('@');
+        const ids = {
+            remote: { commitId: remoteCommitId },
+            local: localIds,
+        };
+
+        class NonGitHostProcess extends NodeHostProcess {
+            override execFile(
+                file: string,
+                args: readonly string[],
+                options?: ProcessExecOptions,
+            ): Promise<ProcessResult> {
+                if (file.endsWith('jj') && args.includes('git') && args.includes('root')) {
+                    return Promise.reject(new ProcessExitError('Not a git repo', 1, '', 'Not a git repo'));
+                }
+                return super.execFile(file, args, options);
+            }
+        }
+        const nonGitSystem = new NodeHostSystem({ process: new NonGitHostProcess() });
+        const nonGitJj = new JjService(repo.path, NO_OP_LOGGER, { system: nonGitSystem });
+
+        const nonGitCodeForge = createMock<CodeForgeService>({
+            activeProvider: createMock<CodeForgeProvider>({ changeTerm: 'Change', uploadModel: 'revision' }),
+            normalizeDescription: (d) => d.trim(),
+            populateCodeForgeInfo: (commits) => {
+                for (const c of commits) {
+                    c.codeForgeChange = {
+                        id: 'citc-100',
+                        number: 100,
+                        displayLabel: 'Change 100',
+                        providerName: 'Custom Forge',
+                        status: 'NEW',
+                        submittable: true,
+                        url: 'https://forge.example.com/100',
+                        unresolvedComments: 0,
+                        currentRevision: ids.remote.commitId,
+                        remoteDescription: 'citc remote',
+                        files: {
+                            'same.txt': { status: 'M' },
+                            'diff.txt': { status: 'M' },
+                            'same.png': { status: 'M' },
+                            'diff.png': { status: 'M' },
+                        },
+                    };
+                }
+            },
+        });
+        const nonGitRepo = createMock<JjRepository>({ jj: nonGitJj, codeForge: nonGitCodeForge });
+
+        const result = await computeUnuploadedComparison(nonGitRepo, ids.local.changeId);
+        expect(result.unuploadedFilePaths).toEqual(['diff.png', 'diff.txt']);
+        expect(result.resources).toHaveLength(2);
     });
 
     it('routes locally reverted remote files to revision=none instead of missing file URI', async () => {
@@ -409,5 +627,43 @@ describe('compareWithUploaded', () => {
                 expect(leftQuery.revision).toBe('none');
             }
         }
+    });
+
+    it('reads empty, root, renamed, and deleted git commit details and clears caches on jj.clearCache()', async () => {
+        // Root commit with added files + empty description commit + rename + deletion
+        repo.new(['root()'], 'root commit');
+        repo.writeFile('alpha.txt', 'hello world alpha\n');
+        repo.writeFile('delete-me.txt', 'bye\n');
+        const rootCommitId = repo.getCommitId('@');
+
+        repo.new([rootCommitId], '');
+        const emptyCommitId = repo.getCommitId('@');
+
+        repo.new([rootCommitId], 'rename and delete');
+        repo.moveFile('alpha.txt', 'beta.txt');
+        repo.deleteFile('delete-me.txt');
+        const headCommitId = repo.getCommitId('@');
+
+        const rootDetails = await jj.getGitCommitDetails(rootCommitId);
+        expect(rootDetails?.description).toBe('root commit');
+        expect(rootDetails?.files['alpha.txt']?.status).toBe('A');
+        expect(rootDetails?.files['delete-me.txt']?.status).toBe('A');
+
+        const emptyDetails = await jj.getGitCommitDetails(emptyCommitId);
+        expect(emptyDetails?.description).toBe('');
+        expect(emptyDetails?.files).toEqual({});
+
+        const headDetails = await jj.getGitCommitDetails(headCommitId);
+        expect(headDetails?.description).toBe('rename and delete');
+        expect(headDetails?.files['beta.txt']).toMatchObject({ status: 'R', oldPath: 'alpha.txt' });
+        expect(headDetails?.files['delete-me.txt']?.status).toBe('D');
+
+        const rangeFiles = await jj.getGitRangeFiles(rootCommitId, headCommitId);
+        expect(rangeFiles?.['beta.txt']).toMatchObject({ status: 'R', oldPath: 'alpha.txt' });
+        expect(rangeFiles?.['delete-me.txt']?.status).toBe('D');
+
+        await jj.clearCache();
+        const reloadedRange = await jj.getGitRangeFiles(rootCommitId, headCommitId);
+        expect(reloadedRange).toEqual(rangeFiles);
     });
 });

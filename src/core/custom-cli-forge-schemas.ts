@@ -28,6 +28,12 @@ export const CliForgeDetectResultSchema = z.object({
 });
 export type CliForgeDetectResult = z.infer<typeof CliForgeDetectResultSchema>;
 
+export const CliForgeUploadedFileSchema = z.object({
+    newSha: z.string().optional(),
+    status: z.string().optional(),
+    oldPath: z.string().optional(),
+});
+
 export const CliForgeChangeInfoSchema = z.object({
     id: z.string(),
     number: z.number().int().optional(),
@@ -42,9 +48,22 @@ export const CliForgeChangeInfoSchema = z.object({
     parentSynced: z.boolean().optional(),
     synced: z.boolean().optional(),
     currentRevision: z.string().optional(),
+    remoteBaseRevision: z.string().optional(),
+    remoteDescription: z.string().optional(),
+    files: z.record(z.string(), CliForgeUploadedFileSchema).optional(),
     remoteParents: z.array(z.string()).optional(),
 });
 export type CliForgeChangeInfo = z.infer<typeof CliForgeChangeInfoSchema>;
+
+export const CliForgeFileContentResultSchema = z
+    .object({
+        found: z.boolean().optional(),
+        content: z.string().optional(),
+        contentBase64: z.string().optional(),
+        encoding: z.enum(['utf8', 'base64']).optional(),
+    })
+    .nullable();
+export type CliForgeFileContentResult = z.infer<typeof CliForgeFileContentResultSchema>;
 
 export const CliForgeStatusRowSchema = z.object({
     commitId: z.string(),

@@ -9,6 +9,7 @@ import { getErrorMessage } from '../utils/error-utils';
 import { type DiffHunkRange, parseDiffHunks, parseMultiFileDiffHunks } from '../utils/line-drift';
 import { LruCache } from '../utils/lru-cache';
 import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
+import type { UploadedRevisionFile } from './code-forge-provider';
 import {
     HELPER_SCRIPT_TOKEN,
     type HostSystem,
@@ -44,8 +45,60 @@ import {
 import type { JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace } from './jj-types';
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
+import { toForwardSlash } from './uri-utils';
 
 export { NO_OP_LOGGER };
+
+export interface GitCommitDetails {
+    description: string;
+    files: Record<string, UploadedRevisionFile>;
+}
+
+const HEX_COMMIT_PATTERN = /^[0-9a-fA-F]{4,64}$/;
+
+function parseGitRawFiles(tokens: string[], startIndex: number): Record<string, UploadedRevisionFile> {
+    const files: Record<string, UploadedRevisionFile> = {};
+    let idx = startIndex;
+    while (idx < tokens.length) {
+        const header = tokens[idx].replace(/^(?:\r?\n)+/, '');
+        if (!header?.startsWith(':')) {
+            idx++;
+            continue;
+        }
+        const match = /^:\d+\s+\d+\s+[0-9a-fA-F]+\s+([0-9a-fA-F]+)\s+([A-Z])(?:\d+)?$/.exec(header);
+        if (!match) {
+            idx++;
+            continue;
+        }
+        const [, rawNewSha, statusLetter] = match;
+        const isZeroSha = /^0+$/.test(rawNewSha);
+        const newSha = statusLetter === 'D' || isZeroSha ? undefined : rawNewSha;
+
+        if (statusLetter === 'R' || statusLetter === 'C') {
+            const oldPath = tokens[idx + 1];
+            const newPath = tokens[idx + 2];
+            if (oldPath !== undefined && newPath !== undefined) {
+                files[toForwardSlash(newPath)] = {
+                    status: statusLetter,
+                    oldPath: toForwardSlash(oldPath),
+                    newSha,
+                };
+            }
+            idx += 3;
+            continue;
+        }
+
+        const filePath = tokens[idx + 1];
+        if (filePath !== undefined) {
+            files[toForwardSlash(filePath)] = {
+                status: statusLetter,
+                newSha,
+            };
+        }
+        idx += 2;
+    }
+    return files;
+}
 
 export interface JjLogOptions {
     revision?: string;
@@ -143,6 +196,10 @@ export class JjService {
         clone: (entries) => entries.map((e) => ({ ...e })),
     });
     private readonly _gitBlobContentCache = new LruCache<string, string>({ maxEntries: 200 });
+    private readonly _gitCommitDetailsCache = new LruCache<string, GitCommitDetails>({ maxEntries: 200 });
+    private readonly _gitRangeFilesCache = new LruCache<string, Record<string, UploadedRevisionFile>>({
+        maxEntries: 200,
+    });
     private _mutationMutex: Promise<void> = Promise.resolve();
 
     constructor(
@@ -1096,6 +1153,8 @@ export class JjService {
         this._diffContentCache.clear();
         this._diffBinaryCache.clear();
         this._gitBlobContentCache.clear();
+        this._gitCommitDetailsCache.clear();
+        this._gitRangeFilesCache.clear();
         await Promise.all([this._diffCache.clear(), this._changesCache.clear()]);
     }
 
@@ -2100,6 +2159,115 @@ export class JjService {
             return res.stdout;
         } catch (err) {
             this.logger.debug(`getGitBlobContent failed for ${blobSha}: ${getErrorMessage(err)}`);
+            return undefined;
+        }
+    }
+
+    /**
+     * Reads commit message and first-parent file changes for a git commit present in the local `.git` store.
+     */
+    async getGitCommitDetails(commitId: string): Promise<GitCommitDetails | undefined> {
+        if (!HEX_COMMIT_PATTERN.test(commitId)) {
+            return undefined;
+        }
+
+        const cached = this._gitCommitDetailsCache.get(commitId);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        const gitRoot = await this.getGitRoot();
+        if (!gitRoot) {
+            return undefined;
+        }
+
+        try {
+            const res = await this.system.process.execFile(
+                'git',
+                [
+                    '--no-pager',
+                    '--no-optional-locks',
+                    `--git-dir=${gitRoot}`,
+                    'diff-tree',
+                    '--always',
+                    '--no-abbrev',
+                    '-r',
+                    '-z',
+                    '-M',
+                    '--first-parent',
+                    '--root',
+                    '--format=%B',
+                    commitId,
+                ],
+                {
+                    cwd: this.workspaceRoot,
+                    maxBuffer: 10 * 1024 * 1024,
+                    timeout: 10000,
+                },
+            );
+
+            const tokens = res.stdout.split('\0');
+            const description = (tokens[0] ?? '').replace(/\r?\n$/, '');
+            const files = parseGitRawFiles(tokens, 1);
+            const details: GitCommitDetails = { description, files };
+            this._gitCommitDetailsCache.set(commitId, details);
+            return details;
+        } catch (err) {
+            this.logger.debug(`getGitCommitDetails failed for ${commitId}: ${getErrorMessage(err)}`);
+            return undefined;
+        }
+    }
+
+    /**
+     * Computes PR/MR range file changes (`baseCommitId...headCommitId`) from the local `.git` store.
+     */
+    async getGitRangeFiles(
+        baseCommitId: string,
+        headCommitId: string,
+    ): Promise<Record<string, UploadedRevisionFile> | undefined> {
+        if (!HEX_COMMIT_PATTERN.test(baseCommitId) || !HEX_COMMIT_PATTERN.test(headCommitId)) {
+            return undefined;
+        }
+
+        const cacheKey = `${baseCommitId}...${headCommitId}`;
+        const cached = this._gitRangeFilesCache.get(cacheKey);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        const gitRoot = await this.getGitRoot();
+        if (!gitRoot) {
+            return undefined;
+        }
+
+        try {
+            const res = await this.system.process.execFile(
+                'git',
+                [
+                    '--no-pager',
+                    '--no-optional-locks',
+                    `--git-dir=${gitRoot}`,
+                    'diff',
+                    '--raw',
+                    '--no-abbrev',
+                    '-z',
+                    '--no-ext-diff',
+                    '--no-color',
+                    '-M',
+                    `${baseCommitId}...${headCommitId}`,
+                ],
+                {
+                    cwd: this.workspaceRoot,
+                    maxBuffer: 10 * 1024 * 1024,
+                    timeout: 10000,
+                },
+            );
+
+            const files = parseGitRawFiles(res.stdout.split('\0'), 0);
+            this._gitRangeFilesCache.set(cacheKey, files);
+            return files;
+        } catch (err) {
+            this.logger.debug(`getGitRangeFiles failed for ${cacheKey}: ${getErrorMessage(err)}`);
             return undefined;
         }
     }

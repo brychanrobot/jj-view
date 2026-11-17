@@ -21,6 +21,19 @@ export interface FakeMrInfo {
     source_project_id?: number;
     source_branch?: string;
     target_branch?: string;
+    diff_refs?: {
+        base_sha?: string;
+        head_sha?: string;
+        start_sha?: string;
+    };
+}
+
+export interface FakeGitLabDiff {
+    old_path?: string;
+    new_path: string;
+    new_file?: boolean;
+    renamed_file?: boolean;
+    deleted_file?: boolean;
 }
 
 export interface FakeGitLabNote {
@@ -48,6 +61,9 @@ export interface FakeGitLabDiscussion {
 export class FakeGitLabServer {
     private mrs = new Map<string, FakeMrInfo[]>();
     private discussions = new Map<number, FakeGitLabDiscussion[]>(); // mrIid -> FakeGitLabDiscussion[]
+    private mrDiffs = new Map<number, FakeGitLabDiff[]>();
+    private commits = new Map<string, { id: string; message: string; parent_ids?: string[] }>();
+    private repositoryFiles = new Map<string, Uint8Array>();
     private server: http.Server | undefined;
     public url = '';
     public requests: { url: string; method: string }[] = [];
@@ -75,12 +91,31 @@ export class FakeGitLabServer {
         this.discussions.set(mrIid, discussions);
     }
 
+    public registerMrDiffs(mrIid: number, diffs: FakeGitLabDiff[]) {
+        this.mrDiffs.set(mrIid, diffs);
+    }
+
+    public registerCommit(sha: string, message: string, parentIds: string[] = []) {
+        this.commits.set(sha, { id: sha, message, parent_ids: parentIds });
+    }
+
+    public registerRepositoryFile(ref: string, filePath: string, content: Uint8Array) {
+        this.repositoryFiles.set(`${ref}:${filePath}`, content);
+    }
+
+    public registerTextRepositoryFile(ref: string, filePath: string, content: string) {
+        this.repositoryFiles.set(`${ref}:${filePath}`, new TextEncoder().encode(content));
+    }
+
     public clear() {
         this.requests = [];
         this.createdMrs = [];
         this.retargetedMrs = [];
         this.mrs.clear();
         this.discussions.clear();
+        this.mrDiffs.clear();
+        this.commits.clear();
+        this.repositoryFiles.clear();
         this.statusOverride = undefined;
     }
 
@@ -263,6 +298,22 @@ export class FakeGitLabServer {
                     return;
                 }
 
+                const mrDiffsMatch = pathname.match(/\/merge_requests\/(\d+)\/diffs$/);
+                if (mrDiffsMatch && req.method === 'GET') {
+                    const iid = parseInt(mrDiffsMatch[1], 10);
+                    const allDiffs = this.mrDiffs.get(iid) ?? [];
+                    const perPage = Number(urlObj.searchParams.get('per_page') || '100');
+                    const page = Math.max(1, Number(urlObj.searchParams.get('page') || '1'));
+                    const start = (page - 1) * perPage;
+                    const hasMore = start + perPage < allDiffs.length;
+                    res.writeHead(200, {
+                        'Content-Type': 'application/json',
+                        'x-next-page': hasMore ? String(page + 1) : '',
+                    });
+                    res.end(JSON.stringify(allDiffs.slice(start, start + perPage)));
+                    return;
+                }
+
                 const singleMrMatch = pathname.match(/\/merge_requests\/(\d+)$/);
                 if (singleMrMatch && req.method === 'GET') {
                     const iid = parseInt(singleMrMatch[1], 10);
@@ -312,6 +363,37 @@ export class FakeGitLabServer {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(results));
                 return;
+            }
+
+            if (pathname.includes('/repository/') && req.method === 'GET') {
+                const commitMatch = pathname.match(/\/projects\/[^/]+\/repository\/commits\/([^/]+)$/);
+                if (commitMatch) {
+                    const sha = decodeURIComponent(commitMatch[1]);
+                    const commit = this.commits.get(sha);
+                    if (!commit) {
+                        res.writeHead(404);
+                        res.end('Not Found');
+                        return;
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(commit));
+                    return;
+                }
+
+                const rawFileMatch = pathname.match(/\/projects\/[^/]+\/repository\/files\/(.+)\/raw$/);
+                if (rawFileMatch) {
+                    const filePath = decodeURIComponent(rawFileMatch[1]);
+                    const ref = urlObj.searchParams.get('ref') || '';
+                    const bytes = this.repositoryFiles.get(`${ref}:${filePath}`);
+                    if (!bytes) {
+                        res.writeHead(404);
+                        res.end('Not Found');
+                        return;
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+                    res.end(Buffer.from(bytes));
+                    return;
+                }
             }
 
             if (pathname.includes('/projects/')) {

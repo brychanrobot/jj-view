@@ -6,9 +6,13 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 import type { AuthCredential, CodeForgeAuthManager } from '../core/code-forge-auth';
 import type { AuthManageItem, ChangeStatusRequest, StackCommitNode } from '../core/code-forge-provider';
+import { CodeForgeRegistry } from '../core/code-forge-registry';
+import { CodeForgeService } from '../core/code-forge-service';
+import { computeUnuploadedComparison } from '../core/commands/compare-with-uploaded';
 import { GitLabProjectInfoSchema, GitLabProvider } from '../core/gitlab-provider';
 import type { HostSecrets } from '../core/host/host-environment';
-import { JjService } from '../core/jj-service';
+import type { JjRepository } from '../core/jj-repository';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import type { CodeForgeChangeInfo } from '../core/jj-types';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { FakeGitLabServer } from './helpers/fake-gitlab-server';
@@ -739,7 +743,11 @@ describe('GitLabProvider', () => {
 
         afterEach(async () => {
             await server.stop();
-            process.env.JJ_VIEW_GITLAB_API_URL = originalApiUrl;
+            if (originalApiUrl === undefined) {
+                delete process.env.JJ_VIEW_GITLAB_API_URL;
+            } else {
+                process.env.JJ_VIEW_GITLAB_API_URL = originalApiUrl;
+            }
         });
 
         test('creates chained MRs when none exist', async () => {
@@ -1079,6 +1087,365 @@ describe('GitLabProvider', () => {
                 expect(cached?.status).toBe('NEW');
             } finally {
                 testRepo.dispose();
+            }
+        });
+    });
+
+    describe('Uploaded revision comparison & rebase-aware content sync', () => {
+        let server: FakeGitLabServer;
+        let testRepo: TestRepo;
+        let jj: JjService;
+        let originalApiUrl: string | undefined;
+
+        beforeEach(async () => {
+            server = new FakeGitLabServer();
+            await server.start();
+            originalApiUrl = process.env.JJ_VIEW_GITLAB_API_URL;
+            process.env.JJ_VIEW_GITLAB_API_URL = `${server.url}/api/v4`;
+            setPrivate(provider, 'gitlabHost', 'https://gitlab.com');
+            setPrivate(provider, 'projectPath', 'test-group/test-project');
+            setPrivate(provider, 'resolvedProjectPath', 'test-group/test-project');
+            setPrivate(provider, 'allowedProjectIds', new Set([100]));
+
+            testRepo = new TestRepo();
+            testRepo.init();
+            jj = new JjService(testRepo.path, NO_OP_LOGGER);
+        });
+
+        afterEach(async () => {
+            await server.stop();
+            await testRepo.dispose();
+            if (originalApiUrl === undefined) {
+                delete process.env.JJ_VIEW_GITLAB_API_URL;
+            } else {
+                process.env.JJ_VIEW_GITLAB_API_URL = originalApiUrl;
+            }
+        });
+
+        test('parses diff_refs head_sha/base_sha without leaking MR web title/description into remoteDescription', async () => {
+            const baseSha = '1111111111111111111111111111111111111111';
+            const headSha = '2222222222222222222222222222222222222222';
+            const staleSha = '3333333333333333333333333333333333333333';
+
+            server.registerMR('mr-meta-bm', {
+                id: 501,
+                iid: 11,
+                state: 'opened',
+                title: 'Edited Web Title',
+                description: 'Edited MR web summary',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/11',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                blocking_discussions_resolved: true,
+                sha: staleSha,
+                source_project_id: 100,
+                source_branch: 'mr-meta-bm',
+                target_branch: 'main',
+                diff_refs: {
+                    base_sha: baseSha,
+                    head_sha: headSha,
+                },
+            });
+
+            await provider.fetchStatuses([{ commitId: 'local-commit', bookmarks: ['mr-meta-bm'] }], jj);
+            const cached = provider.getCachedChangeInfo(undefined, undefined, ['mr-meta-bm']);
+            expect(cached).toBeDefined();
+            expect(cached?.currentRevision).toBe(headSha);
+            expect(cached?.remoteBaseRevision).toBe(baseSha);
+            expect(cached?.remoteBaseRefName).toBe('main');
+            expect(cached?.remoteDescription).toBeUndefined();
+        });
+
+        test('uses Tier 1 local git store to populate files/remoteDescription and track rebase-aware contentSynced', async () => {
+            testRepo.new(['root()'], 'base 1');
+            testRepo.writeFile('base.txt', 'v1\n');
+            const base1Sha = testRepo.getCommitId('@');
+            testRepo.bookmark('main', base1Sha);
+
+            testRepo.new([base1Sha], 'GL commit\n\nBody');
+            testRepo.writeFile('feature.ts', 'export const v = 1;\n');
+            const featOrig = testRepo.getChangeAndCommitId('@');
+            const uploadedFeatSha = featOrig.commitId;
+            testRepo.bookmark('gl-feat', '@');
+
+            testRepo.new([base1Sha], 'upstream advance');
+            testRepo.writeFile('upstream.ts', 'export const up = 1;\n');
+            const base2Sha = testRepo.getCommitId('@');
+            testRepo.bookmarkMove('main', base2Sha);
+
+            testRepo.rebase({ revision: featOrig.changeId, destination: base2Sha });
+            const [rebasedEntry] = await jj.getLog({ revision: featOrig.changeId, limit: 1, omitChanges: false });
+            expect(rebasedEntry.commit_id).not.toBe(uploadedFeatSha);
+
+            server.registerMR('gl-feat', {
+                id: 502,
+                iid: 12,
+                state: 'opened',
+                title: 'GL commit',
+                description: 'Web UI body overridden',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/12',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                blocking_discussions_resolved: true,
+                sha: uploadedFeatSha,
+                source_project_id: 100,
+                source_branch: 'gl-feat',
+                target_branch: 'main',
+                diff_refs: {
+                    base_sha: base1Sha,
+                    head_sha: uploadedFeatSha,
+                },
+            });
+
+            await provider.fetchStatuses(
+                [
+                    {
+                        commitId: rebasedEntry.commit_id,
+                        changeId: rebasedEntry.change_id,
+                        description: rebasedEntry.description,
+                        bookmarks: ['gl-feat'],
+                        parents: rebasedEntry.parents,
+                        changes: rebasedEntry.changes,
+                    },
+                ],
+                jj,
+            );
+
+            expect(
+                server.requests.filter((r) => r.url.includes('/diffs') || r.url.includes('/repository/commits')),
+            ).toEqual([]);
+
+            const cached = provider.getCachedChangeInfo(
+                rebasedEntry.change_id,
+                rebasedEntry.description,
+                ['gl-feat'],
+                rebasedEntry.commit_id,
+            );
+            expect(cached?.files?.['feature.ts']?.newSha).toMatch(/^[0-9a-f]{40}$/);
+            expect(cached?.remoteDescription?.trim()).toBe('GL commit\n\nBody');
+            expect(cached?.contentSynced).toBe(true);
+
+            // Editing the commit description marks contentSynced false
+            testRepo.describe('GL commit updated\n\nBody', featOrig.changeId);
+            const [editedEntry] = await jj.getLog({ revision: featOrig.changeId, limit: 1, omitChanges: false });
+            await provider.fetchStatuses(
+                [
+                    {
+                        commitId: editedEntry.commit_id,
+                        changeId: editedEntry.change_id,
+                        description: editedEntry.description,
+                        bookmarks: ['gl-feat'],
+                        parents: editedEntry.parents,
+                        changes: editedEntry.changes,
+                    },
+                ],
+                jj,
+            );
+            const afterEdit = provider.getCachedChangeInfo(
+                editedEntry.change_id,
+                editedEntry.description,
+                ['gl-feat'],
+                editedEntry.commit_id,
+            );
+            expect(afterEdit?.contentSynced).toBe(false);
+        });
+
+        test('falls back to REST for diffs, commit description, raw binary bytes, 404 caching, and 500 errors', async () => {
+            const remoteSha = 'cafebabe'.repeat(5);
+            const binaryBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x10]);
+
+            server.registerMR('gl-tier2', {
+                id: 503,
+                iid: 13,
+                state: 'opened',
+                title: 'MR Title',
+                description: 'Web description',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/13',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                blocking_discussions_resolved: true,
+                sha: remoteSha,
+                source_project_id: 100,
+                source_branch: 'gl-tier2',
+                target_branch: 'main',
+            });
+            server.registerMrDiffs(13, [
+                { new_path: 'src/new.ts', old_path: 'src/new.ts', new_file: true },
+                { new_path: 'src/mod.ts', old_path: 'src/mod.ts' },
+                { new_path: 'src/del.ts', old_path: 'src/del.ts', deleted_file: true },
+                { new_path: 'src/renamed.ts', old_path: 'src/old.ts', renamed_file: true },
+            ]);
+            server.registerCommit(remoteSha, 'Remote commit msg\n');
+            server.registerRepositoryFile(remoteSha, 'src/img.bin', binaryBytes);
+
+            await provider.fetchStatuses([{ commitId: 'local-only', bookmarks: ['gl-tier2'] }], jj);
+            const cached = provider.getCachedChangeInfo(undefined, undefined, ['gl-tier2']);
+            expect(cached).toBeDefined();
+            if (!cached) {
+                throw new Error('Expected cached MR info');
+            }
+
+            const details = await provider.fetchUploadedRevisionDetails(cached);
+            expect(details?.remoteDescription).toBe('Remote commit msg');
+            expect(details?.files).toEqual({
+                'src/new.ts': { status: 'A' },
+                'src/mod.ts': { status: 'M' },
+                'src/del.ts': { status: 'D', oldPath: 'src/del.ts' },
+                'src/renamed.ts': { status: 'R', oldPath: 'src/old.ts' },
+            });
+
+            const fetchedBytes = await provider.getUploadedFileContent({
+                changeId: cached.id,
+                changeNumber: cached.number,
+                revisionId: remoteSha,
+                filePath: '/src/img.bin',
+            });
+            expect(fetchedBytes).toEqual(binaryBytes);
+
+            // 404 returns undefined and is cached
+            const countBeforeMissing = server.requests.length;
+            const miss1 = await provider.getUploadedFileContent({
+                changeId: cached.id,
+                changeNumber: cached.number,
+                revisionId: remoteSha,
+                filePath: 'missing.bin',
+            });
+            expect(miss1).toBeUndefined();
+            const miss2 = await provider.getUploadedFileContent({
+                changeId: cached.id,
+                changeNumber: cached.number,
+                revisionId: remoteSha,
+                filePath: 'missing.bin',
+            });
+            expect(miss2).toBeUndefined();
+            expect(server.requests.length).toBe(countBeforeMissing + 1);
+
+            // 500 throws without caching so retry succeeds
+            const retryBytes = new Uint8Array([42, 0, 255]);
+            server.registerRepositoryFile(remoteSha, 'src/retry.bin', retryBytes);
+            server.statusOverride = { status: 500, body: 'Server Error' };
+            await expect(
+                provider.getUploadedFileContent({
+                    changeId: cached.id,
+                    changeNumber: cached.number,
+                    revisionId: remoteSha,
+                    filePath: 'src/retry.bin',
+                }),
+            ).rejects.toThrow('status 500');
+
+            server.statusOverride = undefined;
+            const recovered = await provider.getUploadedFileContent({
+                changeId: cached.id,
+                changeNumber: cached.number,
+                revisionId: remoteSha,
+                filePath: 'src/retry.bin',
+            });
+            expect(recovered).toEqual(retryBytes);
+        });
+
+        test('paginates /diffs via x-next-page header and compares Tier-2 files without remoteSha', async () => {
+            const remoteSha = 'dead1234'.repeat(5);
+            const diffs = Array.from({ length: 105 }, (_, i) => ({
+                new_path: `pkg/file-${String(i).padStart(3, '0')}.ts`,
+                old_path: `pkg/file-${String(i).padStart(3, '0')}.ts`,
+            }));
+
+            server.registerMR('gl-paged', {
+                id: 504,
+                iid: 14,
+                state: 'opened',
+                title: 'Paged MR',
+                description: 'Web desc',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/14',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                blocking_discussions_resolved: true,
+                sha: remoteSha,
+                source_project_id: 100,
+                source_branch: 'gl-paged',
+                target_branch: 'main',
+            });
+            server.registerMrDiffs(14, diffs);
+            server.registerCommit(remoteSha, 'Paged commit msg');
+
+            await provider.fetchStatuses([{ commitId: 'local-paged', bookmarks: ['gl-paged'] }], jj);
+            const cached = provider.getCachedChangeInfo(undefined, undefined, ['gl-paged']);
+            if (!cached) {
+                throw new Error('Expected cached MR');
+            }
+            const details = await provider.fetchUploadedRevisionDetails(cached);
+            expect(Object.keys(details?.files ?? {})).toHaveLength(105);
+            expect(details?.files['pkg/file-104.ts']).toEqual({ status: 'M' });
+            expect(server.requests.some((r) => r.url.includes('page=2'))).toBe(true);
+
+            // End-to-end computeUnuploadedComparison compares raw Tier-2 bytes when remoteSha is undefined
+            testRepo.addRemote('origin', 'https://gitlab.com/test-group/test-project.git');
+            testRepo.new(['root()'], 'base');
+            testRepo.writeFile('base.txt', 'base\n');
+            const baseSha = testRepo.getCommitId('@');
+
+            testRepo.new([baseSha], 'Tier-2 E2E commit');
+            testRepo.writeFile('pkg/same.ts', 'same\n');
+            testRepo.writeFile('pkg/diff.ts', 'local\n');
+            const localCommit = testRepo.getChangeAndCommitId('@');
+            testRepo.bookmark('gl-tier2-e2e', '@');
+
+            const tier2RemoteSha = 'eeeeffff'.repeat(5);
+            server.registerMR('gl-tier2-e2e', {
+                id: 505,
+                iid: 15,
+                state: 'opened',
+                title: 'Tier-2 E2E',
+                description: '',
+                web_url: 'https://gitlab.com/test-group/test-project/-/merge_requests/15',
+                draft: false,
+                merge_status: 'can_be_merged',
+                detailed_merge_status: 'mergeable',
+                blocking_discussions_resolved: true,
+                sha: tier2RemoteSha,
+                source_project_id: 100,
+                source_branch: 'gl-tier2-e2e',
+                target_branch: 'main',
+            });
+            server.registerMrDiffs(15, [
+                { new_path: 'pkg/same.ts', old_path: 'pkg/same.ts' },
+                { new_path: 'pkg/diff.ts', old_path: 'pkg/diff.ts' },
+            ]);
+            server.registerCommit(tier2RemoteSha, 'Tier-2 E2E commit');
+            server.registerTextRepositoryFile(tier2RemoteSha, 'pkg/same.ts', 'same\n');
+            server.registerTextRepositoryFile(tier2RemoteSha, 'pkg/diff.ts', 'remote\n');
+
+            const registry = new CodeForgeRegistry();
+            registry.register({ id: 'gitlab', create: () => provider });
+            const codeForge = new CodeForgeService(testRepo.path, jj, registry, host, NO_OP_LOGGER);
+            try {
+                await codeForge.detectActiveProvider();
+                setPrivate(provider, 'resolvedProjectPath', 'test-group/test-project');
+                setPrivate(provider, 'allowedProjectIds', new Set([100]));
+                const [localLog] = await jj.getLog({ revision: localCommit.changeId, limit: 1, omitChanges: false });
+                await codeForge.ensureFreshStatuses([
+                    {
+                        commitId: localLog.commit_id,
+                        changeId: localLog.change_id,
+                        description: localLog.description,
+                        bookmarks: ['gl-tier2-e2e'],
+                        parents: localLog.parents,
+                        changes: localLog.changes,
+                    },
+                ]);
+                const comp = await computeUnuploadedComparison(
+                    createMock<JjRepository>({ jj, codeForge }),
+                    localCommit.changeId,
+                );
+                expect(comp.unuploadedFilePaths).toEqual(['pkg/diff.ts']);
+                expect(comp.resources).toHaveLength(1);
+            } finally {
+                codeForge.dispose();
+                registry.dispose();
             }
         });
     });

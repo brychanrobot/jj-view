@@ -11,10 +11,13 @@ import { CodeForgeService } from '../core/code-forge-service';
 import { uploadCommand } from '../core/commands/upload';
 import type { CustomCliForgeProvider } from '../core/custom-cli-forge-provider';
 import type { JjRepository } from '../core/jj-repository';
+import { JjRepositoryManager } from '../core/jj-repository-manager';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import { JjViewFsService } from '../core/jj-view-fs-service';
+import { createUploadedFileUri, Uri } from '../core/uri-utils';
 import { FakeCommandContext, FakeHostEnvironment } from './fake-host-environment';
 import { buildGraph, TestRepo } from './test-repo';
-import { createMock } from './test-utils';
+import { createMock, createMockLogOutputChannel } from './test-utils';
 
 describe('CustomCliForgeProvider and CodeForge Integration', () => {
     let tempDir: string;
@@ -53,7 +56,7 @@ if (subcommand === 'detect') {
         id: 'custom-forge',
         displayName: 'Custom Forge',
         changeTerm: 'Change',
-        uploadModel: 'revision',
+        uploadModel: state.uploadModel || 'revision',
         managedBookmarkPattern: '^change/(\\\\d+)$'
     }));
     process.exit(0);
@@ -165,6 +168,26 @@ if (subcommand === 'resolve-comment') {
         state.lastResolveCommentCwd = process.cwd();
         fs.writeFileSync(stateFile, JSON.stringify(state));
     }
+    process.exit(0);
+}
+
+if (subcommand === 'get-file-content') {
+    if (stateFile) {
+        state.getFileContentCalls = (state.getFileContentCalls || 0) + 1;
+        fs.writeFileSync(stateFile, JSON.stringify(state));
+    }
+    if (state.failGetFileContent) {
+        console.error('Simulated transient adapter failure');
+        process.exit(1);
+    }
+    const changeIdx = args.indexOf('--change-id');
+    const revIdx = args.indexOf('--revision');
+    const pathIdx = args.indexOf('--path');
+    const cId = changeIdx !== -1 ? args[changeIdx + 1] : '';
+    const rev = revIdx !== -1 ? args[revIdx + 1] : '';
+    const filePath = pathIdx !== -1 ? args[pathIdx + 1] : '';
+    const entry = state.fileContents && state.fileContents[cId + ':' + rev + ':' + filePath];
+    console.log(JSON.stringify(entry !== undefined ? entry : { found: false }));
     process.exit(0);
 }
 
@@ -492,5 +515,241 @@ process.exit(1);
         await provider.getCommentThreads('12345');
         currentState = JSON.parse(fs.readFileSync(adapterStatePath, 'utf8')) as { listCommentsCalls?: number };
         expect(currentState.listCommentsCalls).toBe(2);
+    });
+
+    test('computes rebase-aware contentSynced when adapter omits contentSynced and serves get-file-content for string IDs with number 0', async () => {
+        testRepo.new(['root()'], 'base');
+        testRepo.writeFile('base.txt', 'base\n');
+        const base1Sha = testRepo.getCommitId('@');
+
+        testRepo.new([base1Sha], 'Custom CL feature');
+        testRepo.writeFile('src/app.ts', 'export const app = 1;\n');
+        const featOrig = testRepo.getChangeAndCommitId('@');
+        const uploadedSha = featOrig.commitId;
+
+        testRepo.new([base1Sha], 'upstream advance');
+        testRepo.writeFile('upstream.txt', 'up\n');
+        const base2Sha = testRepo.getCommitId('@');
+
+        testRepo.rebase({ revision: featOrig.changeId, destination: base2Sha });
+        const [rebasedEntry] = await jjService.getLog({ revision: featOrig.changeId, limit: 1, omitChanges: false });
+
+        const binaryBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
+        const remoteMissingSha = 'f00dbabe'.repeat(5);
+
+        fs.writeFileSync(
+            adapterStatePath,
+            JSON.stringify({
+                [rebasedEntry.commit_id]: {
+                    changeId: rebasedEntry.change_id,
+                    info: {
+                        id: 'cl-alpha',
+                        number: 0,
+                        url: 'https://review.example.com/cl-alpha',
+                        status: 'NEW',
+                        currentRevision: uploadedSha,
+                        parentSynced: false,
+                    },
+                },
+                fileContents: {
+                    [`cl-alpha:${remoteMissingSha}:docs/readme.txt`]: {
+                        content: 'Hello from custom adapter\n',
+                    },
+                    [`cl-alpha:${remoteMissingSha}:assets/logo.bin`]: {
+                        contentBase64: Buffer.from(binaryBytes).toString('base64'),
+                    },
+                },
+            }),
+        );
+
+        await codeForgeService.detectActiveProvider();
+        await codeForgeService.ensureFreshStatuses([
+            {
+                commitId: rebasedEntry.commit_id,
+                changeId: rebasedEntry.change_id,
+                description: rebasedEntry.description,
+                bookmarks: [],
+                parents: rebasedEntry.parents,
+                changes: rebasedEntry.changes,
+            },
+        ]);
+
+        const provider = codeForgeService.activeProvider as CustomCliForgeProvider;
+        const syncedInfo = provider.getCachedChangeInfo(
+            rebasedEntry.change_id,
+            rebasedEntry.description,
+            undefined,
+            rebasedEntry.commit_id,
+        );
+        expect(syncedInfo?.contentSynced).toBe(true);
+        expect(syncedInfo?.synced).toBe(false);
+        expect(syncedInfo?.files?.['src/app.ts']?.newSha).toMatch(/^[0-9a-f]{40}$/);
+
+        // Local modification sets contentSynced to false
+        testRepo.edit(featOrig.changeId);
+        testRepo.writeFile('src/app.ts', 'export const app = 2;\n');
+        const [editedEntry] = await jjService.getLog({ revision: featOrig.changeId, limit: 1, omitChanges: false });
+        const rawState = JSON.parse(fs.readFileSync(adapterStatePath, 'utf8')) as Record<string, unknown>;
+        rawState[editedEntry.commit_id] = rawState[rebasedEntry.commit_id];
+        fs.writeFileSync(adapterStatePath, JSON.stringify(rawState));
+
+        await codeForgeService.ensureFreshStatuses([
+            {
+                commitId: editedEntry.commit_id,
+                changeId: editedEntry.change_id,
+                description: editedEntry.description,
+                bookmarks: [],
+                parents: editedEntry.parents,
+                changes: editedEntry.changes,
+            },
+        ]);
+        const editedInfo = provider.getCachedChangeInfo(
+            editedEntry.change_id,
+            editedEntry.description,
+            undefined,
+            editedEntry.commit_id,
+        );
+        expect(editedInfo?.contentSynced).toBe(false);
+
+        // getUploadedFileContent decodes UTF-8, base64 binary, and { found: false }
+        const utf8Result = await provider.getUploadedFileContent({
+            changeId: 'cl-alpha',
+            changeNumber: 0,
+            revisionId: remoteMissingSha,
+            filePath: '/docs/readme.txt',
+        });
+        expect(new TextDecoder().decode(utf8Result)).toBe('Hello from custom adapter\n');
+
+        const binResult = await provider.getUploadedFileContent({
+            changeId: 'cl-alpha',
+            changeNumber: 0,
+            revisionId: remoteMissingSha,
+            filePath: 'assets/logo.bin',
+        });
+        expect(binResult).toEqual(binaryBytes);
+
+        const notFoundResult = await provider.getUploadedFileContent({
+            changeId: 'cl-alpha',
+            changeNumber: 0,
+            revisionId: remoteMissingSha,
+            filePath: 'missing.txt',
+        });
+        expect(notFoundResult).toBeUndefined();
+
+        // Transient process failure throws and does not cache failure
+        const retryState = JSON.parse(fs.readFileSync(adapterStatePath, 'utf8')) as Record<string, unknown>;
+        retryState.failGetFileContent = true;
+        (retryState.fileContents as Record<string, unknown>)[`cl-alpha:${remoteMissingSha}:retry.txt`] = {
+            content: 'Recovered content',
+        };
+        fs.writeFileSync(adapterStatePath, JSON.stringify(retryState));
+
+        await expect(
+            provider.getUploadedFileContent({
+                changeId: 'cl-alpha',
+                changeNumber: 0,
+                revisionId: remoteMissingSha,
+                filePath: 'retry.txt',
+            }),
+        ).rejects.toThrow();
+
+        const clearedState = JSON.parse(fs.readFileSync(adapterStatePath, 'utf8')) as Record<string, unknown>;
+        clearedState.failGetFileContent = false;
+        fs.writeFileSync(adapterStatePath, JSON.stringify(clearedState));
+
+        const recovered = await provider.getUploadedFileContent({
+            changeId: 'cl-alpha',
+            changeNumber: 0,
+            revisionId: remoteMissingSha,
+            filePath: 'retry.txt',
+        });
+        expect(new TextDecoder().decode(recovered)).toBe('Recovered content');
+
+        // JjViewFsService resolves uploaded URIs for string change IDs with changeNumber: 0
+        host.workspace.addFolder(Uri.file(testRepo.path));
+        const outputChannel = createMockLogOutputChannel({ appendLine: () => {} });
+        const repoManager = new JjRepositoryManager(registry, outputChannel, host);
+        try {
+            const managedRepo = await repoManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+            await managedRepo?.codeForge?.detectActiveProvider();
+
+            const fsService = new JjViewFsService(repoManager);
+            const uploadedUri = createUploadedFileUri(testRepo.path, 'docs/readme.txt', {
+                changeId: 'cl-alpha',
+                commitId: remoteMissingSha,
+                remoteRevision: remoteMissingSha,
+                changeNumber: 0,
+            });
+            const fsBytes = await fsService.readFile(uploadedUri);
+            expect(new TextDecoder().decode(fsBytes)).toBe('Hello from custom adapter\n');
+        } finally {
+            await repoManager.dispose();
+        }
+    });
+
+    test('computes branch-scoped contentSynced for custom CLI adapter with uploadModel branch-stack', async () => {
+        testRepo.new(['root()'], 'base 1');
+        testRepo.writeFile('base.txt', 'v1\n');
+        const base1Sha = testRepo.getCommitId('@');
+        testRepo.bookmark('main', base1Sha);
+
+        testRepo.new([base1Sha], 'Branch commit 1');
+        testRepo.writeFile('c1.ts', 'export const c1 = 1;\n');
+        const c1Orig = testRepo.getChangeAndCommitId('@');
+
+        testRepo.new([c1Orig.commitId], 'Branch commit 2');
+        testRepo.writeFile('c2.ts', 'export const c2 = 2;\n');
+        const c2Orig = testRepo.getChangeAndCommitId('@');
+        const uploadedHeadSha = c2Orig.commitId;
+
+        testRepo.new([base1Sha], 'upstream advance');
+        testRepo.writeFile('upstream.ts', 'export const up = true;\n');
+        const base2Sha = testRepo.getCommitId('@');
+        testRepo.bookmarkMove('main', base2Sha);
+
+        testRepo.rebase({ source: c1Orig.changeId, destination: base2Sha });
+        const [rebasedC2] = await jjService.getLog({ revision: c2Orig.changeId, limit: 1, omitChanges: false });
+
+        fs.writeFileSync(
+            adapterStatePath,
+            JSON.stringify({
+                uploadModel: 'branch-stack',
+                [rebasedC2.commit_id]: {
+                    changeId: rebasedC2.change_id,
+                    info: {
+                        id: 'cl-branch',
+                        number: 55,
+                        url: 'https://review.example.com/cl-branch',
+                        status: 'NEW',
+                        currentRevision: uploadedHeadSha,
+                        remoteBaseRevision: base1Sha,
+                        remoteParents: [c1Orig.commitId],
+                        parentSynced: false,
+                    },
+                },
+            }),
+        );
+
+        await codeForgeService.detectActiveProvider();
+        await codeForgeService.ensureFreshStatuses([
+            {
+                commitId: rebasedC2.commit_id,
+                changeId: rebasedC2.change_id,
+                description: rebasedC2.description,
+                bookmarks: [],
+                parents: rebasedC2.parents,
+                changes: rebasedC2.changes,
+            },
+        ]);
+
+        const provider = codeForgeService.activeProvider as CustomCliForgeProvider;
+        const info = provider.getCachedChangeInfo(
+            rebasedC2.change_id,
+            rebasedC2.description,
+            undefined,
+            rebasedC2.commit_id,
+        );
+        expect(info?.contentSynced).toBe(true);
+        expect(info?.synced).toBe(false);
     });
 });

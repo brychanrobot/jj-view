@@ -297,7 +297,7 @@ describe('computeCommitActions', () => {
         expect(computeCommitActions(commitB, new Set(), false, 2, false).vscodeContext['jj.canSquash']).toBe(true);
     });
 
-    it('should set jj.canCompareWithUploaded based on codeForgeChange presence, files, and selection count', async () => {
+    it('should set jj.canCompareWithUploaded based on codeForgeChange currentRevision and selection count', async () => {
         const ids = await buildGraph(repo, [{ label: 'A', parents: ['root()'] }]);
         const commit = await getCommit(ids.A.changeId);
 
@@ -305,23 +305,18 @@ describe('computeCommitActions', () => {
         const resultWithout = computeCommitActions(commit, new Set(), false, 0, false);
         expect(resultWithout.vscodeContext['jj.canCompareWithUploaded']).toBe(false);
 
-        // Without files metadata (non-Gerrit in Stage 1), remains disabled
+        // With codeForgeChange having currentRevision (including GitHub/GitLab before files is populated)
         commit.codeForgeChange = {
-            id: 'I12345',
-            number: 12345,
-            displayLabel: 'CL/12345',
-            providerName: 'Gerrit',
+            id: 'PR_kwDO123',
+            number: 42,
+            displayLabel: 'PR #42',
+            providerName: 'GitHub',
             status: 'NEW',
-            submittable: false,
-            url: 'https://example.com/12345',
+            submittable: true,
+            url: 'https://github.com/owner/repo/pull/42',
             unresolvedComments: 0,
             currentRevision: 'uploaded-sha-999',
         };
-        const resultWithoutFiles = computeCommitActions(commit, new Set(), true, 1, false);
-        expect(resultWithoutFiles.vscodeContext['jj.canCompareWithUploaded']).toBe(false);
-
-        // With codeForgeChange having currentRevision and files
-        commit.codeForgeChange.files = { 'file.txt': { newSha: 'blob-1', status: 'M' } };
 
         const resultWithSingle = computeCommitActions(commit, new Set(), true, 1, false);
         expect(resultWithSingle.vscodeContext['jj.canCompareWithUploaded']).toBe(true);

@@ -5,6 +5,9 @@
 
 import { z } from 'zod';
 import { chunkArray } from '../utils/array-utils';
+import { AsyncCache } from '../utils/async-cache';
+import { Duration } from '../utils/duration';
+import { LruCache } from '../utils/lru-cache';
 import type { LoggerChannel } from '../utils/output-channel';
 import type { AuthCredential, AuthResult, CodeForgeAuthManager, ExtensionInstaller } from './code-forge-auth';
 import type {
@@ -16,7 +19,11 @@ import type {
     GitRemote,
     StackCommitNode,
     StackSyncResult,
+    UploadedFileRequest,
+    UploadedRevisionDetails,
+    UploadedRevisionFile,
 } from './code-forge-provider';
+import { getBookmarkCachedChangeInfo, resolveUploadedAndVerifyBookmarkSync } from './code-forge-sync-utils';
 import { type Event, EventEmitter } from './host/events';
 import type { HostEnvironment } from './host/host-environment';
 import type { JjService } from './jj-service';
@@ -46,8 +53,30 @@ export const GitLabMergeRequestSchema = z.object({
     source_branch: z.string().nullable().optional(),
     target_branch: z.string().nullable().optional(),
     title: z.string().nullable().optional(),
+    diff_refs: z
+        .object({
+            base_sha: z.string().nullable().optional(),
+            head_sha: z.string().nullable().optional(),
+            start_sha: z.string().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
 });
 export type GitLabMergeRequest = z.infer<typeof GitLabMergeRequestSchema>;
+
+const GitLabMrDiffEntrySchema = z.object({
+    old_path: z.string().optional(),
+    new_path: z.string(),
+    new_file: z.boolean().optional(),
+    renamed_file: z.boolean().optional(),
+    deleted_file: z.boolean().optional(),
+});
+
+const GitLabCommitResponseSchema = z.object({
+    id: z.string().optional(),
+    message: z.string().optional(),
+    parent_ids: z.array(z.string()).optional(),
+});
 
 export const GitLabProjectInfoSchema = z.object({
     id: z.number().optional(),
@@ -105,6 +134,17 @@ export class GitLabProvider implements CodeForgeProvider {
     public readonly isAuthManageable = true;
 
     private cache = new Map<string, CodeForgeChangeInfo>();
+    private contentSyncCache = new LruCache<string, boolean>({ maxEntries: 500 });
+    private uploadedDetailsCache = new AsyncCache<string, UploadedRevisionDetails | undefined>({
+        ttl: Duration.minutes(5),
+        maxEntries: 200,
+        keepStaleOnError: true,
+    });
+    private uploadedFileCache = new AsyncCache<string, Uint8Array | undefined>({
+        ttl: Duration.minutes(10),
+        maxEntries: 200,
+        keepStaleOnError: true,
+    });
     private gitlabHost: string | undefined;
     private projectPath: string | undefined;
     private resolvedProjectPath: string | undefined;
@@ -273,30 +313,25 @@ export class GitLabProvider implements CodeForgeProvider {
         bookmarks?: string[],
         commitId?: string,
     ): CodeForgeChangeInfo | undefined {
-        if (bookmarks && bookmarks.length > 0) {
-            for (const bookmark of bookmarks) {
-                const info = this.cache.get(bookmark);
-                if (info) {
-                    const contentSynced = commitId ? commitId === info.currentRevision : undefined;
-                    return { ...info, contentSynced };
-                }
-            }
-        }
-        return undefined;
+        return getBookmarkCachedChangeInfo(this.cache, this.contentSyncCache, bookmarks, commitId);
     }
 
-    public async fetchStatuses(changes: ChangeStatusRequest[], _jj: JjService): Promise<boolean> {
+    public async fetchStatuses(changes: ChangeStatusRequest[], jj: JjService): Promise<boolean> {
         if (!this.gitlabHost || !this.projectPath || changes.length === 0) {
             return false;
         }
 
         const bookmarkNames = new Set<string>();
         const bookmarkToCommitId = new Map<string, string>();
+        const bookmarkToChanges = new Map<string, ChangeStatusRequest[]>();
         for (const change of changes) {
             if (change.bookmarks) {
                 for (const bookmark of change.bookmarks) {
                     bookmarkNames.add(bookmark);
                     bookmarkToCommitId.set(bookmark, change.commitId);
+                    const list = bookmarkToChanges.get(bookmark) ?? [];
+                    list.push(change);
+                    bookmarkToChanges.set(bookmark, list);
                 }
             }
         }
@@ -319,6 +354,18 @@ export class GitLabProvider implements CodeForgeProvider {
                     const oldInfo = this.cache.get(bookmark);
 
                     if (info) {
+                        const syncChanged = await resolveUploadedAndVerifyBookmarkSync({
+                            provider: this,
+                            info,
+                            matchingChanges: bookmarkToChanges.get(bookmark) ?? [],
+                            jj,
+                            contentSyncCache: this.contentSyncCache,
+                            normalizeDescription: (desc) => desc.trim(),
+                        });
+                        if (syncChanged) {
+                            changed = true;
+                        }
+
                         this.cache.set(bookmark, info);
                     } else {
                         this.cache.delete(bookmark);
@@ -327,9 +374,11 @@ export class GitLabProvider implements CodeForgeProvider {
                     if (
                         oldInfo?.status !== info?.status ||
                         oldInfo?.currentRevision !== info?.currentRevision ||
+                        oldInfo?.remoteBaseRevision !== info?.remoteBaseRevision ||
                         oldInfo?.submittable !== info?.submittable ||
                         oldInfo?.unresolvedComments !== info?.unresolvedComments ||
                         oldInfo?.remoteDescription !== info?.remoteDescription ||
+                        JSON.stringify(oldInfo?.files) !== JSON.stringify(info?.files) ||
                         JSON.stringify(oldInfo?.remoteParents) !== JSON.stringify(info?.remoteParents)
                     ) {
                         changed = true;
@@ -719,8 +768,140 @@ export class GitLabProvider implements CodeForgeProvider {
             submittable,
             url: mr.web_url,
             unresolvedComments,
-            currentRevision: mr.sha ?? undefined,
+            currentRevision: mr.diff_refs?.head_sha ?? mr.sha ?? undefined,
+            remoteBaseRevision: mr.diff_refs?.base_sha ?? undefined,
+            remoteBaseRefName: mr.target_branch ?? undefined,
         };
+    }
+
+    public async fetchUploadedRevisionDetails(info: CodeForgeChangeInfo): Promise<UploadedRevisionDetails | undefined> {
+        if (info.files !== undefined) {
+            return { files: info.files, remoteDescription: info.remoteDescription };
+        }
+        const targetPath = this.resolvedProjectPath || this.projectPath;
+        if (!this.gitlabHost || !targetPath || !info.currentRevision || info.number <= 0) {
+            return undefined;
+        }
+
+        const credential = await this.getSessionCredential(false);
+        const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
+        const revision = info.currentRevision;
+        const cacheKey = `${targetPath}!${info.number}@${revision}:${info.remoteBaseRevision ?? ''}`;
+
+        return this.uploadedDetailsCache.getOrFetch(cacheKey, async () => {
+            const diffsUrlForPage = (page: number) =>
+                `${apiBaseUrl}/projects/${encodeURIComponent(targetPath)}/merge_requests/${info.number}/diffs?per_page=100&page=${page}`;
+            const commitUrlForProject = (projPath: string) =>
+                `${apiBaseUrl}/projects/${encodeURIComponent(projPath)}/repository/commits/${encodeURIComponent(revision)}`;
+
+            const [firstDiffsResp, initialCommitResp] = await Promise.all([
+                this.gitlabFetch(diffsUrlForPage(1), credential, {}),
+                this.gitlabFetch(commitUrlForProject(targetPath), credential, {}),
+            ]);
+
+            if (firstDiffsResp.status === 404) {
+                return undefined;
+            }
+            if (!firstDiffsResp.ok) {
+                this.handle403Warning(firstDiffsResp);
+                throw new Error(`GitLab MR diffs request failed with status ${firstDiffsResp.status}`);
+            }
+
+            const files: Record<string, UploadedRevisionFile> = {};
+            const appendDiffPage = async (diffsResp: Response): Promise<string | null> => {
+                const rawDiffs: unknown = await diffsResp.json();
+                const parsedDiffs = z.array(GitLabMrDiffEntrySchema).safeParse(rawDiffs);
+                if (!parsedDiffs.success) {
+                    throw new Error(`Failed to parse GitLab MR diffs response: ${parsedDiffs.error.message}`);
+                }
+                for (const entry of parsedDiffs.data) {
+                    if (entry.deleted_file) {
+                        const deletedPath = entry.old_path || entry.new_path;
+                        files[deletedPath] = {
+                            status: 'D',
+                            ...(entry.old_path ? { oldPath: entry.old_path } : {}),
+                        };
+                    } else if (entry.renamed_file) {
+                        files[entry.new_path] = {
+                            status: 'R',
+                            ...(entry.old_path ? { oldPath: entry.old_path } : {}),
+                        };
+                    } else if (entry.new_file) {
+                        files[entry.new_path] = { status: 'A' };
+                    } else {
+                        files[entry.new_path] = { status: 'M' };
+                    }
+                }
+                const nextPage = diffsResp.headers.get('x-next-page')?.trim() ?? '';
+                return nextPage.length > 0 ? nextPage : null;
+            };
+
+            let nextPageToken = await appendDiffPage(firstDiffsResp);
+            for (let pageCount = 2; pageCount <= 10 && nextPageToken !== null; pageCount++) {
+                const nextPageNum = Number(nextPageToken);
+                if (!Number.isInteger(nextPageNum) || nextPageNum <= 1) {
+                    break;
+                }
+                const nextResp = await this.gitlabFetch(diffsUrlForPage(nextPageNum), credential, {});
+                if (nextResp.status === 404) {
+                    break;
+                }
+                if (!nextResp.ok) {
+                    this.handle403Warning(nextResp);
+                    throw new Error(`GitLab MR diffs request failed with status ${nextResp.status}`);
+                }
+                nextPageToken = await appendDiffPage(nextResp);
+            }
+
+            let commitResp = initialCommitResp;
+            if (commitResp.status === 404 && this.projectPath && this.projectPath !== targetPath) {
+                commitResp = await this.gitlabFetch(commitUrlForProject(this.projectPath), credential, {});
+            }
+
+            let remoteDescription = info.remoteDescription;
+            if (commitResp.ok) {
+                const rawCommit: unknown = await commitResp.json();
+                const parsedCommit = GitLabCommitResponseSchema.safeParse(rawCommit);
+                if (parsedCommit.success && parsedCommit.data.message !== undefined) {
+                    remoteDescription = parsedCommit.data.message.replace(/\r?\n$/, '');
+                }
+            }
+
+            return {
+                files,
+                remoteDescription,
+            };
+        });
+    }
+
+    public async getUploadedFileContent(request: UploadedFileRequest): Promise<Uint8Array | undefined> {
+        const targetPath = this.resolvedProjectPath || this.projectPath;
+        if (!this.gitlabHost || !targetPath) {
+            return undefined;
+        }
+
+        const credential = await this.getSessionCredential(false);
+        const apiBaseUrl = process.env.JJ_VIEW_GITLAB_API_URL || `${this.gitlabHost}/api/v4`;
+        const cleanPath = request.filePath.replace(/^\/+/, '');
+        const cacheKey = `${targetPath}:${request.revisionId}:${cleanPath}`;
+
+        return this.uploadedFileCache.getOrFetch(cacheKey, async () => {
+            const rawUrlForProject = (projPath: string) =>
+                `${apiBaseUrl}/projects/${encodeURIComponent(projPath)}/repository/files/${encodeURIComponent(cleanPath)}/raw?ref=${encodeURIComponent(request.revisionId)}`;
+
+            let response = await this.gitlabFetch(rawUrlForProject(targetPath), credential, {});
+            if (response.status === 404 && this.projectPath && this.projectPath !== targetPath) {
+                response = await this.gitlabFetch(rawUrlForProject(this.projectPath), credential, {});
+            }
+            if (response.status === 404) {
+                return undefined;
+            }
+            if (!response.ok) {
+                this.handle403Warning(response);
+                throw new Error(`GitLab file content request failed with status ${response.status}`);
+            }
+            return new Uint8Array(await response.arrayBuffer());
+        });
     }
 
     public getUploadCommand(
@@ -1094,6 +1275,9 @@ export class GitLabProvider implements CodeForgeProvider {
 
     public clearCache(): void {
         this.cache.clear();
+        this.contentSyncCache.clear();
+        void this.uploadedDetailsCache.clear();
+        void this.uploadedFileCache.clear();
         this.projectInfoCache.clear();
         this.projectInfoPromiseCache.clear();
         this.resolvedProjectPath = undefined;

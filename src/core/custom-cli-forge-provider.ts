@@ -13,11 +13,19 @@ import type {
     CodeForgeCommentThread,
     CodeForgeProvider,
     GitRemote,
+    UploadedFileRequest,
 } from './code-forge-provider';
+import {
+    decodeBase64ToUint8Array,
+    resolveLocalBranchComparisonScope,
+    resolveLocalUploadedDetails,
+    verifyLocalContentSync,
+} from './code-forge-sync-utils';
 import {
     CliForgeCommentSchema,
     CliForgeCommentThreadSchema,
     CliForgeDetectResultSchema,
+    CliForgeFileContentResultSchema,
     CliForgeStatusRowSchema,
 } from './custom-cli-forge-schemas';
 import { type Event, EventEmitter } from './host/events';
@@ -79,6 +87,11 @@ export class CustomCliForgeProvider implements CodeForgeProvider {
     private readonly commentsCache = new AsyncCache<string, CodeForgeCommentThread[]>({
         ttl: Duration.seconds(30),
         maxEntries: 150,
+        keepStaleOnError: true,
+    });
+    private readonly uploadedFileContentCache = new AsyncCache<string, Uint8Array | undefined>({
+        ttl: Duration.minutes(10),
+        maxEntries: 200,
         keepStaleOnError: true,
     });
 
@@ -225,7 +238,15 @@ export class CustomCliForgeProvider implements CodeForgeProvider {
             const rawJson: unknown = JSON.parse(result.stdout);
             const rows = z.array(CliForgeStatusRowSchema).parse(rawJson);
 
+            const requestByCommitId = new Map(toFetch.map((c) => [c.commitId, c]));
+            const pendingRows: Array<{
+                row: z.infer<typeof CliForgeStatusRowSchema>;
+                newInfo: CodeForgeChangeInfo;
+                existing: { info: CodeForgeChangeInfo; localCommitId: string } | undefined;
+            }> = [];
             let hasChanged = false;
+
+            // Pass 1: parse all status rows and populate cacheByChangeId so branch-scope checks see stacked ancestors.
             for (const row of rows) {
                 const existing = this.cacheByChangeId.get(row.changeId);
                 if (!row.info) {
@@ -267,21 +288,79 @@ export class CustomCliForgeProvider implements CodeForgeProvider {
                     addressedThreads,
                     hasDraftResponses,
                     currentRevision: row.info.currentRevision,
+                    remoteBaseRevision: row.info.remoteBaseRevision,
+                    remoteDescription: row.info.remoteDescription,
+                    files: row.info.files,
                     contentSynced: row.info.contentSynced,
                     parentSynced: row.info.parentSynced,
-                    synced:
-                        row.info.synced ??
-                        (row.info.contentSynced !== undefined && row.info.parentSynced !== undefined
-                            ? row.info.contentSynced && row.info.parentSynced
-                            : undefined),
+                    synced: row.info.synced,
                     remoteParents: row.info.remoteParents,
                 };
+
+                this.cacheByChangeId.set(row.changeId, { info: newInfo, localCommitId: row.commitId });
+                pendingRows.push({ row, newInfo, existing });
+            }
+
+            // Pass 2: resolve Tier-1 uploaded file metadata, branch-scoped contentSynced, and change detection.
+            const isBranchModel = this.uploadModel === 'branch' || this.uploadModel === 'branch-stack';
+            for (const { row, newInfo, existing } of pendingRows) {
+                if (newInfo.status === 'NEW' && newInfo.currentRevision && newInfo.files === undefined) {
+                    const localDetails = await resolveLocalUploadedDetails(newInfo, jj, this.uploadModel).catch(
+                        () => undefined,
+                    );
+                    if (localDetails) {
+                        newInfo.files = localDetails.files;
+                        if (newInfo.remoteDescription === undefined && localDetails.remoteDescription !== undefined) {
+                            newInfo.remoteDescription = localDetails.remoteDescription;
+                        }
+                    }
+                }
+
+                if (newInfo.contentSynced === undefined && newInfo.status === 'NEW' && newInfo.files !== undefined) {
+                    const req = requestByCommitId.get(row.commitId);
+                    let localBaseCommitId: string | undefined;
+                    if (isBranchModel && newInfo.remoteBaseRevision && row.commitId !== newInfo.currentRevision) {
+                        const [logEntry] = await jj
+                            .getLog({ revision: row.commitId, limit: 1, omitChanges: true })
+                            .catch(() => []);
+                        if (logEntry) {
+                            const scope = await resolveLocalBranchComparisonScope(
+                                jj,
+                                logEntry,
+                                newInfo,
+                                this,
+                                req?.changes,
+                            );
+                            localBaseCommitId = scope.localBaseCommitId;
+                        }
+                    }
+                    newInfo.contentSynced = await verifyLocalContentSync({
+                        commitId: row.commitId,
+                        description: req?.description,
+                        info: newInfo,
+                        jj,
+                        changes: req?.changes,
+                        normalizeDescription: (desc) => desc.trim(),
+                        localBaseCommitId,
+                    });
+                }
+
+                if (
+                    newInfo.synced === undefined &&
+                    newInfo.contentSynced !== undefined &&
+                    newInfo.parentSynced !== undefined
+                ) {
+                    newInfo.synced = newInfo.contentSynced && newInfo.parentSynced;
+                }
 
                 if (
                     !existing ||
                     existing.localCommitId !== row.commitId ||
                     existing.info.status !== newInfo.status ||
                     existing.info.currentRevision !== newInfo.currentRevision ||
+                    existing.info.remoteBaseRevision !== newInfo.remoteBaseRevision ||
+                    existing.info.remoteDescription !== newInfo.remoteDescription ||
+                    JSON.stringify(existing.info.files) !== JSON.stringify(newInfo.files) ||
                     existing.info.contentSynced !== newInfo.contentSynced ||
                     existing.info.parentSynced !== newInfo.parentSynced ||
                     existing.info.synced !== newInfo.synced ||
@@ -464,6 +543,50 @@ export class CustomCliForgeProvider implements CodeForgeProvider {
         void this.commentsCache.delete(changeId);
     }
 
+    public async getUploadedFileContent(request: UploadedFileRequest): Promise<Uint8Array | undefined> {
+        const adapterCommand = this.getAdapterCommand();
+        if (!adapterCommand) {
+            return undefined;
+        }
+        const system = this.host.system;
+        if (!system) {
+            return undefined;
+        }
+
+        const cleanPath = request.filePath.replace(/^\/+/, '');
+        const cacheKey = `${request.changeId}:${request.revisionId}:${cleanPath}`;
+        return this.uploadedFileContentCache.getOrFetch(cacheKey, async () => {
+            const result = await system.process.execFile(
+                adapterCommand,
+                [
+                    'get-file-content',
+                    '--change-id',
+                    request.changeId,
+                    '--revision',
+                    request.revisionId,
+                    '--path',
+                    cleanPath,
+                ],
+                { cwd: this.workspaceRoot, timeout: 30000 },
+            );
+            const rawJson: unknown = JSON.parse(result.stdout);
+            const parsed = CliForgeFileContentResultSchema.parse(rawJson);
+            if (!parsed || parsed.found === false) {
+                return undefined;
+            }
+            if (parsed.contentBase64 !== undefined) {
+                return decodeBase64ToUint8Array(parsed.contentBase64);
+            }
+            if (parsed.encoding === 'base64' && parsed.content !== undefined) {
+                return decodeBase64ToUint8Array(parsed.content);
+            }
+            if (parsed.content !== undefined) {
+                return new TextEncoder().encode(parsed.content);
+            }
+            return undefined;
+        });
+    }
+
     public activate(): void {
         this.outputChannel?.info(`[CustomCliForgeProvider] Activated (${this._displayName})`);
     }
@@ -474,6 +597,7 @@ export class CustomCliForgeProvider implements CodeForgeProvider {
         this.cacheByChangeId.clear();
         this.immutableCommitCache.clear();
         void this.commentsCache.clear();
+        void this.uploadedFileContentCache.clear();
     }
 
     public dispose(): void {

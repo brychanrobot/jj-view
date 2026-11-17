@@ -5,6 +5,11 @@
 
 import path from 'pathe';
 import { stripGerritTrailers } from '../../utils/gerrit-utils';
+import {
+    areUint8ArraysEqual,
+    resolveLocalBranchComparisonScope,
+    resolveLocalUploadedDetails,
+} from '../code-forge-sync-utils';
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
 import type { JjRepository } from '../jj-repository';
@@ -41,9 +46,48 @@ export interface UnuploadedComparisonResult {
     codeForgeChange: CodeForgeChangeInfo;
 }
 
+async function compareUploadedFileBytes(
+    repo: JjRepository,
+    info: CodeForgeChangeInfo,
+    logEntry: JjLogEntry,
+    remoteRevision: string,
+    filePath: string,
+    remoteSha?: string,
+): Promise<{ hasDiff: boolean; isLocalMissing: boolean }> {
+    const localRev = logEntry.is_current_working_copy ? '@' : logEntry.commit_id;
+    let localBytes: Uint8Array;
+    try {
+        localBytes = await repo.jj.getFileBinaryContent(filePath, localRev);
+    } catch {
+        return { hasDiff: true, isLocalMissing: true };
+    }
+
+    let remoteBytes: Uint8Array | undefined;
+    try {
+        remoteBytes = await repo.jj.getFileBinaryContent(filePath, remoteRevision);
+    } catch {
+        remoteBytes = await repo.codeForge?.getUploadedFileContent?.({
+            changeId: info.id || logEntry.change_id,
+            changeNumber: info.number,
+            revisionId: remoteRevision,
+            filePath,
+            blobSha: remoteSha,
+        });
+    }
+
+    if (remoteBytes === undefined) {
+        return { hasDiff: true, isLocalMissing: false };
+    }
+
+    return {
+        hasDiff: !areUint8ArraysEqual(localBytes, remoteBytes),
+        isLocalMissing: false,
+    };
+}
+
 /**
  * Computes the file and description diffs between a local revision and its uploaded Code Forge revision.
- * Scoped strictly to the files touched by the CL (localChanges ∪ remoteFiles) and COMMIT_MSG, avoiding unrelated
+ * Scoped strictly to the files touched by the change (localChanges ∪ remoteFiles) and COMMIT_MSG, avoiding unrelated
  * upstream rebase diffs.
  *
  * @param repo - The Jujutsu repository instance
@@ -96,15 +140,27 @@ export async function computeUnuploadedComparison(
         throw new Error(`No uploaded remote revision recorded for ${info.displayLabel || logEntry.change_id}.`);
     }
 
-    if (info.files === undefined) {
+    const activeProvider = repo.codeForge?.activeProvider;
+    let uploadedDetails = await resolveLocalUploadedDetails(info, jj, activeProvider?.uploadModel);
+    if (!uploadedDetails && repo.codeForge?.fetchUploadedRevisionDetails) {
+        uploadedDetails = await repo.codeForge.fetchUploadedRevisionDetails(info);
+    }
+    if (!uploadedDetails) {
         throw new Error(`Uploaded file metadata is not available for ${info.displayLabel || logEntry.change_id}.`);
     }
 
+    const normalizeDescription = (description: string): string => {
+        if (repo.codeForge?.normalizeDescription) {
+            return repo.codeForge.normalizeDescription(description);
+        }
+        return info.providerName === 'Gerrit' ? stripGerritTrailers(description) : description.trim();
+    };
+
     const localDescription = logEntry.description || '';
-    const remoteDescription = info.remoteDescription;
+    const remoteDescription = uploadedDetails.remoteDescription ?? info.remoteDescription;
     const descriptionModified = Boolean(
         remoteDescription !== undefined &&
-            stripGerritTrailers(localDescription) !== stripGerritTrailers(remoteDescription),
+            normalizeDescription(localDescription) !== normalizeDescription(remoteDescription),
     );
 
     const resources: UnuploadedComparisonResource[] = [];
@@ -122,8 +178,14 @@ export async function computeUnuploadedComparison(
     }
 
     // 2. File changes
-    const localChanges = options?.localChanges ?? logEntry.changes ?? (await jj.getChanges(logEntry.commit_id));
-    const remoteFiles = info.files;
+    const { localChanges, localBaseCommitId } = await resolveLocalBranchComparisonScope(
+        jj,
+        logEntry,
+        info,
+        activeProvider,
+        options?.localChanges,
+    );
+    const remoteFiles = uploadedDetails.files;
     const localChangeMap = new Map(localChanges.map((c) => [c.path, c]));
     const impliedRemoteDeletes = new Set<string>();
     for (const remoteFile of Object.values(remoteFiles)) {
@@ -139,7 +201,10 @@ export async function computeUnuploadedComparison(
     ]);
     const allPaths = Array.from(allPathsSet).sort();
 
-    const localBlobHashes = await jj.getGitBlobHashes(logEntry.commit_id, allPaths);
+    const hasGitBackend = (await jj.getGitRoot()) !== null;
+    const localBlobHashes = hasGitBackend
+        ? await jj.getGitBlobHashes(logEntry.commit_id, allPaths)
+        : new Map<string, string>();
 
     for (const filePath of allPaths) {
         const localChange = localChangeMap.get(filePath);
@@ -149,7 +214,7 @@ export async function computeUnuploadedComparison(
         const isLocalDeleted = localChange?.status === 'deleted';
         const isRemoteDeleted =
             remoteFile?.status === 'D' || (remoteFile === undefined && impliedRemoteDeletes.has(filePath));
-        const isLocalMissing = isLocalDeleted || (!localChange && !localSha);
+        let isLocalMissing = isLocalDeleted || (hasGitBackend && !localChange && !localSha);
 
         // Check if the file content or existence actually differs between local and remote
         let hasDiff = false;
@@ -160,15 +225,23 @@ export async function computeUnuploadedComparison(
         } else if (remoteFile === undefined) {
             // Added or modified locally, but was not present in the uploaded revision
             hasDiff = true;
-        } else if (localChange === undefined) {
-            // In remote revision, but not modified in this local commit compared to local parent
-            if (localSha && remoteSha && localSha === remoteSha) {
-                hasDiff = false;
-            } else {
-                hasDiff = true;
-            }
-        } else if (localSha && remoteSha) {
+        } else if (hasGitBackend && localSha && remoteSha) {
             hasDiff = localSha !== remoteSha;
+        } else if (hasGitBackend && !localChange && !localSha) {
+            hasDiff = true;
+        } else if (!hasGitBackend || !remoteSha) {
+            const byteComparison = await compareUploadedFileBytes(
+                repo,
+                info,
+                logEntry,
+                remoteRevision,
+                filePath,
+                remoteSha,
+            );
+            hasDiff = byteComparison.hasDiff;
+            if (byteComparison.isLocalMissing) {
+                isLocalMissing = true;
+            }
         } else {
             hasDiff = true;
         }
@@ -184,12 +257,20 @@ export async function computeUnuploadedComparison(
         if (isRemoteDeleted || (!remoteFile && localChange?.status === 'added')) {
             leftUri = createRevisionUri(jj.workspaceRoot, filePath, 'none');
         } else if (!remoteFile && localChange) {
-            // File was modified locally but not present in remote: compare against local parent base
-            const diffUris = createDiffUris(localChange, logEntry.commit_id, jj.workspaceRoot, { editable: false });
-            leftUri = diffUris.leftUri;
+            // File was modified locally but not present in remote: compare against local branch base
+            if (localBaseCommitId) {
+                leftUri = createRevisionUri(
+                    jj.workspaceRoot,
+                    localChange.oldPath ?? localChange.path,
+                    localBaseCommitId,
+                );
+            } else {
+                const diffUris = createDiffUris(localChange, logEntry.commit_id, jj.workspaceRoot, { editable: false });
+                leftUri = diffUris.leftUri;
+            }
         } else {
             leftUri = createUploadedFileUri(jj.workspaceRoot, filePath, {
-                changeId: logEntry.change_id,
+                changeId: info.id || logEntry.change_id,
                 commitId: remoteRevision,
                 blobSha: remoteSha,
                 remoteRevision,
@@ -215,7 +296,8 @@ export async function computeUnuploadedComparison(
     }
 
     const shortChangeId = logEntry.change_id_shortest ?? logEntry.change_id.slice(0, 8);
-    const displayLabel = info.displayLabel || `CL/${info.number || shortChangeId}`;
+    const displayLabel =
+        info.displayLabel || `${activeProvider?.changeTerm ?? 'Change'} ${info.number || shortChangeId}`;
 
     return {
         changeId: logEntry.change_id,

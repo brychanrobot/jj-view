@@ -50,9 +50,7 @@ export function computeCommitActions(
         'jj.canNewAfter': !isSelected || !hasImmutableSelection,
         'jj.canUpload': isMutableCommit(commit) && (!isSelected || !hasImmutableSelection),
         'jj.canCompareWithUploaded': Boolean(
-            commit.codeForgeChange?.currentRevision &&
-                commit.codeForgeChange.files !== undefined &&
-                (!isSelected || selectionCount <= 1),
+            commit.codeForgeChange?.currentRevision && (!isSelected || selectionCount <= 1),
         ),
 
         // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)

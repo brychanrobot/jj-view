@@ -125,7 +125,7 @@
                     "type": "string",
                     "default": "",
                     "scope": "application",
-                    "description": "Path to an external CLI executable implementing the jj-view CodeForge adapter protocol (detect, statuses, upload, list-comments, reply-comment, resolve-comment)."
+                    "description": "Path to an external CLI executable implementing the jj-view CodeForge adapter protocol (detect, statuses, upload, get-file-content, list-comments, reply-comment, resolve-comment)."
                 },
                 "jj-view.codeForge.enableComments": {
                     "type": "boolean",
