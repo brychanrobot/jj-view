@@ -7,6 +7,7 @@ import path from 'pathe';
 import { z } from 'zod';
 import type { CommandContext } from '../host/command-context';
 import { createQuickPickHighlightTracker, promptForRevision, showJjError } from '../host/ui-helpers';
+import type { JjLogEntry } from '../jj-types';
 import { fnv1aHash, Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
@@ -24,6 +25,10 @@ export interface SquashRevisionIntoParentPayload {
 export interface SquashRevisionIntoAncestorPayload {
     revision?: string;
     ancestorRevision?: string;
+}
+
+export interface PerformSquashRevisionOptions {
+    useDestinationMessage?: boolean;
 }
 
 function getDefaultTempDir(): string {
@@ -46,9 +51,80 @@ export function isSquashInProgress(workspaceRoot: string): boolean {
     return inProgressCompletions.has(normRoot);
 }
 
-export async function squashRevisionIntoParentCommand(
+async function resolveTargetParent(
     ctx: CommandContext,
-    payload?: SquashRevisionIntoParentPayload,
+    sourceEntry: JjLogEntry,
+    explicitTargetParent?: string,
+): Promise<string | undefined> {
+    if (explicitTargetParent) {
+        return explicitTargetParent;
+    }
+
+    if (!sourceEntry.parents || sourceEntry.parents.length === 0) {
+        await showJjError(
+            ctx.host.ui,
+            new Error('Cannot squash a root revision.'),
+            'Squash Revision Error',
+            ctx.repo.jj,
+            ctx.log,
+        );
+        return undefined;
+    }
+
+    if (sourceEntry.parents.length === 1) {
+        return sourceEntry.parents[0].commit_id;
+    }
+
+    const items = sourceEntry.parents.map((p) => ({
+        label: p.change_id.substring(0, 8),
+        description: p.commit_id.substring(0, 8),
+        value: p.commit_id,
+        changeId: p.change_id,
+    }));
+
+    const tracker = createQuickPickHighlightTracker({
+        repoRoot: ctx.repo.rootUri,
+        nav: ctx.host.nav,
+        getItemRevision: (item) => item.changeId ?? String(item.value ?? item.label),
+    });
+
+    let selected: (typeof items)[number] | undefined;
+
+    try {
+        selected = await ctx.host.ui.showQuickPick(items, {
+            placeHolder: 'Select which parent to squash into',
+            matchOnDescription: true,
+            onDidChangeActive: tracker.onDidChangeActive,
+            onDidChangeValue: tracker.onDidChangeValue,
+        });
+    } finally {
+        tracker.cleanup();
+    }
+
+    return selected?.value;
+}
+
+async function resolveTargetAncestor(
+    ctx: CommandContext,
+    revision: string,
+    explicitAncestor?: string,
+): Promise<string | undefined> {
+    if (explicitAncestor) {
+        return explicitAncestor;
+    }
+
+    return await promptForRevision(ctx.host.ui, ctx.repo.jj, {
+        placeHolder: 'Select which ancestor to squash into',
+        revisionQuery: RevisionQuery.mutableAncestorsExcluding(revision),
+        repoRoot: ctx.repo.rootUri,
+        nav: ctx.host.nav,
+    });
+}
+
+async function executeSquashIntoParent(
+    ctx: CommandContext,
+    payload: SquashRevisionIntoParentPayload | undefined,
+    options: PerformSquashRevisionOptions,
 ): Promise<void> {
     const revision = payload?.revision || '@';
 
@@ -58,94 +134,80 @@ export async function squashRevisionIntoParentCommand(
             return;
         }
 
-        let targetParent = payload?.targetParent;
-
-        if (!targetParent) {
-            if (sourceEntry.parents && sourceEntry.parents.length > 1) {
-                const items = sourceEntry.parents.map((p) => ({
-                    label: p.change_id.substring(0, 8),
-                    description: p.commit_id.substring(0, 8),
-                    value: p.commit_id,
-                    changeId: p.change_id,
-                }));
-
-                const tracker = createQuickPickHighlightTracker({
-                    repoRoot: ctx.repo.rootUri,
-                    nav: ctx.host.nav,
-                    getItemRevision: (item) => item.changeId ?? String(item.value ?? item.label),
-                });
-
-                let selected: (typeof items)[number] | undefined;
-
-                try {
-                    selected = await ctx.host.ui.showQuickPick(items, {
-                        placeHolder: 'Select which parent to squash into',
-                        matchOnDescription: true,
-                        onDidChangeActive: tracker.onDidChangeActive,
-                        onDidChangeValue: tracker.onDidChangeValue,
-                    });
-                } finally {
-                    tracker.cleanup();
-                }
-
-                const chosen = selected?.value;
-                if (!chosen) {
-                    return;
-                }
-
-                targetParent = chosen;
-            } else {
-                if (!sourceEntry.parents || sourceEntry.parents.length === 0) {
-                    await showJjError(
-                        ctx.host.ui,
-                        new Error('Cannot squash a root revision.'),
-                        'Squash Revision Error',
-                        ctx.repo.jj,
-                        ctx.log,
-                    );
-                    return;
-                }
-                targetParent = sourceEntry.parents[0].commit_id;
-            }
-        }
-
+        const targetParent = await resolveTargetParent(ctx, sourceEntry, payload?.targetParent);
         if (!targetParent) {
             return;
         }
 
-        await performSquashRevision(ctx, revision, targetParent, sourceEntry.description);
+        await performSquashRevision(ctx, revision, targetParent, sourceEntry.description, options);
         await ctx.repo.refresh({ reason: 'after squash revision into parent' });
     } catch (e: unknown) {
         await showJjError(ctx.host.ui, e, 'Error squashing revision into parent', ctx.repo.jj, ctx.log);
     }
 }
 
-export async function squashRevisionIntoAncestorCommand(
+async function executeSquashIntoAncestor(
     ctx: CommandContext,
-    payload?: SquashRevisionIntoAncestorPayload,
+    payload: SquashRevisionIntoAncestorPayload | undefined,
+    options: PerformSquashRevisionOptions,
 ): Promise<void> {
     const revision = payload?.revision || '@';
 
     try {
-        let selectedAncestorRev = payload?.ancestorRevision;
-        if (!selectedAncestorRev) {
-            selectedAncestorRev = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
-                placeHolder: 'Select which ancestor to squash into',
-                revisionQuery: RevisionQuery.mutableAncestorsExcluding(revision),
-                repoRoot: ctx.repo.rootUri,
-                nav: ctx.host.nav,
-            });
-        }
+        const selectedAncestorRev = await resolveTargetAncestor(ctx, revision, payload?.ancestorRevision);
         if (!selectedAncestorRev) {
             return;
         }
 
-        const [sourceEntry] = await ctx.repo.jj.getLog({ revision, omitChanges: true });
-        await performSquashRevision(ctx, revision, selectedAncestorRev, sourceEntry?.description);
+        const sourceDescription = options.useDestinationMessage
+            ? undefined
+            : (await ctx.repo.jj.getLog({ revision, omitChanges: true }))[0]?.description;
+
+        await performSquashRevision(ctx, revision, selectedAncestorRev, sourceDescription, options);
         await ctx.repo.refresh({ reason: 'after squash revision into ancestor' });
     } catch (e: unknown) {
         await showJjError(ctx.host.ui, e, 'Error squashing revision into ancestor', ctx.repo.jj, ctx.log);
     }
+}
+
+/**
+ * Squashes a revision into its parent, prompting to merge descriptions if both have one.
+ */
+export async function squashRevisionIntoParentCommand(
+    ctx: CommandContext,
+    payload?: SquashRevisionIntoParentPayload,
+): Promise<void> {
+    await executeSquashIntoParent(ctx, payload, { useDestinationMessage: false });
+}
+
+/**
+ * Squashes a revision into its parent while keeping the parent's description.
+ */
+export async function squashRevisionIntoParentKeepMessageCommand(
+    ctx: CommandContext,
+    payload?: SquashRevisionIntoParentPayload,
+): Promise<void> {
+    await executeSquashIntoParent(ctx, payload, { useDestinationMessage: true });
+}
+
+/**
+ * Squashes a revision into a selected mutable ancestor, prompting to merge descriptions if both have one.
+ */
+export async function squashRevisionIntoAncestorCommand(
+    ctx: CommandContext,
+    payload?: SquashRevisionIntoAncestorPayload,
+): Promise<void> {
+    await executeSquashIntoAncestor(ctx, payload, { useDestinationMessage: false });
+}
+
+/**
+ * Squashes a revision into a selected mutable ancestor while keeping the ancestor's description.
+ */
+export async function squashRevisionIntoAncestorKeepMessageCommand(
+    ctx: CommandContext,
+    payload?: SquashRevisionIntoAncestorPayload,
+): Promise<void> {
+    await executeSquashIntoAncestor(ctx, payload, { useDestinationMessage: true });
 }
 
 async function performSquashRevision(
@@ -153,7 +215,15 @@ async function performSquashRevision(
     revision: string,
     intoRevision: string,
     sourceDescription?: string,
-) {
+    options: PerformSquashRevisionOptions = {},
+): Promise<void> {
+    if (options.useDestinationMessage) {
+        await ctx.host.ui.withProgress('Squashing revision...', () =>
+            ctx.repo.jj.squashRevision({ revision, intoRevision, useDestinationMessage: true }),
+        );
+        return;
+    }
+
     const hasSourceDesc = sourceDescription && sourceDescription.trim().length > 0;
     const [parentEntry] = await ctx.repo.jj.getLog({ revision: intoRevision, omitChanges: true });
     if (!parentEntry) {

@@ -220,6 +220,34 @@ export function extractRevision(args: unknown[]): string | undefined {
     return undefined;
 }
 
+export interface AncestorSnapshotEntry {
+    readonly entry: { readonly change_id: string };
+}
+
+/**
+ * Resolves the target revision from command arguments, falling back to snapshot ancestor
+ * lookup when invoked on an empty `ancestor-<index>` SCM resource group.
+ */
+export function resolveRevisionFromArgsOrScm(args: unknown[], ancestors?: readonly AncestorSnapshotEntry[]): string {
+    const extracted = extractRevision(args);
+    if (extracted) {
+        return extracted;
+    }
+
+    const parentGroup = args.find(isParentResourceGroup);
+    if (parentGroup) {
+        const rawIndex = parentGroup.id.slice('ancestor-'.length);
+        const index = /^\d+$/.test(rawIndex) ? Number.parseInt(rawIndex, 10) : -1;
+        const ancestor = index >= 0 ? ancestors?.[index] : undefined;
+        if (!ancestor) {
+            throw new Error(`Could not resolve revision for resource group ${parentGroup.id}`);
+        }
+        return ancestor.entry.change_id;
+    }
+
+    return '@';
+}
+
 /**
  * Extracts target revisions from command arguments and current graph selection,
  * returning ['@'] for the working-copy SCM group or [] when neither is present.

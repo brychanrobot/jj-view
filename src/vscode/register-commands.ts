@@ -51,7 +51,9 @@ import {
 import {
     completeSquashRevisionCommand,
     squashRevisionIntoAncestorCommand,
+    squashRevisionIntoAncestorKeepMessageCommand,
     squashRevisionIntoParentCommand,
+    squashRevisionIntoParentKeepMessageCommand,
 } from '../core/commands/squash-revision';
 import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../core/commands/squash-selection';
 import { syncCommand } from '../core/commands/sync';
@@ -256,9 +258,19 @@ export function registerCommands(options: RegisterCommandsOptions): void {
             squashRevisionIntoParentCommand,
         ),
         registerCommandWithPayload(
+            'jj-view.squashRevisionIntoParentKeepMessage',
+            createSquashRevisionIntoParentPayload,
+            squashRevisionIntoParentKeepMessageCommand,
+        ),
+        registerCommandWithPayload(
             'jj-view.squashRevisionIntoAncestor',
             createSquashRevisionIntoAncestorPayload,
             squashRevisionIntoAncestorCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.squashRevisionIntoAncestorKeepMessage',
+            createSquashRevisionIntoAncestorPayload,
+            squashRevisionIntoAncestorKeepMessageCommand,
         ),
         registerCommandWithPayload(
             'jj-view.completeSquashRevision',

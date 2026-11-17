@@ -15,6 +15,7 @@ import { buildGraph, TestRepo } from '../../src/test/test-repo';
 import type { LoggerChannel } from '../../src/utils/output-channel';
 import { createShowDetailsPayload } from '../src/commands/payloads/details.payload';
 import { createSimplifyParentsPayload } from '../src/commands/payloads/simplify-parents.payload';
+import { createSquashRevisionIntoParentPayload } from '../src/commands/payloads/squash-revision.payload';
 import { createSquashSelectionIntoParentPayload } from '../src/commands/payloads/squash-selection.payload';
 import { registerWebCommands } from '../src/commands/register-web-commands';
 import { WebHostEnvironment } from '../src/host/web-host-environment';
@@ -166,6 +167,10 @@ describe('registerWebCommands', () => {
             'jj-view.simplifyParents',
             'jj-view.restore',
             'jj-view.absorb',
+            'jj-view.squashRevisionIntoParent',
+            'jj-view.squashRevisionIntoParentKeepMessage',
+            'jj-view.squashRevisionIntoAncestor',
+            'jj-view.squashRevisionIntoAncestorKeepMessage',
             'jj-view.showDetails',
             'jj-view.openChanges',
             'jj-view.sync',
@@ -308,7 +313,6 @@ describe('registerWebCommands', () => {
         const emptyPayload = createSquashSelectionIntoParentPayload([]);
         expect(emptyPayload).toEqual({});
     });
-
     it('creates simplifyParents payload for single, multi-selected, SCM group, and empty inputs', () => {
         expect(createSimplifyParentsPayload([{ id: 'jj.group.workingCopy', resourceStates: [] }])).toEqual({
             revisions: ['@'],
@@ -401,5 +405,109 @@ describe('registerWebCommands', () => {
             hostEnvironment?.dispose();
             await testRepo.dispose();
         }
+    });
+
+    it('executes squash keep-message commands with real JjService via web command registry', async () => {
+        const testRepo = new TestRepo();
+        testRepo.init();
+        const jj = new JjService(testRepo.path, NO_OP_LOGGER);
+
+        const ids = await buildGraph(testRepo, [
+            { label: 'base', description: 'Base', files: { 'base.txt': 'base' } },
+            { label: 'grandparent', parents: ['base'], description: 'Grandparent Desc', files: { 'gp.txt': 'gp' } },
+            { label: 'parent', parents: ['grandparent'], description: 'Parent Desc', files: { 'p.txt': 'p' } },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'Child Desc',
+                files: { 'c.txt': 'c' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        testRepo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.base.commitId}")`);
+
+        const mockRemoteHost = createMock<RemoteHostSystem>({
+            fs: createMock<HostFs>({
+                readTextFile: vi.fn(),
+                writeTextFile: vi.fn(),
+            }),
+            platform: 'linux',
+        });
+        const hostEnvironment = new WebHostEnvironment(mockRemoteHost, testRepo.path);
+        const mockRepo = createMock<JjRepository>({
+            jj,
+            rootUri: Uri.file(testRepo.path),
+            refresh: vi.fn(async () => {}),
+        });
+        const mockRepoManager = createMock<JjRepositoryManager>({
+            repositories: [mockRepo],
+            focusedRepository: mockRepo,
+        });
+        const mockScmModel = createMock<ScmModel>({
+            jj,
+            refresh: vi.fn(async () => {}),
+        });
+        const mockLogger = createMock<LoggerChannel>({
+            info: vi.fn(),
+            error: vi.fn(),
+            debug: vi.fn(),
+            warn: vi.fn(),
+        });
+
+        registerWebCommands({
+            repositoryManager: mockRepoManager,
+            hostEnvironment,
+            logger: mockLogger,
+            scmModel: mockScmModel,
+        });
+
+        await hostEnvironment.commands.executeCommand('jj-view.squashRevisionIntoParentKeepMessage', {
+            changeId: ids.child.changeId,
+        });
+        expect(testRepo.getDescription(ids.parent.changeId)).toBe('Parent Desc');
+        expect(testRepo.getFileContent(ids.parent.changeId, 'c.txt')).toBe('c');
+
+        await hostEnvironment.commands.executeCommand('jj-view.squashRevisionIntoAncestorKeepMessage', {
+            changeId: ids.parent.changeId,
+            ancestorRevision: ids.grandparent.changeId,
+        });
+        expect(testRepo.getDescription(ids.grandparent.changeId)).toBe('Grandparent Desc');
+        expect(testRepo.getFileContent(ids.grandparent.changeId, 'c.txt')).toBe('c');
+    });
+
+    it('extracts targetParent and empty ancestor group revision in web squash payload creators', () => {
+        expect(createSquashRevisionIntoParentPayload([{ revision: 'rev1', targetParent: 'p2' }])).toEqual({
+            revision: 'rev1',
+            targetParent: 'p2',
+        });
+
+        const scmWithAncestor = createMock<ScmModel>({
+            snapshot: createMock<NonNullable<ScmModel['snapshot']>>({
+                ancestors: [
+                    {
+                        entry: {
+                            change_id: 'ancestor-change',
+                            commit_id: 'ancestor-commit',
+                            description: 'Ancestor',
+                            author: { name: 'A', email: 'a@a.com', timestamp: '' },
+                            committer: { name: 'A', email: 'a@a.com', timestamp: '' },
+                            parents: [],
+                            bookmarks: [],
+                        },
+                        prefix: 'Parent',
+                        isMutable: true,
+                        canSquash: true,
+                        changes: [],
+                        label: 'Parent: ancestor',
+                        contextValue: 'jj.group.allowSquash',
+                    },
+                ],
+            }),
+        });
+        const emptyAncestorGroup = { id: 'ancestor-0', label: 'Parent', resourceStates: [] };
+        expect(createSquashRevisionIntoParentPayload([emptyAncestorGroup], undefined, scmWithAncestor)).toEqual({
+            revision: 'ancestor-change',
+            targetParent: undefined,
+        });
     });
 });

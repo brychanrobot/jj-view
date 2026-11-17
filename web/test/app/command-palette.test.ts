@@ -43,6 +43,17 @@ describe('command-palette', () => {
 
         // Update command should not be present when no update available
         expect(builtInIds).not.toContain('jj-view.installUpdate');
+
+        // Keep-message squash commands should be exposed with resolved icon classes
+        const keepParentCmd = presentedCommands.find((cmd) => cmd.id === 'jj-view.squashRevisionIntoParentKeepMessage');
+        expect(keepParentCmd?.title).toBe('Squash Revision into Parent (Use Destination Message)');
+        expect(keepParentCmd?.iconClass).toBe('codicon codicon-arrow-down');
+
+        const keepAncestorCmd = presentedCommands.find(
+            (cmd) => cmd.id === 'jj-view.squashRevisionIntoAncestorKeepMessage',
+        );
+        expect(keepAncestorCmd?.title).toBe('Squash Revision into Ancestor (Use Destination Message)...');
+        expect(keepAncestorCmd?.iconClass).toBe('codicon jj-icon-squash-into');
     });
 
     it('injects update command when update is available', () => {

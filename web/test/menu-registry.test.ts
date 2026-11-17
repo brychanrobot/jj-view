@@ -145,6 +145,64 @@ describe('MenuRegistry & Icon Resolution', () => {
         const squashParentIdx = commands.indexOf('jj-view.squashRevisionIntoParent');
         expect(diffIdx).toBeLessThan(abandonIdx);
         expect(abandonIdx).toBeLessThan(squashParentIdx);
+
+        // Keep-message variants are non-inline context actions, not inline hover buttons
+        expect(commands).not.toContain('jj-view.squashRevisionIntoParentKeepMessage');
+        expect(commands).not.toContain('jj-view.squashRevisionIntoAncestorKeepMessage');
+    });
+
+    it('resolves scm/resourceGroup/context non-inline keep-message squash actions when allowSquash is set', () => {
+        const registry = new MenuRegistry();
+        const rootContext = new ContextKeyService();
+
+        const allowSquashContext = rootContext.createScoped({
+            scmResourceGroupState: 'jj.group.workingCopy jj.group.allowSquash',
+        });
+        const groupsWithSquash = registry.getContextActions('scm/resourceGroup/context', allowSquashContext);
+        const modGroup = groupsWithSquash.find((g) => g.groupName === '1_modification');
+        expect(modGroup?.items.map((i) => i.command)).toEqual([
+            'jj-view.squashRevisionIntoParentKeepMessage',
+            'jj-view.squashRevisionIntoAncestorKeepMessage',
+        ]);
+
+        const noSquashContext = rootContext.createScoped({
+            scmResourceGroupState: 'jj.group.workingCopy jj.group.allowAbandon',
+        });
+        const groupsWithoutSquash = registry.getContextActions('scm/resourceGroup/context', noSquashContext);
+        const allWithoutSquash = groupsWithoutSquash.flatMap((g) => g.items.map((i) => i.command));
+        expect(allWithoutSquash).not.toContain('jj-view.squashRevisionIntoParentKeepMessage');
+        expect(allWithoutSquash).not.toContain('jj-view.squashRevisionIntoAncestorKeepMessage');
+    });
+
+    it('resolves webview/context keep-message squash actions under 4_changes when jj.canSquash is true', () => {
+        const registry = new MenuRegistry();
+        const rootContext = new ContextKeyService();
+
+        const squashableCommit = rootContext.createScoped({
+            webviewSection: 'commit',
+            'jj.canDuplicate': true,
+            'jj.canAbandon': true,
+            'jj.canAbsorb': true,
+            'jj.canSquash': true,
+        });
+        const groups = registry.getContextActions('webview/context', squashableCommit);
+        const changesGroup = groups.find((g) => g.groupName === '4_changes');
+        expect(changesGroup?.items.map((i) => i.command)).toEqual([
+            'jj-view.duplicate',
+            'jj-view.abandon',
+            'jj-view.absorb',
+            'jj-view.squashRevisionIntoParentKeepMessage',
+            'jj-view.squashRevisionIntoAncestorKeepMessage',
+        ]);
+
+        const nonSquashableCommit = rootContext.createScoped({
+            webviewSection: 'commit',
+            'jj.canSquash': false,
+        });
+        const hiddenGroups = registry.getContextActions('webview/context', nonSquashableCommit);
+        const hiddenCommands = hiddenGroups.flatMap((g) => g.items.map((i) => i.command));
+        expect(hiddenCommands).not.toContain('jj-view.squashRevisionIntoParentKeepMessage');
+        expect(hiddenCommands).not.toContain('jj-view.squashRevisionIntoAncestorKeepMessage');
     });
 
     it('resolves scm/resourceState/context actions toggling openFile and openChanges based on openDiffOnClick', () => {
