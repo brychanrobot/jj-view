@@ -10,7 +10,9 @@ import {
     completeSquashRevisionCommand,
     getSquashStorageDir,
     squashRevisionIntoAncestorCommand,
+    squashRevisionIntoAncestorKeepMessageCommand,
     squashRevisionIntoParentCommand,
+    squashRevisionIntoParentKeepMessageCommand,
 } from '../../core/commands/squash-revision';
 import type { JjRepository } from '../../core/jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
@@ -360,5 +362,229 @@ describe('squashRevisionIntoParentCommand', () => {
         expect(fs.existsSync(msgPath)).toBe(false);
 
         expect(ctx.host.ui.warningMessages).toContain('Squash message is empty. Aborting.');
+    });
+});
+
+describe('squashRevision keep destination message commands', () => {
+    let jj: JjService;
+    let repo: TestRepo;
+    let mockJjRepo: JjRepository;
+    let ctx: FakeCommandContext;
+
+    beforeEach(() => {
+        repo = new TestRepo();
+        repo.init();
+        jj = new JjService(repo.path, NO_OP_LOGGER);
+
+        mockJjRepo = createMock<JjRepository>({
+            jj,
+            rootUri: Uri.file(repo.path),
+            refresh: vi.fn().mockResolvedValue(undefined),
+        });
+
+        ctx = new FakeCommandContext(mockJjRepo);
+    });
+
+    afterEach(() => {
+        vi.clearAllMocks();
+    });
+
+    test('squashRevisionIntoParentKeepMessageCommand preserves parent description and skips SQUASH_MSG when both have descriptions', async () => {
+        await buildGraph(repo, [
+            { label: 'parent', description: 'Parent Description', files: { 'file.txt': 'parent content' } },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'Child Description',
+                files: { 'file.txt': 'child content', 'new.txt': 'new content' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        await squashRevisionIntoParentKeepMessageCommand(ctx, {});
+
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
+        const storageDir = getSquashStorageDir(repo.path);
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_MSG'))).toBe(false);
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_META.json'))).toBe(false);
+
+        expect(repo.getDescription('@-')).toBe('Parent Description');
+        expect(repo.getFileContent('@-', 'file.txt')).toBe('child content');
+        expect(repo.getFileContent('@-', 'new.txt')).toBe('new content');
+        expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after squash revision into parent' });
+    });
+
+    test('squashRevisionIntoParentKeepMessageCommand discards child description when parent description is empty', async () => {
+        await buildGraph(repo, [
+            { label: 'parent', description: '', files: { 'file.txt': 'parent content' } },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'Child Description',
+                files: { 'file.txt': 'child content' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        await squashRevisionIntoParentKeepMessageCommand(ctx, {});
+
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
+        const storageDir = getSquashStorageDir(repo.path);
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_MSG'))).toBe(false);
+        expect(repo.getDescription('@-')).toBe('');
+        expect(repo.getFileContent('@-', 'file.txt')).toBe('child content');
+    });
+
+    test('squashRevisionIntoParentKeepMessageCommand handles non-working copy revision and multiple parents', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'p1', description: 'Parent 1 Description', files: { 'p1.txt': 'p1' } },
+            { label: 'p2', description: 'Parent 2 Description', files: { 'p2.txt': 'p2' } },
+            {
+                label: 'child',
+                parents: ['p1', 'p2'],
+                description: 'Child Description',
+                files: { 'p2.txt': 'p2 modified' },
+            },
+            { label: 'tip', parents: ['child'], isCurrentWorkingCopy: true },
+        ]);
+
+        ctx.host.ui.setNextQuickPickResponse({
+            label: 'Parent 2',
+            value: ids.p2.commitId,
+        });
+
+        await squashRevisionIntoParentKeepMessageCommand(ctx, { revision: ids.child.changeId });
+
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
+        const storageDir = getSquashStorageDir(repo.path);
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_MSG'))).toBe(false);
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_META.json'))).toBe(false);
+
+        expect(repo.getDescription(ids.p2.changeId)).toBe('Parent 2 Description');
+        expect(repo.getFileContent(ids.p2.changeId, 'p2.txt')).toBe('p2 modified');
+    });
+
+    test('squashRevisionIntoAncestorKeepMessageCommand preserves ancestor description and skips SQUASH_MSG when both have descriptions', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'base', description: 'Base', files: { 'base.txt': 'base' } },
+            {
+                label: 'grandparent',
+                parents: ['base'],
+                description: 'Grandparent Description',
+                files: { 'gp.txt': 'gp' },
+            },
+            { label: 'parent', parents: ['grandparent'], description: 'Parent Description', files: { 'p.txt': 'p' } },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'Child Description',
+                files: { 'child.txt': 'child' },
+            },
+            { label: 'wc', parents: ['child'], isCurrentWorkingCopy: true },
+        ]);
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.base.commitId}")`);
+
+        ctx.host.ui.setNextRevisionPromptResponse(ids.grandparent.changeId);
+
+        await squashRevisionIntoAncestorKeepMessageCommand(ctx, { revision: ids.child.changeId });
+
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
+        const storageDir = getSquashStorageDir(repo.path);
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_MSG'))).toBe(false);
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_META.json'))).toBe(false);
+
+        expect(repo.getDescription(ids.grandparent.changeId)).toBe('Grandparent Description');
+        expect(repo.getFileContent(ids.grandparent.changeId, 'child.txt')).toBe('child');
+        expect(mockJjRepo.refresh).toHaveBeenCalledWith({ reason: 'after squash revision into ancestor' });
+    });
+
+    test('squashRevisionIntoAncestorKeepMessageCommand discards source description when ancestor description is empty', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'base', description: 'Base', files: { 'base.txt': 'base' } },
+            { label: 'grandparent', parents: ['base'], description: '', files: { 'gp.txt': 'gp' } },
+            { label: 'parent', parents: ['grandparent'], description: 'Parent', files: { 'p.txt': 'p' } },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'Child Description',
+                files: { 'child.txt': 'child' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.base.commitId}")`);
+
+        ctx.host.ui.setNextRevisionPromptResponse(ids.grandparent.changeId);
+
+        await squashRevisionIntoAncestorKeepMessageCommand(ctx, {});
+
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
+        const storageDir = getSquashStorageDir(repo.path);
+        expect(fs.existsSync(path.join(storageDir, 'SQUASH_MSG'))).toBe(false);
+        expect(repo.getDescription(ids.grandparent.changeId)).toBe('');
+        expect(repo.getFileContent(ids.grandparent.changeId, 'child.txt')).toBe('child');
+    });
+
+    test('squashRevisionIntoParentKeepMessageCommand preserves parent description when source description is empty', async () => {
+        await buildGraph(repo, [
+            { label: 'parent', description: 'Parent Description', files: { 'file.txt': 'parent content' } },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: '',
+                files: { 'file.txt': 'child content' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        await squashRevisionIntoParentKeepMessageCommand(ctx, {});
+
+        expect(ctx.host.nav.filesOpened).toHaveLength(0);
+        expect(repo.getDescription('@-')).toBe('Parent Description');
+        expect(repo.getFileContent('@-', 'file.txt')).toBe('child content');
+    });
+
+    test('squashRevisionIntoParentKeepMessageCommand does not mutate or refresh when parent QuickPick is cancelled', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'p1', description: 'Parent 1', files: { 'p1.txt': 'p1' } },
+            { label: 'p2', description: 'Parent 2', files: { 'p2.txt': 'p2' } },
+            {
+                label: 'child',
+                parents: ['p1', 'p2'],
+                description: 'Child Description',
+                files: { 'child.txt': 'child' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        ctx.host.ui.setNextQuickPickResponse(undefined);
+
+        await squashRevisionIntoParentKeepMessageCommand(ctx, {});
+
+        expect(mockJjRepo.refresh).not.toHaveBeenCalled();
+        expect(repo.getDescription('@')).toBe('Child Description');
+        expect(repo.getDescription(ids.p1.changeId)).toBe('Parent 1');
+        expect(repo.getDescription(ids.p2.changeId)).toBe('Parent 2');
+    });
+
+    test('squashRevisionIntoParentKeepMessageCommand shows error on root revision and immutable parent', async () => {
+        await squashRevisionIntoParentKeepMessageCommand(ctx, { revision: 'root()' });
+        expect(ctx.host.ui.errorMessages.some((m) => m.includes('Cannot squash a root revision.'))).toBe(true);
+        expect(mockJjRepo.refresh).not.toHaveBeenCalled();
+
+        const ids = await buildGraph(repo, [
+            { label: 'base', description: 'Immutable Base', files: { 'base.txt': 'base' } },
+            {
+                label: 'child',
+                parents: ['base'],
+                description: 'Child Description',
+                files: { 'child.txt': 'child' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        repo.config('revset-aliases."immutable_heads()"', `commit_id("${ids.base.commitId}")`);
+
+        await squashRevisionIntoParentKeepMessageCommand(ctx, {});
+        expect(ctx.host.ui.errorMessages.some((m) => m.includes('Error squashing revision into parent'))).toBe(true);
+        expect(mockJjRepo.refresh).not.toHaveBeenCalled();
     });
 });

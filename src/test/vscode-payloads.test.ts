@@ -368,6 +368,47 @@ describe('vscode payloads', () => {
             expect(payload.revision).toBe('rev1');
             expect(payload.ancestorRevision).toBe('anc1');
         });
+
+        it('resolves empty ancestor resource group via scmProvider snapshot instead of defaulting to @', () => {
+            const emptyAncestorGroup = { id: 'ancestor-0', label: 'Parent', resourceStates: [] };
+            const scmProvider = createMock<VsCodeScmProvider>({
+                scmModel: createMock<VsCodeScmProvider['scmModel']>({
+                    snapshot: createMock<NonNullable<VsCodeScmProvider['scmModel']['snapshot']>>({
+                        ancestors: [
+                            {
+                                entry: {
+                                    change_id: 'parentchangeid',
+                                    commit_id: 'parentcommitid',
+                                    description: 'Parent',
+                                    author: { name: 'A', email: 'a@a.com', timestamp: '' },
+                                    committer: { name: 'A', email: 'a@a.com', timestamp: '' },
+                                    parents: [],
+                                    bookmarks: [],
+                                },
+                                prefix: 'Parent',
+                                isMutable: true,
+                                canSquash: true,
+                                changes: [],
+                                label: 'Parent: parentch',
+                                contextValue: 'jj.group.allowSquash',
+                            },
+                        ],
+                    }),
+                }),
+            });
+
+            expect(createSquashRevisionIntoParentPayload([emptyAncestorGroup], scmProvider)).toEqual({
+                revision: 'parentchangeid',
+                targetParent: undefined,
+            });
+            expect(createSquashRevisionIntoAncestorPayload([emptyAncestorGroup], scmProvider)).toEqual({
+                revision: 'parentchangeid',
+                ancestorRevision: undefined,
+            });
+            expect(() => createSquashRevisionIntoParentPayload([emptyAncestorGroup])).toThrow(
+                'Could not resolve revision for resource group ancestor-0',
+            );
+        });
     });
 
     describe('squash selection payloads', () => {

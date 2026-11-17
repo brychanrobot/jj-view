@@ -71,6 +71,8 @@ export function computeCommitActions(
             (!isSelected || !hasImmutableSelection) &&
             ((isSelected && selectionCount > 1) || (commit.parents?.length ?? 0) > 1),
 
+        // Squash requires a mutable commit with a single mutable parent and single-item context
+        'jj.canSquash': canSquashCommit(commit) && (!isSelected || selectionCount <= 1),
         preventDefaultContextMenuItems: true,
     };
 

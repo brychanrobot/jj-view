@@ -52,7 +52,9 @@ import {
 import {
     completeSquashRevisionCommand,
     squashRevisionIntoAncestorCommand,
+    squashRevisionIntoAncestorKeepMessageCommand,
     squashRevisionIntoParentCommand,
+    squashRevisionIntoParentKeepMessageCommand,
 } from '../../../src/core/commands/squash-revision';
 import {
     squashHunkIntoParentCommand,
@@ -309,9 +311,19 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         squashRevisionIntoParentCommand,
     );
     registerWithPayload(
+        'jj-view.squashRevisionIntoParentKeepMessage',
+        createSquashRevisionIntoParentPayload,
+        squashRevisionIntoParentKeepMessageCommand,
+    );
+    registerWithPayload(
         'jj-view.squashRevisionIntoAncestor',
         createSquashRevisionIntoAncestorPayload,
         squashRevisionIntoAncestorCommand,
+    );
+    registerWithPayload(
+        'jj-view.squashRevisionIntoAncestorKeepMessage',
+        createSquashRevisionIntoAncestorPayload,
+        squashRevisionIntoAncestorKeepMessageCommand,
     );
     registerWithPayload(
         'jj-view.completeSquashRevision',

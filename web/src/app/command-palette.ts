@@ -5,6 +5,7 @@
 import type { WebHostEnvironment } from '../host/web-host-environment';
 import type { ContextKeyService } from '../menu/context-key-service';
 import { DEFAULT_PACKAGE_JSON_CONTRIBUTES } from '../menu/default-menus';
+import { resolveIconClass } from '../menu/menu-registry';
 import { WhenEvaluator } from '../menu/when-evaluator';
 import type { CommandPaletteEntry, QuickInputService } from '../quick-input/quick-input-service';
 import type { StatusBarService } from '../status/status-bar-service';
@@ -57,14 +58,7 @@ export function openCommandPalette(options: CommandPaletteOptions): void {
         }
 
         seenIds.add(cmd.command);
-        let iconClass: string | undefined;
-        if (cmd.icon) {
-            const iconStr = typeof cmd.icon === 'string' ? cmd.icon : cmd.icon.dark || cmd.icon.light;
-            if (iconStr) {
-                const match = /^\$\((.*?)\)$/.exec(iconStr);
-                iconClass = match ? `codicon codicon-${match[1]}` : undefined;
-            }
-        }
+        const iconClass = resolveIconClass(cmd.icon);
         commands.push({
             id: cmd.command,
             title: cmd.title,

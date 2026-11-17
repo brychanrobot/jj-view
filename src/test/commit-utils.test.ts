@@ -47,6 +47,7 @@ describe('computeCommitActions', () => {
         });
         expect(result.vscodeContext['jj.canEdit']).toBe(true);
         expect(result.vscodeContext['jj.canAbandon']).toBe(true);
+        expect(result.vscodeContext['jj.canSquash']).toBe(true);
     });
 
     it('should hide immutable actions', async () => {
@@ -59,6 +60,7 @@ describe('computeCommitActions', () => {
         expect(result.visibleActions.abandon).toBe(false);
         expect(result.vscodeContext['jj.canEdit']).toBe(false);
         expect(result.vscodeContext['jj.canAbandon']).toBe(false);
+        expect(result.vscodeContext['jj.canSquash']).toBe(false);
     });
 
     it('should respect hiddenActions', async () => {
@@ -208,7 +210,6 @@ describe('computeCommitActions', () => {
         expect(result.visibleActions.edit).toBe(false);
         expect(result.vscodeContext['jj.canEdit']).toBe(false);
     });
-
     it('should compute jj.canSimplifyParents for mutable merge commits and multi-selections', async () => {
         const ids = await buildGraph(repo, [
             { label: 'A', parents: ['root()'] },
@@ -268,5 +269,31 @@ describe('computeCommitActions', () => {
         expect(
             computeCommitActions(immutableMerge, new Set(), false, 0, false).vscodeContext['jj.canSimplifyParents'],
         ).toBe(false);
+    });
+
+    it('should compute jj.canSquash based on single mutable parent and single-item context', async () => {
+        const ids = await buildGraph(repo, [
+            { label: 'A', parents: ['root()'] },
+            { label: 'B', parents: ['A'] },
+            { label: 'C', parents: ['root()'] },
+            { label: 'Merge', parents: ['A', 'C'] },
+        ]);
+
+        // Child of immutable root -> cannot squash
+        const commitA = await getCommit(ids.A.changeId);
+        expect(computeCommitActions(commitA, new Set(), false, 0, false).vscodeContext['jj.canSquash']).toBe(false);
+
+        // Merge commit -> cannot squash
+        const commitMerge = await getCommit(ids.Merge.changeId);
+        expect(computeCommitActions(commitMerge, new Set(), false, 0, false).vscodeContext['jj.canSquash']).toBe(false);
+
+        // Mutable commit with single mutable parent
+        const commitB = await getCommit(ids.B.changeId);
+        expect(computeCommitActions(commitB, new Set(), false, 0, false).vscodeContext['jj.canSquash']).toBe(true);
+        expect(computeCommitActions(commitB, new Set(), true, 1, false).vscodeContext['jj.canSquash']).toBe(true);
+        // Selected in multi-selection -> restricted
+        expect(computeCommitActions(commitB, new Set(), true, 2, false).vscodeContext['jj.canSquash']).toBe(false);
+        // Unselected while others are selected -> allowed
+        expect(computeCommitActions(commitB, new Set(), false, 2, false).vscodeContext['jj.canSquash']).toBe(true);
     });
 });

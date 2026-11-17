@@ -88,8 +88,20 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(arrow-down)',
         },
         {
+            command: 'jj-view.squashRevisionIntoParentKeepMessage',
+            title: 'Squash Revision into Parent (Use Destination Message)',
+            category: 'JJ View',
+            icon: '$(arrow-down)',
+        },
+        {
             command: 'jj-view.squashRevisionIntoAncestor',
             title: 'Squash Revision into Ancestor...',
+            category: 'JJ View',
+            icon: '$(jj-icon-squash-into)',
+        },
+        {
+            command: 'jj-view.squashRevisionIntoAncestorKeepMessage',
+            title: 'Squash Revision into Ancestor (Use Destination Message)...',
             category: 'JJ View',
             icon: '$(jj-icon-squash-into)',
         },
@@ -695,6 +707,16 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 group: 'inline@6',
                 when: 'scmResourceGroupState =~ /\\bjj\\.group\\.allowEdit\\b/',
             },
+            {
+                command: 'jj-view.squashRevisionIntoParentKeepMessage',
+                group: '1_modification@1',
+                when: 'scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/',
+            },
+            {
+                command: 'jj-view.squashRevisionIntoAncestorKeepMessage',
+                group: '1_modification@2',
+                when: 'scmResourceGroupState =~ /\\bjj\\.group\\.allowSquash\\b/',
+            },
         ],
         'scm/resourceState/context': [
             {
@@ -793,6 +815,16 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.absorb',
                 when: "webviewSection == 'commit' && jj.canAbsorb",
                 group: '4_changes@3',
+            },
+            {
+                command: 'jj-view.squashRevisionIntoParentKeepMessage',
+                when: "webviewSection == 'commit' && jj.canSquash",
+                group: '4_changes@4',
+            },
+            {
+                command: 'jj-view.squashRevisionIntoAncestorKeepMessage',
+                when: "webviewSection == 'commit' && jj.canSquash",
+                group: '4_changes@5',
             },
             {
                 command: 'jj-view.upload',
