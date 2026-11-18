@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../../core/commands/squash-selection';
@@ -10,6 +11,7 @@ import type { JjRepository } from '../../core/jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
 import { Uri } from '../../core/uri-utils';
 import { FakeCommandContext } from '../fake-host-environment';
+import { ScopedSymlink, ScopedTempDir } from '../scoped-helpers';
 import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
@@ -32,8 +34,9 @@ describe('squash-selection commands', () => {
         ctx = new FakeCommandContext(mockJjRepo);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         vi.clearAllMocks();
+        await repo.dispose();
     });
 
     describe('squashHunkIntoParentCommand', () => {
@@ -194,6 +197,47 @@ describe('squash-selection commands', () => {
 
             const parentContent = repo.getFileContent(ids.root.changeId, fileName);
             expect(parentContent).toBe('line1\nmodified2\nline3\n');
+        });
+
+        test('squashes selection and hunk when workspaceRoot is a symlink and uri uses realpath', async () => {
+            using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-cmd-sym-'));
+            const symlinkRoot = path.join(tempContainer.path, 'ws-link');
+            using _wsLink = new ScopedSymlink(
+                symlinkRoot,
+                repo.path,
+                process.platform === 'win32' ? 'junction' : 'dir',
+            );
+
+            const symlinkJj = new JjService(symlinkRoot, NO_OP_LOGGER);
+            const symlinkRepo = createMock<JjRepository>({
+                jj: symlinkJj,
+                refresh: vi.fn().mockResolvedValue(undefined),
+            });
+            const symlinkCtx = new FakeCommandContext(symlinkRepo);
+
+            const fileName = 'sym.txt';
+            await buildGraph(repo, [
+                { label: 'parent', files: { [fileName]: 'l1\nl2\nl3\nl4\nl5\n' } },
+                {
+                    label: 'wc',
+                    parents: ['parent'],
+                    files: { [fileName]: 'l1\nmod2\nl3\nmod4\nl5\n' },
+                    isCurrentWorkingCopy: true,
+                },
+            ]);
+
+            const realFileUri = Uri.file(path.join(repo.path, fileName));
+            await squashSelectionIntoParentCommand(symlinkCtx, {
+                uri: realFileUri,
+                ranges: [{ startLine: 1, endLine: 1 }],
+            });
+            expect(repo.getFileContent('@-', fileName)).toBe('l1\nmod2\nl3\nl4\nl5\n');
+
+            await squashHunkIntoParentCommand(symlinkCtx, {
+                uri: realFileUri,
+                ranges: [{ startLine: 3, endLine: 3 }],
+            });
+            expect(repo.getFileContent('@-', fileName)).toBe('l1\nmod2\nl3\nmod4\nl5\n');
         });
     });
 });

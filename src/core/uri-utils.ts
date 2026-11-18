@@ -7,6 +7,7 @@ import path from 'pathe';
 import { match } from 'ts-pattern';
 import { URI, Utils } from 'vscode-uri';
 import { LruCache } from '../utils/lru-cache';
+import type { HostFs } from './host/host-system';
 import type { JjStatusEntry } from './jj-types';
 
 export type Uri = URI;
@@ -387,6 +388,84 @@ function getCanonicalRoot(root: string): string {
     return canonical;
 }
 
+/**
+ * Normalizes a leading Windows drive letter (`C:/...`, `C:\...`, `C:`) to lowercase
+ * so bare drive comparisons (`C:` vs `c:`) and root equality checks match regardless of casing.
+ */
+export function normalizeDriveLetter(p: string): string {
+    return p.replace(/^([a-zA-Z]):(?=[/\\]|$)/, (_, d: string) => `${d.toLowerCase()}:`);
+}
+
+/**
+ * Checks whether a relative path stays inside its base root (no `..` escape,
+ * no absolute path, and no cross-drive Windows prefix).
+ */
+export function isInsideRelativePath(rel: string): boolean {
+    return (
+        rel !== '..' &&
+        !rel.startsWith('../') &&
+        !rel.startsWith('..\\') &&
+        !path.isAbsolute(rel) &&
+        !/^[a-zA-Z]:(?:$|[/\\])/.test(rel)
+    );
+}
+
+/**
+ * Resolves the realpath of `filePath`, climbing up to the nearest existing ancestor
+ * directory when the leaf (or intermediate segments) does not exist on disk.
+ */
+export async function resolveNearestRealPathAsync(filePath: string, fs: HostFs): Promise<string | undefined> {
+    let current = filePath;
+    const trailing: string[] = [];
+    while (current) {
+        try {
+            const real = await fs.realpath(current);
+            return trailing.length > 0 ? path.join(real, ...trailing) : real;
+        } catch {
+            const parent = path.dirname(current);
+            if (!parent || parent === current || /^[a-zA-Z]:([/\\])?$/.test(current)) {
+                return undefined;
+            }
+            trailing.unshift(path.basename(current));
+            current = parent;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Resolves `filePath` relative to `realRoot` if it falls inside `realRoot`,
+ * canonicalizing the parent directory first so tracked leaf symlinks are preserved
+ * rather than dereferenced to their targets.
+ */
+export async function resolveInsideRealRootAsync(
+    filePath: string,
+    realRoot: string,
+    fs: HostFs,
+): Promise<string | undefined> {
+    const normRoot = normalizeDriveLetter(path.normalize(realRoot));
+    const parentDir = path.dirname(filePath);
+    const isFilesystemRoot = parentDir === filePath || /^[a-zA-Z]:([/\\])?$/.test(filePath);
+
+    if (!isFilesystemRoot) {
+        const parentReal = await resolveNearestRealPathAsync(parentDir, fs);
+        if (parentReal !== undefined) {
+            const parentBasedPath = path.join(parentReal, path.basename(filePath));
+            const parentRel = path.relative(normRoot, normalizeDriveLetter(parentBasedPath));
+            if (isInsideRelativePath(parentRel)) {
+                return path.normalize(parentRel);
+            }
+        }
+    }
+
+    const fileReal = await resolveNearestRealPathAsync(filePath, fs);
+    if (fileReal === undefined) {
+        return undefined;
+    }
+    const rel = path.relative(normRoot, normalizeDriveLetter(fileReal));
+    return isInsideRelativePath(rel) ? path.normalize(rel) : undefined;
+}
+
 function resolveNearestRealPath(fsPath: string): string | undefined {
     if (!globalRealpathSync) {
         return undefined;
@@ -399,7 +478,7 @@ function resolveNearestRealPath(fsPath: string): string | undefined {
             return trailingSegments.length > 0 ? path.join(canonicalDir, ...trailingSegments) : canonicalDir;
         } catch {
             const parent = path.dirname(current);
-            if (!parent || parent === current || /^[a-zA-Z]:(\/)?$/.test(current)) {
+            if (!parent || parent === current || /^[a-zA-Z]:([/\\])?$/.test(current)) {
                 break;
             }
             trailingSegments.unshift(path.basename(current));

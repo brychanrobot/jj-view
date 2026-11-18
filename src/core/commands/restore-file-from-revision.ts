@@ -6,7 +6,7 @@ import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import type { HostFs } from '../host/host-system';
 import { promptForRevision, showJjError } from '../host/ui-helpers';
-import type { Uri } from '../uri-utils';
+import { isInsideRelativePath, normalizeDriveLetter, resolveInsideRealRootAsync, type Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
 export interface RestoreFileFromRevisionPayload {
@@ -43,37 +43,14 @@ export function formatRootFileFileset(relPath: string): string {
     return `root-file:"${escaped}"`;
 }
 
-function isInsideRelativePath(rel: string): boolean {
-    return rel !== '..' && !rel.startsWith('../') && !path.isAbsolute(rel) && !/^[a-zA-Z]:(?:$|[/\\])/.test(rel);
-}
-
-async function resolveNearestRealPath(filePath: string, fs: HostFs): Promise<string | undefined> {
-    let current = filePath;
-    const trailing: string[] = [];
-    while (current) {
-        try {
-            const real = await fs.realpath(current);
-            return trailing.length > 0 ? path.join(real, ...trailing) : real;
-        } catch {
-            const parent = path.dirname(current);
-            if (!parent || parent === current || /^[a-zA-Z]:([/\\])?$/.test(current)) {
-                return undefined;
-            }
-            trailing.unshift(path.basename(current));
-            current = parent;
-        }
-    }
-    return undefined;
-}
-
 export async function resolveWorkspaceRelativePath(
     workspaceRoot: string,
     filePath: string,
     fs?: HostFs,
 ): Promise<string | undefined> {
-    const relFromRoot = path.relative(workspaceRoot, filePath);
+    const relFromRoot = path.relative(normalizeDriveLetter(workspaceRoot), normalizeDriveLetter(filePath));
     if (isInsideRelativePath(relFromRoot)) {
-        return relFromRoot;
+        return path.normalize(relFromRoot);
     }
     if (!fs) {
         return undefined;
@@ -84,12 +61,7 @@ export async function resolveWorkspaceRelativePath(
     } catch {
         // Keep original workspaceRoot when realpath is unavailable
     }
-    const realFile = await resolveNearestRealPath(filePath, fs);
-    if (!realFile) {
-        return undefined;
-    }
-    const relFromReal = path.relative(realRoot, realFile);
-    return isInsideRelativePath(relFromReal) ? relFromReal : undefined;
+    return resolveInsideRealRootAsync(filePath, realRoot, fs);
 }
 
 export async function restoreFileFromRevisionCommand(

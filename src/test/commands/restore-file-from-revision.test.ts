@@ -512,4 +512,58 @@ describe('restoreFileFromRevisionCommand', () => {
         await expect(resolveWorkspaceRelativePath('D:\\repo', 'C:\\')).resolves.toBeUndefined();
         await expect(resolveWorkspaceRelativePath('/repo', '/repo/a:b.txt')).resolves.toBe('a:b.txt');
     });
+
+    it.skipIf(process.platform === 'win32')(
+        'preserves tracked leaf symlinks when resolving realpath URIs under symlinked workspaceRoot',
+        async () => {
+            using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-restore-leaf-sym-'));
+            const symlinkRoot = path.join(tempContainer.path, 'ws-alias');
+            using _wsLink = new ScopedSymlink(symlinkRoot, repo.path, 'dir');
+
+            const outsideTarget = path.join(tempContainer.path, 'outside.txt');
+            fs.writeFileSync(outsideTarget, 'outside\n', 'utf-8');
+
+            repo.writeFile('target.txt', 'v1 target\n');
+            fs.symlinkSync('target.txt', path.join(repo.path, 'sym-internal.txt'));
+            fs.symlinkSync(outsideTarget, path.join(repo.path, 'sym-external.txt'));
+            repo.snapshot();
+            repo.describe('v1');
+            const v1Id = repo.getChangeId('@');
+
+            repo.new();
+            fs.unlinkSync(path.join(repo.path, 'sym-internal.txt'));
+            fs.symlinkSync('target-v2.txt', path.join(repo.path, 'sym-internal.txt'));
+            repo.snapshot();
+
+            const symlinkJj = new JjService(symlinkRoot, NO_OP_LOGGER);
+            const symlinkRepo = createMock<JjRepository>({
+                jj: symlinkJj,
+                rootUri: Uri.file(symlinkRoot),
+                refresh: vi.fn().mockResolvedValue(undefined),
+            });
+            const symlinkCtx = new FakeCommandContext(symlinkRepo);
+
+            await expect(
+                resolveWorkspaceRelativePath(
+                    symlinkRoot,
+                    path.join(repo.path, 'sym-internal.txt'),
+                    symlinkCtx.host.system.fs,
+                ),
+            ).resolves.toBe('sym-internal.txt');
+            await expect(
+                resolveWorkspaceRelativePath(
+                    symlinkRoot,
+                    path.join(repo.path, 'sym-external.txt'),
+                    symlinkCtx.host.system.fs,
+                ),
+            ).resolves.toBe('sym-external.txt');
+
+            await restoreFileFromRevisionCommand(symlinkCtx, {
+                fileUri: Uri.file(path.join(repo.path, 'sym-internal.txt')),
+                revision: v1Id,
+            });
+            expect(fs.readlinkSync(path.join(repo.path, 'sym-internal.txt'))).toBe('target.txt');
+            expect(fs.readFileSync(path.join(repo.path, 'target.txt'), 'utf-8')).toBe('v1 target\n');
+        },
+    );
 });

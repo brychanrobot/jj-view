@@ -45,7 +45,13 @@ import {
 import type { JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace } from './jj-types';
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
-import { toForwardSlash } from './uri-utils';
+import {
+    isInsideRelativePath,
+    normalizeDriveLetter,
+    resolveInsideRealRootAsync,
+    resolveNearestRealPathAsync,
+    toForwardSlash,
+} from './uri-utils';
 
 export { NO_OP_LOGGER };
 
@@ -333,66 +339,92 @@ export class JjService {
         return message.includes('index.lock') || message.includes('Could not acquire lock');
     }
 
-    private toRelative(filePath: string): string {
-        if (path.isAbsolute(filePath)) {
-            return path.relative(this.workspaceRoot, filePath);
-        }
-        return filePath;
-    }
+    private _workspaceRealPromise?: Promise<string>;
+    private _realRootsPromise?: Promise<{ repoReal: string; workspaceReal: string }>;
 
-    private _realRootsPromise: Promise<{ repoReal: string; workspaceReal: string }> | null = null;
+    private async getWorkspaceReal(): Promise<string> {
+        if (!this._workspaceRealPromise) {
+            this._workspaceRealPromise = this.system.fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
+        }
+        return this._workspaceRealPromise;
+    }
 
     private async getRealRoots(): Promise<{ repoReal: string; workspaceReal: string }> {
         if (!this._realRootsPromise) {
-            this._realRootsPromise = (async () => {
-                const repoRoot = await this.getRepoRoot();
-                const [repoReal, workspaceReal] = await Promise.all([
-                    this.system.fs.realpath(repoRoot).catch(() => repoRoot),
-                    this.system.fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot),
-                ]);
+            const promise = (async () => {
+                const [repoRoot, workspaceReal] = await Promise.all([this.getRepoRoot(), this.getWorkspaceReal()]);
+                const repoReal = await this.system.fs.realpath(repoRoot).catch(() => repoRoot);
                 return { repoReal, workspaceReal };
             })();
+            this._realRootsPromise = promise;
+            promise.catch(() => {
+                if (this._realRootsPromise === promise) {
+                    this._realRootsPromise = undefined;
+                }
+            });
         }
         return this._realRootsPromise;
     }
 
-    private async toRepoRelative(filePath: string): Promise<string> {
-        const { repoReal, workspaceReal } = await this.getRealRoots();
+    private async resolveRealPath(filePath: string): Promise<string> {
+        return (await resolveNearestRealPathAsync(filePath, this.system.fs)) ?? filePath;
+    }
 
+    private async workspaceRelativeToRepoRelative(workspaceRelPath: string): Promise<string> {
+        const { repoReal, workspaceReal } = await this.getRealRoots();
+        const normRepoReal = normalizeDriveLetter(path.normalize(repoReal));
+        const normWorkspaceReal = normalizeDriveLetter(path.normalize(workspaceReal));
+        if (normRepoReal === normWorkspaceReal) {
+            return path.normalize(workspaceRelPath);
+        }
+        const repoToWorkspace = path.relative(normRepoReal, normWorkspaceReal);
+        return path.normalize(path.join(repoToWorkspace, workspaceRelPath));
+    }
+
+    private async resolveRelativeToRealRoot(filePath: string, realRoot: string): Promise<string> {
+        const inside = await resolveInsideRealRootAsync(filePath, realRoot, this.system.fs);
+        if (inside !== undefined) {
+            return inside;
+        }
+        const fileReal = await this.resolveRealPath(filePath);
+        return path.normalize(
+            path.relative(normalizeDriveLetter(path.normalize(realRoot)), normalizeDriveLetter(fileReal)),
+        );
+    }
+
+    private async toRelative(filePath: string): Promise<string> {
         if (!path.isAbsolute(filePath)) {
-            if (repoReal === workspaceReal) {
-                return path.normalize(filePath);
-            }
-            const repoToWorkspace = path.relative(repoReal, workspaceReal);
-            return path.normalize(path.join(repoToWorkspace, filePath));
+            return filePath;
+        }
+        const directRel = path.relative(normalizeDriveLetter(this.workspaceRoot), normalizeDriveLetter(filePath));
+        if (isInsideRelativePath(directRel)) {
+            return path.normalize(directRel);
+        }
+        const workspaceReal = await this.getWorkspaceReal();
+        return this.resolveRelativeToRealRoot(filePath, workspaceReal);
+    }
+
+    private async toRepoRelative(filePath: string): Promise<string> {
+        if (!path.isAbsolute(filePath)) {
+            return this.workspaceRelativeToRepoRelative(filePath);
         }
 
-        const rel = path.relative(repoReal, filePath);
-        if (!rel.startsWith('..')) {
+        const directWorkspaceRel = path.relative(
+            normalizeDriveLetter(this.workspaceRoot),
+            normalizeDriveLetter(filePath),
+        );
+        if (isInsideRelativePath(directWorkspaceRel)) {
+            return this.workspaceRelativeToRepoRelative(directWorkspaceRel);
+        }
+
+        const { repoReal } = await this.getRealRoots();
+        const normRepoReal = normalizeDriveLetter(path.normalize(repoReal));
+        const rel = path.relative(normRepoReal, normalizeDriveLetter(filePath));
+        if (isInsideRelativePath(rel)) {
             return path.normalize(rel);
         }
 
-        const fileReal = await this.resolveRealPath(filePath);
-        return path.normalize(path.relative(repoReal, fileReal));
-    }
-
-    private async resolveRealPath(filePath: string): Promise<string> {
-        try {
-            return await this.system.fs.realpath(filePath);
-        } catch {}
-
-        let cur = path.dirname(filePath);
-        const tail: string[] = [path.basename(filePath)];
-        while (cur && cur !== path.dirname(cur) && !/^[a-zA-Z]:(\/)?$/.test(cur)) {
-            try {
-                const parentReal = await this.system.fs.realpath(cur);
-                return path.join(parentReal, ...tail);
-            } catch {
-                tail.unshift(path.basename(cur));
-                cur = path.dirname(cur);
-            }
-        }
-        return filePath;
+        return this.resolveRelativeToRealRoot(filePath, repoReal);
     }
 
     private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {
@@ -821,7 +853,7 @@ export class JjService {
         if (paths.length === 0) {
             return;
         }
-        const relativePaths = paths.map((p) => this.toRelative(p));
+        const relativePaths = await Promise.all(paths.map((p) => this.toRelative(p)));
         const cmdArgs: string[] = [];
         if (options.changesIn) {
             cmdArgs.push('--changes-in', options.changesIn);
@@ -842,8 +874,8 @@ export class JjService {
      * Uses `jj resolve` with a custom capture tool to extract the properly separated content.
      */
     async getConflictParts(filePath: string): Promise<{ base: string; left: string; right: string }> {
+        const relativePath = await this.toRelative(filePath);
         const tempDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-conflict-'));
-        const relativePath = this.toRelative(filePath);
 
         try {
             // Normalize path separators to forward slashes for safe injection into JS script string
@@ -1145,6 +1177,8 @@ export class JjService {
     async clearCache(): Promise<void> {
         this._cacheEpoch++;
         this._repoRoot = undefined;
+        this._workspaceRealPromise = undefined;
+        this._realRootsPromise = undefined;
         this._logEntryCache.clear();
         this._logRevsetPromise = undefined;
         this._gitRoot = undefined;
@@ -1197,8 +1231,10 @@ export class JjService {
             const tempDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-batch-edit-'));
             try {
                 const writePromises = Array.from(files.entries()).map(async ([filePath, content], idx) => {
-                    const repoRelPath = await this.toRepoRelative(filePath);
-                    const workspaceRelPath = this.toRelative(filePath);
+                    const [repoRelPath, workspaceRelPath] = await Promise.all([
+                        this.toRepoRelative(filePath),
+                        this.toRelative(filePath),
+                    ]);
                     const safeName = repoRelPath.replace(/[\\/]/g, '_');
                     const tmpPath = path.join(tempDir, `src_${idx}_${safeName}`);
                     await this.system.fs.writeTextFile(tmpPath, content);
@@ -1265,7 +1301,7 @@ export class JjService {
             throw new Error('Cannot squash revision into or onto itself.');
         }
         const args: string[] = [];
-        const relativePaths = paths.map((p) => this.toRelative(p));
+        const relativePaths = await Promise.all(paths.map((p) => this.toRelative(p)));
 
         if (ontoRevision) {
             // Squash onto target (creating a new commit on top of ontoRevision)
@@ -1505,7 +1541,7 @@ export class JjService {
             }
         }
 
-        const relativePath = this.toRelative(filePath);
+        const relativePath = await this.toRelative(filePath);
         const args = ['show', relativePath, '-r', revision];
         if (conflictStyle === 'git') {
             args.push('--config=ui.conflict-marker-style=git');
@@ -1523,7 +1559,7 @@ export class JjService {
             // Fall through if not in cache (e.g. file not changed in this revision)
         }
 
-        const workspaceRelPath = this.toRelative(filePath);
+        const workspaceRelPath = await this.toRelative(filePath);
         if (revision === '@') {
             try {
                 const fullPath = path.resolve(this.workspaceRoot, workspaceRelPath);
@@ -1616,7 +1652,7 @@ export class JjService {
     }
 
     async cat(path: string, revision: string = '@-'): Promise<string> {
-        const relativePath = this.toRelative(path);
+        const relativePath = await this.toRelative(path);
         return this.run('file', ['show', '-r', revision, relativePath], {
             trim: false,
             useCachedSnapshot: true,
@@ -1800,7 +1836,7 @@ export class JjService {
     }
 
     async getDiff(revision: string, file: string): Promise<string> {
-        const relativePath = this.toRelative(file);
+        const relativePath = await this.toRelative(file);
         return this.run('diff', ['--git', '-r', revision, relativePath], { useCachedSnapshot: true });
     }
 
@@ -1844,46 +1880,46 @@ export class JjService {
     /**
      * Squash specific line ranges (selection) from a file to its parent revision.
      *
-     * @param fileRelPath Path relative to the workspace root.
+     * @param filePath Path to the file (absolute or relative to the workspace root).
      * @param ranges 0-indexed line ranges in the 'revision' to move.
      * @param revision The revision to move changes from (default: @).
      */
-    async squashSelectionIntoParent(
-        fileRelPath: string,
-        ranges: SelectionRange[],
-        revision: string = '@',
-    ): Promise<void> {
+    async squashSelectionIntoParent(filePath: string, ranges: SelectionRange[], revision: string = '@'): Promise<void> {
         const parentRev = `${revision}-`;
-        const { left: baseContent } = await this.getDiffContent(revision, fileRelPath);
-        const diffOutput = await this.getDiff(revision, fileRelPath);
+        const { left: baseContent } = await this.getDiffContent(revision, filePath);
+        const diffOutput = await this.getDiff(revision, filePath);
 
         const wantedContent = PatchHelper.applySelectedLines(baseContent, diffOutput, ranges);
 
-        await this.runPartialSquash(revision, parentRev, fileRelPath, wantedContent);
+        await this.runPartialSquash(revision, parentRev, filePath, wantedContent);
     }
 
     private async runPartialSquash(
         fromRev: string,
         intoRev: string,
-        fileRelPath: string,
+        filePath: string,
         wantedContent: string,
     ): Promise<void> {
+        const [repoRelPath, workspaceRelPath] = await Promise.all([
+            this.toRepoRelative(filePath),
+            this.toRelative(filePath),
+        ]);
         const tmpDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-partial-squash-'));
         const tmpFile = path.join(tmpDir, 'wanted_content');
-        await this.system.fs.writeTextFile(tmpFile, wantedContent);
 
         try {
+            await this.system.fs.writeTextFile(tmpFile, wantedContent);
             const toolName = 'partial-squash';
             const normalizedScriptPath = await this.system.process.getHelperScriptPath('batch-edit');
             const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
                 '$left',
                 '$right',
                 path.normalize(tmpFile),
-                path.normalize(fileRelPath),
+                path.normalize(repoRelPath),
             ]);
 
             // squash --from X --into Y --tool ...
-            const args = ['--from', fromRev, '--into', intoRev, '--tool', toolName, ...toolConfig, fileRelPath];
+            const args = ['--from', fromRev, '--into', intoRev, '--tool', toolName, ...toolConfig, workspaceRelPath];
 
             await this.run('squash', args, { isMutation: true });
         } finally {
@@ -1900,7 +1936,7 @@ export class JjService {
         }
         if (paths && paths.length > 0) {
             // Check if paths are relative or absolute, assume toRelative handles it
-            const relativePaths = paths.map((p) => this.toRelative(p));
+            const relativePaths = await Promise.all(paths.map((p) => this.toRelative(p)));
             args.push(...relativePaths);
         }
 
