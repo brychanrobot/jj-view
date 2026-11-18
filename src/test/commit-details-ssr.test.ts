@@ -202,6 +202,9 @@ describe('CommitDetailsApp SSR Rendering', () => {
             /<span class="file-dir[^"]*">src\/core\/webview\/<\/span>(?:<!--.*?-->)*<span class="file-name/,
         );
         expect(html).not.toContain('src/core/webview/</span> ');
+        expect(html).toContain('data-file-path="src/core/webview/CommitDetails.svelte"');
+        expect(html).toContain('data-file-path="root-file.txt"');
+        expect(html).not.toContain('commit-details-file-context-menu');
     });
 
     it('successfully server-renders code forge sync banner, description modified badge, and modified file badges', () => {

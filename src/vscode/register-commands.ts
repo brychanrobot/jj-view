@@ -46,6 +46,7 @@ import { refreshCommand } from '../core/commands/refresh';
 import { restoreCommand } from '../core/commands/restore';
 import { restoreFileFromRevisionCommand } from '../core/commands/restore-file-from-revision';
 import { simplifyParentsCommand } from '../core/commands/simplify-parents';
+import { splitFilesAfterCommand, splitFilesBeforeCommand } from '../core/commands/split-files';
 import {
     squashFilesIntoAncestorCommand,
     squashFilesIntoChildCommand,
@@ -113,6 +114,7 @@ import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
 import { createRestoreFileFromRevisionPayload } from './payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from './payloads/simplify-parents.payload';
+import { createSplitFilesPayload } from './payloads/split-files.payload';
 import {
     createSquashFilesIntoAncestorPayload,
     createSquashFilesIntoChildPayload,
@@ -385,6 +387,8 @@ export function registerCommands(options: RegisterCommandsOptions): void {
             createSquashFilesIntoChildPayload,
             squashFilesIntoChildCommand,
         ),
+        registerCommandWithPayload('jj-view.splitFilesBefore', createSplitFilesPayload, splitFilesBeforeCommand),
+        registerCommandWithPayload('jj-view.splitFilesAfter', createSplitFilesPayload, splitFilesAfterCommand),
     );
 
     for (const actionId of TOGGLEABLE_COMMIT_ACTIONS) {

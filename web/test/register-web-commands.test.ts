@@ -16,6 +16,7 @@ import type { LoggerChannel } from '../../src/utils/output-channel';
 import { createShowDetailsPayload } from '../src/commands/payloads/details.payload';
 import { createRestoreFileFromRevisionPayload } from '../src/commands/payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from '../src/commands/payloads/simplify-parents.payload';
+import { createSplitFilesPayload } from '../src/commands/payloads/split-files.payload';
 import { createSquashRevisionIntoParentPayload } from '../src/commands/payloads/squash-revision.payload';
 import { createSquashSelectionIntoParentPayload } from '../src/commands/payloads/squash-selection.payload';
 import { registerWebCommands } from '../src/commands/register-web-commands';
@@ -174,6 +175,8 @@ describe('registerWebCommands', () => {
             'jj-view.squashRevisionIntoParentKeepMessage',
             'jj-view.squashRevisionIntoAncestor',
             'jj-view.squashRevisionIntoAncestorKeepMessage',
+            'jj-view.splitFilesBefore',
+            'jj-view.splitFilesAfter',
             'jj-view.showDetails',
             'jj-view.openChanges',
             'jj-view.sync',
@@ -671,6 +674,19 @@ describe('registerWebCommands', () => {
 
                 expect(await commandPromise).toBe('@-');
             });
+        });
+    });
+
+    it('creates splitFiles payload from SCM resource states and explicit path objects', () => {
+        const uri1 = Uri.file('/test/workspace/a.txt');
+        const uri2 = Uri.file('/test/workspace/b.txt');
+        expect(createSplitFilesPayload([{ resourceUri: uri1, revision: 'rev1' }, [{ resourceUri: uri2 }]])).toEqual({
+            paths: [uri1.fsPath, uri2.fsPath],
+            revision: 'rev1',
+        });
+        expect(createSplitFilesPayload([{ paths: ['src/a.ts', 'src/b.ts'], revision: 'abc123' }])).toEqual({
+            paths: ['src/a.ts', 'src/b.ts'],
+            revision: 'abc123',
         });
     });
 });

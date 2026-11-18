@@ -12,6 +12,7 @@ import {
     type CommitDetailsToHostMessage,
     CommitDetailsToHostMessageSchema,
 } from '../core/host/ipc/commit-details-schemas';
+import { resolveRepository } from '../core/host/ui-helpers';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
 import { Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
@@ -21,6 +22,7 @@ import { createMockLogOutputChannel } from './test-utils';
 
 describe('CommitDetailsController Domain Unit Tests', () => {
     let testRepo: TestRepo;
+    let extraRepo: TestRepo | undefined;
     let repositoryManager: JjRepositoryManager;
     let fakeHost: FakeHostEnvironment;
     let controller: CommitDetailsController;
@@ -59,7 +61,9 @@ describe('CommitDetailsController Domain Unit Tests', () => {
         client.dispose();
         controller.dispose();
         await repositoryManager.dispose();
-        testRepo.dispose();
+        await testRepo.dispose();
+        await extraRepo?.dispose();
+        extraRepo = undefined;
     });
 
     test('loads commit details and changes from real repository', async () => {
@@ -549,6 +553,436 @@ describe('CommitDetailsController Domain Unit Tests', () => {
 
         expect(handled).toBe(true);
         expect(executeSpy).toHaveBeenCalledWith('jj-view.compareWithUploaded', '@');
+    });
+
+    test('flushes pending debounced draft description before dispatching splitFiles', async () => {
+        testRepo.writeFile('a.txt', 'a\n');
+        testRepo.writeFile('b.txt', 'b\n');
+        testRepo.describe('initial description');
+        const changeId = testRepo.getChangeId('@');
+
+        const repoInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repoInstance) {
+            throw new Error('repo not found');
+        }
+
+        const callOrder: string[] = [];
+        const splitController = new CommitDetailsController(changeId, repoInstance, fakeHost);
+        const splitClient = createMockWebviewClient({
+            toHostSchema: CommitDetailsToHostMessageSchema,
+            hostToWebviewSchema: CommitDetailsHostToWebviewMessageSchema,
+        });
+        splitController.addMessenger(splitClient.webview);
+
+        const setDescDisposable = fakeHost.commands.registerCommand(
+            'jj-view.setDescription',
+            async (desc: string, rev: string) => {
+                callOrder.push(`setDescription:${rev}:${desc}`);
+                await repoInstance.jj.describe(desc, rev);
+                return desc;
+            },
+        );
+        const splitBeforeDisposable = fakeHost.commands.registerCommand(
+            'jj-view.splitFilesBefore',
+            async (payload: { paths: string[]; revision?: string }) => {
+                callOrder.push(`splitBefore:${payload.revision}:${payload.paths.join(',')}`);
+                // Description must already be persisted on disk when split starts
+                expect(testRepo.getDescription(changeId)).toBe('flushed draft before split');
+            },
+        );
+
+        try {
+            await splitController.load();
+
+            // Type a new description (leaves 200ms debounce timer pending + unsaved draft)
+            await splitController.handleMessage({
+                type: 'descriptionChanged',
+                payload: {
+                    description: 'flushed draft before split',
+                    selectionStart: 0,
+                    selectionEnd: 0,
+                },
+            });
+            expect(splitController.hasUnsavedDraft).toBe(true);
+
+            const handled = await splitController.handleMessage({
+                type: 'splitFiles',
+                payload: {
+                    changeId,
+                    paths: ['a.txt'],
+                    placement: 'before',
+                },
+            });
+
+            expect(handled).toBe(true);
+            expect(callOrder).toEqual([
+                `setDescription:${changeId}:flushed draft before split`,
+                `splitBefore:${changeId}:a.txt`,
+            ]);
+            expect(splitController.hasUnsavedDraft).toBe(false);
+            expect(splitController.persistedDescription).toBe('flushed draft before split');
+        } finally {
+            setDescDisposable.dispose();
+            splitBeforeDisposable.dispose();
+            splitClient.dispose();
+            splitController.dispose();
+        }
+    });
+
+    test('awaits in-flight save and subsequent edits before executing splitFilesAfter', async () => {
+        testRepo.writeFile('a.txt', 'a\n');
+        testRepo.writeFile('b.txt', 'b\n');
+        testRepo.describe('original');
+        const changeId = testRepo.getChangeId('@');
+
+        const repoInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repoInstance) {
+            throw new Error('repo not found');
+        }
+
+        const splitController = new CommitDetailsController(changeId, repoInstance, fakeHost);
+        let releaseFirstSave!: () => void;
+        const firstSaveGate = new Promise<void>((resolve) => {
+            releaseFirstSave = resolve;
+        });
+        const events: string[] = [];
+        let saveCount = 0;
+
+        const setDescDisposable = fakeHost.commands.registerCommand(
+            'jj-view.setDescription',
+            async (desc: string, rev: string) => {
+                saveCount++;
+                events.push(`save-start:${saveCount}:${desc}`);
+                if (saveCount === 1) {
+                    await firstSaveGate;
+                }
+                await repoInstance.jj.describe(desc, rev);
+                events.push(`save-end:${saveCount}:${desc}`);
+                return desc;
+            },
+        );
+        const splitAfterDisposable = fakeHost.commands.registerCommand(
+            'jj-view.splitFilesAfter',
+            async (payload: { paths: string[]; revision?: string }) => {
+                events.push(`splitAfter:${payload.revision}:${payload.paths.join(',')}`);
+            },
+        );
+
+        try {
+            await splitController.load();
+
+            splitController.updateDraft('first draft');
+            const firstSavePromise = splitController.save();
+
+            // Concurrent edit while first save is in flight
+            splitController.updateDraft('second draft');
+
+            const splitPromise = splitController.handleMessage({
+                type: 'splitFiles',
+                payload: {
+                    changeId,
+                    paths: ['a.txt', 'b.txt'],
+                    placement: 'after',
+                },
+            });
+
+            // Split must not start before both saves complete
+            await Promise.resolve();
+            expect(events).toEqual(['save-start:1:first draft']);
+
+            releaseFirstSave();
+            await Promise.all([firstSavePromise, splitPromise]);
+
+            expect(events).toEqual([
+                'save-start:1:first draft',
+                'save-end:1:first draft',
+                'save-start:2:second draft',
+                'save-end:2:second draft',
+                `splitAfter:${changeId}:a.txt,b.txt`,
+            ]);
+            expect(testRepo.getDescription(changeId)).toBe('second draft');
+        } finally {
+            setDescDisposable.dispose();
+            splitAfterDisposable.dispose();
+            splitController.dispose();
+        }
+    });
+
+    test('aborts splitFiles when saving pending draft description fails', async () => {
+        testRepo.writeFile('a.txt', 'a\n');
+        testRepo.describe('initial');
+        const changeId = testRepo.getChangeId('@');
+
+        const repoInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repoInstance) {
+            throw new Error('repo not found');
+        }
+
+        const splitController = new CommitDetailsController(changeId, repoInstance, fakeHost);
+        const setDescDisposable = fakeHost.commands.registerCommand('jj-view.setDescription', async () => false);
+        const splitSpy = vi.fn();
+        const splitBeforeDisposable = fakeHost.commands.registerCommand('jj-view.splitFilesBefore', splitSpy);
+
+        try {
+            await splitController.load();
+            splitController.updateDraft('failing draft');
+
+            await splitController.handleMessage({
+                type: 'splitFiles',
+                payload: { changeId, paths: ['a.txt'], placement: 'before' },
+            });
+
+            expect(splitSpy).not.toHaveBeenCalled();
+            expect(splitController.hasUnsavedDraft).toBe(true);
+        } finally {
+            setDescDisposable.dispose();
+            splitBeforeDisposable.dispose();
+            splitController.dispose();
+        }
+    });
+
+    test('flushPendingSave awaits actively running queued _nextSavePromise without duplicate save', async () => {
+        testRepo.writeFile('a.txt', 'a\n');
+        testRepo.describe('initial');
+        const changeId = testRepo.getChangeId('@');
+
+        const repoInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repoInstance) {
+            throw new Error('repo not found');
+        }
+
+        const splitController = new CommitDetailsController(changeId, repoInstance, fakeHost);
+        let releaseSave1!: () => void;
+        const save1Gate = new Promise<void>((resolve) => {
+            releaseSave1 = resolve;
+        });
+        let releaseSave2!: () => void;
+        const save2Gate = new Promise<void>((resolve) => {
+            releaseSave2 = resolve;
+        });
+        let notifySave2Started!: () => void;
+        const save2Started = new Promise<void>((resolve) => {
+            notifySave2Started = resolve;
+        });
+
+        const events: string[] = [];
+        let saveCount = 0;
+
+        const setDescDisposable = fakeHost.commands.registerCommand(
+            'jj-view.setDescription',
+            async (desc: string, rev: string) => {
+                saveCount++;
+                const idx = saveCount;
+                events.push(`save-start:${idx}:${desc}`);
+                if (idx === 1) {
+                    await save1Gate;
+                } else if (idx === 2) {
+                    notifySave2Started();
+                    await save2Gate;
+                }
+                await repoInstance.jj.describe(desc, rev);
+                events.push(`save-end:${idx}:${desc}`);
+                return desc;
+            },
+        );
+        const splitBeforeDisposable = fakeHost.commands.registerCommand(
+            'jj-view.splitFilesBefore',
+            async (payload: { paths: string[]; revision?: string }) => {
+                events.push(`splitBefore:${payload.revision}:${payload.paths.join(',')}`);
+            },
+        );
+
+        try {
+            await splitController.load();
+
+            splitController.updateDraft('first draft');
+            const firstSavePromise = splitController.save();
+
+            // Explicitly queue _nextSavePromise while save 1 is in flight
+            splitController.updateDraft('second draft');
+            const secondSavePromise = splitController.save();
+
+            releaseSave1();
+            await save2Started;
+
+            // Now save 2 (the formerly queued _nextSavePromise) is actively executing inside _executeSave().
+            // Even if draft matches persisted or changes are settled, flushPendingSave must wait for save 2
+            // without launching a concurrent save 3 or letting splitFiles race ahead.
+            const splitPromise = splitController.handleMessage({
+                type: 'splitFiles',
+                payload: { changeId, paths: ['a.txt'], placement: 'before' },
+            });
+
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(events).toEqual(['save-start:1:first draft', 'save-end:1:first draft', 'save-start:2:second draft']);
+
+            releaseSave2();
+            await Promise.all([firstSavePromise, secondSavePromise, splitPromise]);
+
+            expect(saveCount).toBe(2);
+            expect(events).toEqual([
+                'save-start:1:first draft',
+                'save-end:1:first draft',
+                'save-start:2:second draft',
+                'save-end:2:second draft',
+                `splitBefore:${changeId}:a.txt`,
+            ]);
+            expect(testRepo.getDescription(changeId)).toBe('second draft');
+        } finally {
+            setDescDisposable.dispose();
+            splitBeforeDisposable.dispose();
+            splitController.dispose();
+        }
+    });
+
+    test('multi-repo flushPendingSave passes controller rootUri to jj-view.setDescription', async () => {
+        const repoB = new TestRepo();
+        extraRepo = repoB;
+        repoB.init();
+        testRepo.writeFile('a.txt', 'a\n');
+        testRepo.describe('repo A initial');
+        const changeIdA = testRepo.getChangeId('@');
+
+        repoB.writeFile('b.txt', 'b\n');
+        repoB.describe('repo B initial');
+
+        fakeHost.workspace.addFolder(Uri.file(repoB.path));
+        const repoAInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        const repoBInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(repoB.path));
+        if (!repoAInstance || !repoBInstance) {
+            throw new Error('multi-repo instances not found');
+        }
+
+        // Focus Repo B so unfocused fallback would hit the wrong repository
+        repositoryManager.setFocusedRepository(repoBInstance);
+
+        const splitControllerA = new CommitDetailsController(changeIdA, repoAInstance, fakeHost);
+        const capturedSetDescArgs: unknown[][] = [];
+        const capturedSplitPayloads: unknown[] = [];
+
+        const setDescDisposable = fakeHost.commands.registerCommand(
+            'jj-view.setDescription',
+            async (...args: unknown[]) => {
+                capturedSetDescArgs.push(args);
+                const targetRepo = resolveRepository(repositoryManager, { args, host: fakeHost });
+                const desc = typeof args[0] === 'string' ? args[0] : '';
+                const rev = typeof args[1] === 'string' ? args[1] : '@';
+                if (targetRepo) {
+                    await targetRepo.jj.describe(desc, rev);
+                }
+                return desc;
+            },
+        );
+        const splitBeforeDisposable = fakeHost.commands.registerCommand(
+            'jj-view.splitFilesBefore',
+            async (payload: unknown) => {
+                capturedSplitPayloads.push(payload);
+            },
+        );
+
+        try {
+            await splitControllerA.load();
+            splitControllerA.updateDraft('repo A flushed draft');
+
+            await splitControllerA.handleMessage({
+                type: 'splitFiles',
+                payload: { changeId: changeIdA, paths: ['a.txt'], placement: 'before' },
+            });
+
+            expect(capturedSetDescArgs).toHaveLength(1);
+            const resolvedForSave = resolveRepository(repositoryManager, {
+                args: capturedSetDescArgs[0],
+                host: fakeHost,
+            });
+            expect(resolvedForSave?.rootUri.fsPath).toBeSameFsPath(repoAInstance.rootUri.fsPath);
+            expect(testRepo.getDescription(changeIdA)).toBe('repo A flushed draft');
+            expect(repoB.getDescription('@')).toBe('repo B initial');
+
+            expect(capturedSplitPayloads).toHaveLength(1);
+            const resolvedForSplit = resolveRepository(repositoryManager, {
+                args: [capturedSplitPayloads[0]],
+                host: fakeHost,
+            });
+            expect(resolvedForSplit?.rootUri.fsPath).toBeSameFsPath(repoAInstance.rootUri.fsPath);
+        } finally {
+            setDescDisposable.dispose();
+            splitBeforeDisposable.dispose();
+            splitControllerA.dispose();
+        }
+    });
+
+    test('save invoked in firstSavePromise.then microtask joins queued _nextSavePromise without concurrent run', async () => {
+        testRepo.writeFile('a.txt', 'a\n');
+        testRepo.describe('initial');
+        const changeId = testRepo.getChangeId('@');
+
+        const repoInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repoInstance) {
+            throw new Error('repo not found');
+        }
+
+        const splitController = new CommitDetailsController(changeId, repoInstance, fakeHost);
+        let releaseSave1!: () => void;
+        const save1Gate = new Promise<void>((resolve) => {
+            releaseSave1 = resolve;
+        });
+        let releaseSave2!: () => void;
+        const save2Gate = new Promise<void>((resolve) => {
+            releaseSave2 = resolve;
+        });
+
+        let activeSaves = 0;
+        let maxConcurrentSaves = 0;
+        let saveCount = 0;
+        const setDescDisposable = fakeHost.commands.registerCommand(
+            'jj-view.setDescription',
+            async (desc: string, rev: string) => {
+                saveCount++;
+                activeSaves++;
+                maxConcurrentSaves = Math.max(maxConcurrentSaves, activeSaves);
+                try {
+                    if (saveCount === 1) {
+                        await save1Gate;
+                    } else if (saveCount === 2) {
+                        await save2Gate;
+                    }
+                    await repoInstance.jj.describe(desc, rev);
+                    return desc;
+                } finally {
+                    activeSaves--;
+                }
+            },
+        );
+
+        try {
+            await splitController.load();
+
+            splitController.updateDraft('draft 1');
+            const save1Promise = splitController.save();
+            // Attach a .then() callback that runs right after save1 resolves (while _nextSavePromise is still pending)
+            const microtaskSavePromise = save1Promise.then(() => splitController.save('draft 3'));
+
+            splitController.updateDraft('draft 2');
+            const save2Promise = splitController.save();
+
+            releaseSave1();
+            await save1Promise;
+            // Yield microtasks so microtaskSavePromise runs before save2 finishes
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(maxConcurrentSaves).toBe(1);
+
+            releaseSave2();
+            await Promise.all([save2Promise, microtaskSavePromise]);
+
+            expect(maxConcurrentSaves).toBe(1);
+            expect(saveCount).toBe(2);
+            expect(testRepo.getDescription(changeId)).toBe('draft 3');
+        } finally {
+            setDescDisposable.dispose();
+            splitController.dispose();
+        }
     });
 
     test('emits file list promptly before async comparison finishes and resets stale comparison state on reload', async () => {

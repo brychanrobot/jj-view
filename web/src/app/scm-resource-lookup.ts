@@ -74,6 +74,7 @@ export function resolveScmResourceState(params: ResolveScmResourceParams): JjRes
                     openDiffOnClick: true,
                     inConflictGroup: true,
                     workingCopyChangeId: snapshot?.currentEntry?.change_id,
+                    mutableCommit: !(snapshot?.currentEntry?.is_immutable ?? false),
                 },
             );
         }
@@ -87,6 +88,7 @@ export function resolveScmResourceState(params: ResolveScmResourceParams): JjRes
                 openDiffOnClick: true,
                 hasChild: snapshot?.hasChild ?? false,
                 workingCopyChangeId: snapshot?.currentEntry?.change_id,
+                mutableCommit: !(snapshot?.currentEntry?.is_immutable ?? false),
             });
         }
         return undefined;
@@ -121,6 +123,7 @@ export function resolveScmResourceState(params: ResolveScmResourceParams): JjRes
             multipleAncestors: remainingAncestors > 0,
             openDiffOnClick: true,
             workingCopyChangeId: snapshot?.currentEntry?.change_id,
+            mutableCommit: editable,
         });
     }
 

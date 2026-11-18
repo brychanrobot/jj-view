@@ -446,31 +446,70 @@ export class CommitDetailsController implements Disposable {
         });
     }
 
-    public async save(finalDescription?: string): Promise<boolean> {
+    public save(finalDescription?: string): Promise<boolean> {
         if (this._disposed || !this._logEntry) {
-            return false;
+            return Promise.resolve(false);
         }
 
         if (finalDescription !== undefined) {
             this._draftDescription = finalDescription;
         }
 
-        if (this._currentSavePromise) {
-            if (!this._nextSavePromise) {
-                this._nextSavePromise = this._currentSavePromise
-                    .catch(() => false)
-                    .then(async () => {
-                        this._nextSavePromise = undefined;
-                        return this._executeSave();
-                    });
-            }
+        if (this._nextSavePromise) {
             return this._nextSavePromise;
         }
 
-        this._currentSavePromise = this._executeSave().finally(() => {
-            this._currentSavePromise = undefined;
+        if (this._currentSavePromise) {
+            this._nextSavePromise = this._currentSavePromise
+                .catch(() => false)
+                .then(() => {
+                    this._nextSavePromise = undefined;
+                    // Promote the queued run to _currentSavePromise before executing so
+                    // flushPendingSave() always observes in-flight queued saves.
+                    const run = this._executeSave().finally(() => {
+                        if (this._currentSavePromise === run) {
+                            this._currentSavePromise = undefined;
+                        }
+                    });
+                    this._currentSavePromise = run;
+                    return run;
+                });
+            return this._nextSavePromise;
+        }
+
+        const initial = this._executeSave().finally(() => {
+            if (this._currentSavePromise === initial) {
+                this._currentSavePromise = undefined;
+            }
         });
-        return this._currentSavePromise;
+        this._currentSavePromise = initial;
+        return initial;
+    }
+
+    /**
+     * Flushes any pending debounced description edit and awaits completion of any in-flight
+     * or unsaved description change before a history-mutating operation runs on this commit.
+     */
+    public async flushPendingSave(): Promise<boolean> {
+        if (this._disposed) {
+            return false;
+        }
+        this.flushDebounce();
+        while (this._currentSavePromise || this._nextSavePromise) {
+            const pending = this._nextSavePromise ?? this._currentSavePromise;
+            if (!pending) {
+                break;
+            }
+            const ok = await pending.catch(() => false);
+            if (!ok || this._disposed) {
+                return false;
+            }
+        }
+        this.flushDebounce();
+        if (!this._disposed && this._logEntry && !this._logEntry.is_immutable && this.hasUnsavedDraft) {
+            return await this.save();
+        }
+        return true;
     }
 
     private async _executeSave(): Promise<boolean> {
@@ -484,11 +523,11 @@ export class CommitDetailsController implements Disposable {
         try {
             let savedDescription = descriptionToSave;
             if (!isSoftSave) {
-                const res = await this._host.commands.executeCommand(
-                    'jj-view.setDescription',
-                    descriptionToSave,
-                    this.changeId,
-                );
+                const commandArgs: unknown[] = [descriptionToSave, this.changeId];
+                if (this.repo) {
+                    commandArgs.push({ revision: this.changeId, rootUri: this.repo.rootUri });
+                }
+                const res = await this._host.commands.executeCommand('jj-view.setDescription', ...commandArgs);
                 if (typeof res === 'string') {
                     savedDescription = res;
                 } else if (res === false) {
@@ -583,6 +622,19 @@ export class CommitDetailsController implements Disposable {
                 },
                 openCompareWithUploaded: async (payload) => {
                     await this._host.commands.executeCommand('jj-view.compareWithUploaded', payload.changeId);
+                },
+                splitFiles: async (payload) => {
+                    const flushed = await this.flushPendingSave();
+                    if (!flushed || this._disposed) {
+                        return;
+                    }
+                    const commandId =
+                        payload.placement === 'before' ? 'jj-view.splitFilesBefore' : 'jj-view.splitFilesAfter';
+                    await this._host.commands.executeCommand(commandId, {
+                        paths: payload.paths,
+                        revision: payload.changeId || this.changeId,
+                        ...(this.repo ? { rootUri: this.repo.rootUri } : {}),
+                    });
                 },
             },
             {

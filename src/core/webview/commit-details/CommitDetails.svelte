@@ -45,6 +45,7 @@ interface Props {
     onOpenMultiDiff: () => void;
     onCompareWithUploaded?: () => void;
     onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
+    onSplitFiles?: (paths: string[], placement: 'before' | 'after') => void;
 }
 
 let {
@@ -76,6 +77,7 @@ let {
     onOpenMultiDiff,
     onCompareWithUploaded,
     onDescriptionChange,
+    onSplitFiles,
 }: Props = $props();
 
 const [idPart, offsetPart] = $derived(changeId.split('/'));
@@ -98,6 +100,16 @@ let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 let textareaRef = $state<HTMLTextAreaElement | null>(null);
 let backdropRef = $state<HTMLDivElement | null>(null);
+let containerRef = $state<HTMLDivElement | null>(null);
+let menuEl = $state<HTMLDivElement | null>(null);
+
+let selectedPaths = $state<Set<string>>(new Set());
+let lastClickedIndex = $state<number | null>(null);
+let contextMenu = $state<{ x: number; y: number } | null>(null);
+let menuPosX = $state(0);
+let menuPosY = $state(0);
+let prevSelectionChangeId = $state(untrack(() => changeId));
+let menuOpenerEl: HTMLElement | null = null;
 
 let containerHeight = $state(0);
 let topSectionHeight = $state(0);
@@ -414,9 +426,242 @@ function getFileColor(status: string, conflicted?: boolean): string {
             return 'var(--vscode-foreground)';
     }
 }
+
+function closeContextMenu(restoreFocus = false): void {
+    if (!contextMenu) {
+        return;
+    }
+    contextMenu = null;
+    if (restoreFocus && menuOpenerEl?.isConnected) {
+        menuOpenerEl.focus({ preventScroll: true });
+    }
+    menuOpenerEl = null;
+}
+
+$effect(() => {
+    const currentChangeId = changeId;
+    const currentFiles = files;
+    const currentImmutable = isImmutable;
+    untrack(() => {
+        if (prevSelectionChangeId !== currentChangeId) {
+            prevSelectionChangeId = currentChangeId;
+            if (selectedPaths.size > 0) {
+                selectedPaths = new Set();
+            }
+            lastClickedIndex = null;
+            closeContextMenu();
+            return;
+        }
+        if (selectedPaths.size > 0) {
+            const validPaths = new Set(currentFiles.map((f) => f.path));
+            const filtered = Array.from(selectedPaths).filter((p) => validPaths.has(p));
+            if (filtered.length !== selectedPaths.size) {
+                selectedPaths = new Set(filtered);
+            }
+        }
+        if (lastClickedIndex !== null) {
+            if (selectedPaths.size === 0 || currentFiles.length === 0) {
+                lastClickedIndex = null;
+            } else if (lastClickedIndex >= currentFiles.length) {
+                lastClickedIndex = currentFiles.length - 1;
+            }
+        }
+        if (contextMenu && (currentImmutable || !currentFiles.some((f) => selectedPaths.has(f.path)))) {
+            closeContextMenu();
+        }
+    });
+});
+
+$effect(() => {
+    const menu = contextMenu;
+    const el = menuEl;
+    if (!menu || !el || typeof window === 'undefined') {
+        return;
+    }
+
+    const rect = el.getBoundingClientRect();
+    const maxX = Math.max(8, window.innerWidth - rect.width - 8);
+    const maxY = Math.max(8, window.innerHeight - rect.height - 8);
+    menuPosX = Math.max(8, Math.min(menu.x, maxX));
+    menuPosY = Math.max(8, Math.min(menu.y, maxY));
+
+    el.focus({ preventScroll: true });
+
+    const handleOutsideDismiss = (event: Event): void => {
+        if (!(event.target instanceof Node) || !el.contains(event.target)) {
+            closeContextMenu();
+        }
+    };
+    const handleBlurDismiss = (): void => {
+        closeContextMenu();
+    };
+
+    window.addEventListener('pointerdown', handleOutsideDismiss, { capture: true });
+    window.addEventListener('contextmenu', handleOutsideDismiss, { capture: true });
+    window.addEventListener('scroll', handleOutsideDismiss, { capture: true });
+    window.addEventListener('blur', handleBlurDismiss);
+    window.addEventListener('resize', handleBlurDismiss);
+
+    return () => {
+        window.removeEventListener('pointerdown', handleOutsideDismiss, { capture: true });
+        window.removeEventListener('contextmenu', handleOutsideDismiss, { capture: true });
+        window.removeEventListener('scroll', handleOutsideDismiss, { capture: true });
+        window.removeEventListener('blur', handleBlurDismiss);
+        window.removeEventListener('resize', handleBlurDismiss);
+    };
+});
+
+function handleFileClick(e: MouseEvent, file: JjStatusEntry, idx: number): void {
+    const hasToggleModifier = e.ctrlKey || e.metaKey;
+    if (e.shiftKey) {
+        e.preventDefault();
+        const anchor = lastClickedIndex ?? idx;
+        const start = Math.min(anchor, idx);
+        const end = Math.max(anchor, idx);
+        const next = hasToggleModifier ? new Set(selectedPaths) : new Set<string>();
+        for (let i = start; i <= end; i++) {
+            const entry = files[i];
+            if (entry) {
+                next.add(entry.path);
+            }
+        }
+        selectedPaths = next;
+        if (lastClickedIndex === null) {
+            lastClickedIndex = idx;
+        }
+        return;
+    }
+
+    if (hasToggleModifier) {
+        e.preventDefault();
+        const next = new Set(selectedPaths);
+        if (next.has(file.path)) {
+            next.delete(file.path);
+        } else {
+            next.add(file.path);
+        }
+        selectedPaths = next;
+        lastClickedIndex = idx;
+        return;
+    }
+
+    selectedPaths = new Set([file.path]);
+    lastClickedIndex = idx;
+    onOpenDiff($state.snapshot(file), isImmutable);
+}
+
+function handleFileContextMenu(e: MouseEvent, file: JjStatusEntry, idx: number): void {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isImmutable) {
+        return;
+    }
+    if (!selectedPaths.has(file.path)) {
+        selectedPaths = new Set([file.path]);
+        lastClickedIndex = idx;
+    }
+    menuPosX = e.clientX;
+    menuPosY = e.clientY;
+    menuOpenerEl = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
+    contextMenu = { x: e.clientX, y: e.clientY };
+}
+
+function triggerSplit(placement: 'before' | 'after'): void {
+    const pathsToSplit = files.filter((f) => selectedPaths.has(f.path)).map((f) => f.path);
+    closeContextMenu();
+    if (pathsToSplit.length === 0 || isImmutable) {
+        return;
+    }
+    onSplitFiles?.(pathsToSplit, placement);
+}
+
+function handleWindowKeydown(e: KeyboardEvent): void {
+    if (contextMenu && menuEl) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeContextMenu(true);
+            return;
+        }
+        if (e.key === 'Tab') {
+            closeContextMenu();
+            return;
+        }
+        const buttons = Array.from(menuEl.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'));
+        if (buttons.length === 0) {
+            return;
+        }
+        const activeIdx =
+            document.activeElement instanceof HTMLButtonElement ? buttons.indexOf(document.activeElement) : -1;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            e.stopPropagation();
+            const nextIdx = activeIdx >= 0 && activeIdx < buttons.length - 1 ? activeIdx + 1 : 0;
+            buttons[nextIdx].focus({ preventScroll: true });
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            e.stopPropagation();
+            const prevIdx = activeIdx > 0 ? activeIdx - 1 : buttons.length - 1;
+            buttons[prevIdx].focus({ preventScroll: true });
+            return;
+        }
+        if (e.key === 'Home') {
+            e.preventDefault();
+            e.stopPropagation();
+            buttons[0].focus({ preventScroll: true });
+            return;
+        }
+        if (e.key === 'End') {
+            e.preventDefault();
+            e.stopPropagation();
+            buttons[buttons.length - 1].focus({ preventScroll: true });
+            return;
+        }
+        if (e.key === 'Enter' || e.key === ' ') {
+            if (activeIdx >= 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                buttons[activeIdx].click();
+            }
+            return;
+        }
+        return;
+    }
+
+    if (e.key === 'Escape' && selectedPaths.size > 0) {
+        const target = e.target;
+        const inTextareaOrInput = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement;
+        const activeInTextareaOrInput =
+            document.activeElement instanceof HTMLTextAreaElement || document.activeElement instanceof HTMLInputElement;
+        if (inTextareaOrInput || activeInTextareaOrInput) {
+            return;
+        }
+        const hasOpenOverlay = Boolean(
+            document.querySelector(
+                '[data-testid="quick-input-widget"], [data-testid="settings-modal"], [data-testid="context-menu"]',
+            ),
+        );
+        if (hasOpenOverlay) {
+            return;
+        }
+        const insideDetails =
+            (target instanceof Node && Boolean(containerRef?.contains(target))) ||
+            Boolean(document.activeElement && containerRef?.contains(document.activeElement)) ||
+            (target === document.body && Boolean(containerRef?.isConnected));
+        if (insideDetails) {
+            e.preventDefault();
+            selectedPaths = new Set();
+            lastClickedIndex = null;
+        }
+    }
+}
 </script>
 
-<div class="commit-details-container" bind:clientHeight={containerHeight}>
+<svelte:window onkeydown={handleWindowKeydown} />
+
+<div class="commit-details-container" bind:this={containerRef} bind:clientHeight={containerHeight}>
     <!-- Top Section (Status Badges + Metadata) -->
     <div class="top-section" bind:clientHeight={topSectionHeight}>
         <div class="pills-row">
@@ -678,16 +923,23 @@ function getFileColor(status: string, conflicted?: boolean): string {
                         No changed files.
                     </div>
                 {:else}
-                    {#each files as file (file.path)}
+                    {#each files as file, idx (file.path)}
                         {@const { dir, name } = splitFilePath(file.path)}
                         {@const conflictLabel = file.conflictSides ? `${file.conflictSides}-way conflict` : 'Conflicted file'}
+                        {@const isSelected = selectedPaths.has(file.path)}
                         <button
                             type="button"
                             class="file-row"
-                            onclick={() => onOpenDiff($state.snapshot(file), isImmutable)}
+                            class:selected={isSelected}
+                            data-selected={isSelected ? 'true' : 'false'}
+                            data-file-path={file.path}
+                            onclick={(e) => handleFileClick(e, file, idx)}
+                            oncontextmenu={(e) => handleFileContextMenu(e, file, idx)}
                             onkeydown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                     e.preventDefault();
+                                    selectedPaths = new Set([file.path]);
+                                    lastClickedIndex = idx;
                                     onOpenDiff($state.snapshot(file), isImmutable);
                                 }
                             }}
@@ -730,6 +982,37 @@ function getFileColor(status: string, conflicted?: boolean): string {
             </div>
         </div>
     </div>
+
+    {#if contextMenu && !isImmutable}
+        <div
+            bind:this={menuEl}
+            class="details-context-menu"
+            data-testid="commit-details-file-context-menu"
+            role="menu"
+            tabindex="-1"
+            style={`left: ${menuPosX}px; top: ${menuPosY}px;`}
+            oncontextmenu={(e) => e.preventDefault()}
+        >
+            <button
+                type="button"
+                class="details-menu-item"
+                role="menuitem"
+                data-testid="details-split-before"
+                onclick={() => triggerSplit('before')}
+            >
+                Split into New Change Before
+            </button>
+            <button
+                type="button"
+                class="details-menu-item"
+                role="menuitem"
+                data-testid="details-split-after"
+                onclick={() => triggerSplit('after')}
+            >
+                Split into New Change After
+            </button>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -1232,6 +1515,71 @@ function getFileColor(status: string, conflicted?: boolean): string {
     .file-row:focus-visible {
         outline: 1px solid var(--vscode-focusBorder);
         background-color: var(--vscode-list-focusBackground, var(--vscode-list-hoverBackground));
+    }
+
+    .file-row.selected {
+        background-color: var(
+            --vscode-list-activeSelectionBackground,
+            color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent)
+        );
+        color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
+    }
+
+    .file-row.selected:hover {
+        background-color: var(
+            --vscode-list-activeSelectionBackground,
+            color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent)
+        );
+    }
+
+    .file-row.selected .file-dir,
+    .file-row.selected .file-name {
+        color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+    }
+
+    .details-context-menu {
+        position: fixed;
+        z-index: 2500;
+        min-width: 190px;
+        max-width: 320px;
+        background-color: var(
+            --vscode-menu-background,
+            var(--vscode-editorWidget-background, var(--vscode-sideBar-background, var(--vscode-editor-background)))
+        );
+        color: var(--vscode-menu-foreground, var(--vscode-foreground));
+        border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+        border-radius: 6px;
+        box-shadow: 0 4px 16px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 22%, transparent);
+        padding: 4px;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size, 13px);
+        user-select: none;
+        outline: none;
+    }
+
+    .details-menu-item {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 6px 10px;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+        font-family: inherit;
+        font-size: inherit;
+        text-align: left;
+        cursor: pointer;
+        outline: none;
+        box-sizing: border-box;
+    }
+
+    .details-menu-item:hover,
+    .details-menu-item:focus,
+    .details-menu-item:focus-visible {
+        background-color: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+        color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
     }
 
     .file-icon {

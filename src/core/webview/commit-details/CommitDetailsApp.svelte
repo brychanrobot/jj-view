@@ -119,6 +119,11 @@ $effect(() => {
         onDescriptionChange={(description, selectionStart, selectionEnd) => {
             void sender.descriptionChanged({ description, selectionStart, selectionEnd });
         }}
+        onSplitFiles={(paths, placement) => {
+            if (detailsCommit?.changeId && paths.length > 0) {
+                void sender.splitFiles({ changeId: detailsCommit.changeId, paths, placement });
+            }
+        }}
     />
 {/if}
 

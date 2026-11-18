@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { ProcessExecOptions, ProcessResult } from '../core/host/host-system';
 import { NodeHostFs, NodeHostProcess, NodeHostSystem } from '../core/host/node-host-system';
 import { JjProcessTracker } from '../core/jj-process-tracker';
-import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import { formatRootFileFileset, JjService, NO_OP_LOGGER } from '../core/jj-service';
 import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
 import { buildGraph, ScopedTestRepo, TestRepo } from './test-repo';
 import { exposePrivate } from './test-utils';
@@ -2046,6 +2046,60 @@ log = "none()"
 
             await jjService.next();
             expect(repo.getParents('@')).toEqual([ids.c2.changeId]);
+        });
+    });
+
+    describe('splitFiles', () => {
+        test('formatRootFileFileset escapes backslashes, quotes, and control characters', () => {
+            expect(formatRootFileFileset('a:b.txt')).toBe('root-file:"a:b.txt"');
+            expect(formatRootFileFileset('-flag.txt')).toBe('root-file:"-flag.txt"');
+            expect(formatRootFileFileset('dir/q"u\\o\t\x1b.txt')).toBe('root-file:"dir/q\\"u\\\\o\\t\\x1b.txt"');
+        });
+
+        test('returns early when paths is empty', async () => {
+            const beforeLog = repo.getLog('all()', 'change_id');
+            await jjService.splitFiles({ revision: '@', paths: [], placement: 'before' });
+            expect(repo.getLog('all()', 'change_id')).toBe(beforeLog);
+        });
+
+        test('splits files before and after target revision including special-character filenames', async () => {
+            const ids = await buildGraph(repo, [
+                { label: 'base', description: 'base', files: { 'base.txt': 'base\n' } },
+                {
+                    label: 'target',
+                    parents: ['base'],
+                    description: 'target desc',
+                    files: {
+                        '-dash[1] file.txt': 'special content\n',
+                        'sub dir/file two.txt': 'two content\n',
+                        'remain.txt': 'remain content\n',
+                    },
+                    isCurrentWorkingCopy: true,
+                },
+            ]);
+
+            await jjService.splitFiles({
+                revision: ids.target.changeId,
+                paths: ['-dash[1] file.txt'],
+                placement: 'before',
+                message: 'split before msg',
+            });
+
+            const [beforeId] = repo.getParents(ids.target.changeId);
+            expect(repo.getDescription(beforeId)).toBe('split before msg');
+            expect((await jjService.getChanges(beforeId)).map((c) => c.path)).toEqual(['-dash[1] file.txt']);
+
+            await jjService.splitFiles({
+                revision: ids.target.changeId,
+                paths: [path.join(repo.path, 'sub dir/file two.txt')],
+                placement: 'after',
+            });
+
+            const [afterId] = repo.getChildren(ids.target.changeId);
+            expect(repo.getDescription(afterId)).toBe('');
+            expect((await jjService.getChanges(afterId)).map((c) => c.path)).toEqual(['sub dir/file two.txt']);
+            expect((await jjService.getChanges(ids.target.changeId)).map((c) => c.path)).toEqual(['remain.txt']);
+            expect(repo.getDescription(ids.target.changeId)).toBe('target desc');
         });
     });
 });
