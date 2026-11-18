@@ -150,6 +150,30 @@ describe('showMultiFileDiffCommand', () => {
         expect(title.endsWith('...')).toBe(true);
     });
 
+    it('opens jj-view right URIs for mutable non-working-copy commit when editableMutableDiffs is false while keeping @ as file://', async () => {
+        repo.writeFile('ancestor.txt', 'ancestor content\n');
+        repo.describe('mutable ancestor');
+        const ancestorChangeId = repo.getChangeId('@');
+        repo.new([], 'working copy');
+        repo.writeFile('wc.txt', 'wc content\n');
+        const wcChangeId = repo.getChangeId('@');
+
+        await ctx.host.config.update('editableMutableDiffs', false);
+
+        await showMultiFileDiffCommand(ctx, { revision: ancestorChangeId });
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const ancestorDiff = ctx.host.nav.multiDiffsOpened[0];
+        expect(ancestorDiff.resources).toHaveLength(1);
+        expect(ancestorDiff.resources[0].leftUri.scheme).toBe('jj-view');
+        expect(ancestorDiff.resources[0].rightUri.scheme).toBe('jj-view');
+        expect(ancestorDiff.resources[0].rightUri.fragment).toContain('side=right');
+
+        await showMultiFileDiffCommand(ctx, { revision: wcChangeId });
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(2);
+        const wcDiff = ctx.host.nav.multiDiffsOpened[1];
+        expect(wcDiff.resources[0].rightUri.scheme).toBe('file');
+    });
+
     it('declares resourceLabelFormatters in package.json to strip leading path separator for custom schemes', async () => {
         const pkgPath = path.resolve(__dirname, '../../../package.json');
         const pkgContent = JSON.parse(await fs.readFile(pkgPath, 'utf8')) as {

@@ -158,6 +158,7 @@ function resolveScmModelForUri(uri?: Uri): ScmModel | undefined {
 
 let isSettingsOpen = $state(false);
 let activeTheme = $state('pierre-dark-soft');
+let editableMutableDiffs = $state(true);
 
 interface WorkspaceSelectionResolver {
     resolveActiveChatContextSelection: () => EditorChatContextSelection | null;
@@ -227,6 +228,8 @@ $effect(() => {
               : undefined;
     tabDocManager.activeTabSelection = undefined;
     webHostEnv?.documents.notifyActiveDocumentChanged(uri);
+    rootContext.set('resourceScheme', uri?.scheme);
+    rootContext.set('resourceFilename', activeTab ? activeTab.title.replace(/\s*\([^)]*\)$/, '').trim() : undefined);
 });
 
 $effect(() => {
@@ -325,11 +328,12 @@ async function openFileDiffForChange(
             explicitRevision: changeId,
             isWorkingCopyOverride: isWorkingCopy,
             isImmutable,
+            editableMutableDiffs,
             rightUri: Uri.file(path.join(workspaceRoot, file.path)),
             fallbackEntry: file,
         }) ??
         createJjResourceState(file, changeId, workspaceRoot, {
-            editable: isImmutable !== undefined ? !isImmutable : isWorkingCopy,
+            editable: isWorkingCopy || (isImmutable !== undefined ? !isImmutable && editableMutableDiffs : false),
             openDiffOnClick: true,
             workingCopyChangeId: isWorkingCopy ? changeId : currentSnapshot?.currentEntry?.change_id,
             mutableCommit: isImmutable !== undefined ? !isImmutable : isWorkingCopy,
@@ -719,6 +723,7 @@ onMount(() => {
         void applyTheme(initialTheme, (name) => {
             activeTheme = name;
         });
+        editableMutableDiffs = webHostEnv.config.get<boolean>('editableMutableDiffs', true) ?? true;
 
         configSub = webHostEnv.config.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('appearance.theme')) {
@@ -726,6 +731,9 @@ onMount(() => {
                 void applyTheme(newTheme, (name) => {
                     activeTheme = name;
                 });
+            }
+            if (e.affectsConfiguration('jj-view.editableMutableDiffs')) {
+                editableMutableDiffs = webHostEnv.config.get<boolean>('editableMutableDiffs', true) ?? true;
             }
         });
 
@@ -842,6 +850,7 @@ onMount(() => {
                         diffTabs.push({
                             originalUri: t.view.leftUri,
                             modifiedUri: t.view.rightUri,
+                            label: t.title,
                             close: async () => {
                                 tabDocManager.closeTabById(tabId);
                             },
@@ -878,11 +887,13 @@ onMount(() => {
                 isSettingsOpen = true;
             },
             onOpenDiff: async (leftUri, rightUri, title, options) => {
+                const targetScm = resolveScmModelForUri(rightUri);
                 const matchingState = resolveScmResourceState({
                     leftUri,
                     rightUri,
-                    snapshot: currentSnapshot,
-                    workspaceRoot,
+                    snapshot: targetScm?.snapshot ?? currentSnapshot,
+                    workspaceRoot: targetScm?.repo.rootUri.fsPath ?? workspaceRoot,
+                    editableMutableDiffs: rightUri.scheme === 'jj-view' ? false : editableMutableDiffs,
                 });
                 await tabDocManager.loadDiffFromUris(leftUri, rightUri, title, matchingState, options);
             },
@@ -1015,6 +1026,7 @@ onMount(() => {
             {menuRegistry}
             {rootContext}
             openDiffOnClick={true}
+            {editableMutableDiffs}
             isSidecarAvailable={Boolean(webHostEnv?.sidecar.isAvailable)}
             onDraftWithAgent={webHostEnv?.sidecar.isAvailable
                 ? async () => {
@@ -1066,6 +1078,9 @@ onMount(() => {
                 <TabBar
                     tabs={tabDocManager.tabs}
                     activeTabId={tabDocManager.activeTabId}
+                    {menuRegistry}
+                    {rootContext}
+                    onAction={handleAction}
                     onSelectTab={(id) => {
                         tabDocManager.activeTabId = id;
                     }}

@@ -4,7 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 
 vi.mock('vscode', async () => {
     const { createVscodeMock } = await import('./vscode-mock');
@@ -28,7 +28,7 @@ import {
 import { safeJsonStringify } from '../vscode/vscode-webview-html';
 import { FakeHostEnvironment } from './fake-host-environment';
 import { createMockWebviewClient } from './mock-webview-client';
-import { TestRepo } from './test-repo';
+import { buildGraph, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
 function createCommitDetailsClient(handlers?: Partial<RpcReceiverHandlers<CommitDetailsHostToWebviewMessage, 'type'>>) {
@@ -603,5 +603,73 @@ describe('VsCodeCommitDetailsEditorProvider Unit & Concurrency Tests', () => {
         expect(testRepo.log()).toContain('step 2');
 
         client.dispose();
+    });
+
+    test('openDiff honors editableMutableDiffs setting for mutable non-WC commits while keeping WC as file://', async () => {
+        const ids = await buildGraph(testRepo, [
+            { label: 'parent', description: 'mutable parent', files: { 'parent.txt': 'p1\n' } },
+            { label: 'wc', description: 'working copy', parents: ['parent'], files: { 'wc.txt': 'w1\n' } },
+        ]);
+
+        const cancellationToken = createMock<vscode.CancellationToken>({
+            isCancellationRequested: false,
+        });
+        const parentDocUri = createCommitDetailsUri({
+            repoRoot: testRepo.path,
+            changeId: ids.parent.changeId,
+            title: `Commit: ${ids.parent.changeId}`,
+        });
+        const parentDoc = new JjCommitDocument(parentDocUri, ids.parent.changeId, Uri.file(testRepo.path));
+        const parentClient = createCommitDetailsClient();
+
+        const wcDocUri = createCommitDetailsUri({
+            repoRoot: testRepo.path,
+            changeId: ids.wc.changeId,
+            title: `Commit: ${ids.wc.changeId}`,
+        });
+        const wcDoc = new JjCommitDocument(wcDocUri, ids.wc.changeId, Uri.file(testRepo.path));
+        const wcClient = createCommitDetailsClient();
+
+        const execSpy = vi.mocked(vscode.commands.executeCommand);
+        execSpy.mockClear();
+
+        await fakeHost.config.update('editableMutableDiffs', false);
+        await provider.resolveCustomEditor(parentDoc, parentClient.panel, cancellationToken);
+        await parentClient.sender.webviewLoaded();
+
+        await parentClient.sender.openDiff({
+            file: { path: 'parent.txt', status: 'modified' },
+            changeId: ids.parent.changeId,
+            isImmutable: false,
+        });
+        expect(execSpy).toHaveBeenCalledTimes(1);
+        const call0Right = execSpy.mock.calls[0]?.[2];
+        expect(Uri.isUri(call0Right) ? call0Right.scheme : undefined).toBe('jj-view');
+
+        await fakeHost.config.update('editableMutableDiffs', true);
+        await parentClient.sender.openDiff({
+            file: { path: 'parent.txt', status: 'modified' },
+            changeId: ids.parent.changeId,
+            isImmutable: false,
+        });
+        expect(execSpy).toHaveBeenCalledTimes(2);
+        const call1Right = execSpy.mock.calls[1]?.[2];
+        expect(Uri.isUri(call1Right) ? call1Right.scheme : undefined).toBe('jj-edit');
+
+        // Working copy always stays file:// even when editableMutableDiffs is false
+        await fakeHost.config.update('editableMutableDiffs', false);
+        await provider.resolveCustomEditor(wcDoc, wcClient.panel, cancellationToken);
+        await wcClient.sender.webviewLoaded();
+        await wcClient.sender.openDiff({
+            file: { path: 'wc.txt', status: 'added' },
+            changeId: ids.wc.changeId,
+            isImmutable: false,
+        });
+        expect(execSpy).toHaveBeenCalledTimes(3);
+        const call2Right = execSpy.mock.calls[2]?.[2];
+        expect(Uri.isUri(call2Right) ? call2Right.scheme : undefined).toBe('file');
+
+        parentClient.dispose();
+        wcClient.dispose();
     });
 });

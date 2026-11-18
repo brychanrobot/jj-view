@@ -117,6 +117,18 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(go-to-file)',
         },
         {
+            command: 'jj-view.enableDiffEditing',
+            title: 'Edit Revision File',
+            category: 'JJ View',
+            icon: '$(edit)',
+        },
+        {
+            command: 'jj-view.disableDiffEditing',
+            title: 'Switch Revision File to Read-Only',
+            category: 'JJ View',
+            icon: '$(lock)',
+        },
+        {
             command: 'jj-view.openChanges',
             title: 'Open Changes',
             category: 'JJ View',
@@ -498,6 +510,14 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
     ],
     menus: {
         commandPalette: [
+            {
+                command: 'jj-view.enableDiffEditing',
+                when: "resourceScheme == 'jj-view'",
+            },
+            {
+                command: 'jj-view.disableDiffEditing',
+                when: "resourceScheme == 'jj-edit'",
+            },
             {
                 command: 'jj-view.uploadStack',
                 when: "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit' && jj.codeForgeUploadModel != 'revision'",
@@ -985,6 +1005,28 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 group: '9_visibility_2_toggle@4',
             },
         ],
+        'editor/title': [
+            {
+                command: 'jj-view.completeSquashRevision',
+                group: 'navigation',
+                when: "resourceFilename == 'SQUASH_MSG'",
+            },
+            {
+                command: 'jj-view.enableDiffEditing',
+                group: 'navigation',
+                when: "resourceScheme == 'jj-view'",
+            },
+            {
+                command: 'jj-view.disableDiffEditing',
+                group: 'navigation',
+                when: "resourceScheme == 'jj-edit'",
+            },
+            {
+                command: 'jj-view.openFile',
+                group: 'navigation',
+                when: "resourceScheme == 'jj-view' || resourceScheme == 'jj-edit'",
+            },
+        ],
         'editor/title/context': [
             {
                 command: 'workbench.action.closeActiveEditor',
@@ -1006,6 +1048,16 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.compareFileWith',
                 group: 'jj-view@1',
                 when: "resourceScheme == 'file'",
+            },
+            {
+                command: 'jj-view.enableDiffEditing',
+                group: 'jj-view@1',
+                when: "resourceScheme == 'jj-view'",
+            },
+            {
+                command: 'jj-view.disableDiffEditing',
+                group: 'jj-view@1',
+                when: "resourceScheme == 'jj-edit'",
             },
             {
                 command: 'jj-view.openFile',

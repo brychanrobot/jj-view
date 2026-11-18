@@ -362,4 +362,39 @@ describe('MenuRegistry & Icon Resolution', () => {
             .flatMap((g) => g.items.map((i) => i.command));
         expect(virtualEditorCommands).not.toContain('jj-view.restoreFileFrom');
     });
+
+    it('resolves toggle diff editability commands for jj-view and jj-edit in editor/title, editor/title/context, and commandPalette', () => {
+        const registry = new MenuRegistry();
+        const rootContext = new ContextKeyService();
+
+        const viewContext = rootContext.createScoped({ resourceScheme: 'jj-view' });
+        const viewTitleActions = registry.getInlineActions('editor/title', viewContext);
+        expect(viewTitleActions.map((a) => a.command)).toEqual(['jj-view.enableDiffEditing', 'jj-view.openFile']);
+        const viewTabCtx = registry
+            .getContextActions('editor/title/context', viewContext)
+            .flatMap((g) => g.items.map((i) => i.command));
+        expect(viewTabCtx).toContain('jj-view.enableDiffEditing');
+        expect(viewTabCtx).not.toContain('jj-view.disableDiffEditing');
+        const viewPalette = registry.getMenuItems('commandPalette', viewContext).map((a) => a.command);
+        expect(viewPalette).toContain('jj-view.enableDiffEditing');
+        expect(viewPalette).not.toContain('jj-view.disableDiffEditing');
+
+        const editContext = rootContext.createScoped({ resourceScheme: 'jj-edit' });
+        const editTitleActions = registry.getInlineActions('editor/title', editContext);
+        expect(editTitleActions.map((a) => a.command)).toEqual(['jj-view.disableDiffEditing', 'jj-view.openFile']);
+        const editTabCtx = registry
+            .getContextActions('editor/title/context', editContext)
+            .flatMap((g) => g.items.map((i) => i.command));
+        expect(editTabCtx).toContain('jj-view.disableDiffEditing');
+        expect(editTabCtx).not.toContain('jj-view.enableDiffEditing');
+        const editPalette = registry.getMenuItems('commandPalette', editContext).map((a) => a.command);
+        expect(editPalette).toContain('jj-view.disableDiffEditing');
+        expect(editPalette).not.toContain('jj-view.enableDiffEditing');
+
+        const fileContext = rootContext.createScoped({ resourceScheme: 'file' });
+        expect(registry.getInlineActions('editor/title', fileContext)).toEqual([]);
+        const filePalette = registry.getMenuItems('commandPalette', fileContext).map((a) => a.command);
+        expect(filePalette).not.toContain('jj-view.enableDiffEditing');
+        expect(filePalette).not.toContain('jj-view.disableDiffEditing');
+    });
 });

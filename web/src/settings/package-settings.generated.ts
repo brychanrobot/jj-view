@@ -273,6 +273,15 @@ export const PACKAGE_SETTINGS: readonly SettingDefinition[] = [
         default: true,
     },
     {
+        key: 'editableMutableDiffs',
+        title: 'Editable Mutable Diffs',
+        description:
+            'Open diffs for mutable non-working-copy commits as editable by default. When disabled, diffs open read-only and can be toggled to editable.',
+        category: 'Diff Viewer',
+        type: 'boolean',
+        default: true,
+    },
+    {
         key: 'autoRepositoryDetection',
         title: 'Auto Repository Detection',
         description:

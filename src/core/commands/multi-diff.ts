@@ -23,7 +23,8 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
             // Resolve to concrete change ID so both diff sides use the jj-view content provider
             const [logEntry] = await jj.getLog({ revision, limit: 1, omitChanges: true });
             const changeId = logEntry?.change_id ?? revision;
-            const editable = logEntry ? !logEntry.is_immutable : false;
+            const editableMutableDiffs = ctx.host.config.get<boolean>('editableMutableDiffs', true) ?? true;
+            const editable = (logEntry ? !logEntry.is_immutable : false) && editableMutableDiffs;
             const description = logEntry?.description ?? (await jj.getDescription(changeId));
 
             const changes = await jj.getChanges(changeId);

@@ -174,8 +174,10 @@ export class VsCodeCommitDetailsEditorProvider
                 openDiff: async (payload) => {
                     try {
                         const wcChangeId = payload.isWorkingCopy ? payload.changeId : undefined;
+                        const editableMutableDiffs =
+                            repo.host.config.get<boolean>('editableMutableDiffs', true) ?? true;
                         const state = createJjResourceState(payload.file, payload.changeId, repo.jj.workspaceRoot, {
-                            editable: !payload.isImmutable,
+                            editable: !payload.isImmutable && editableMutableDiffs,
                             openDiffOnClick: true,
                             workingCopyChangeId: wcChangeId,
                             mutableCommit: !payload.isImmutable,

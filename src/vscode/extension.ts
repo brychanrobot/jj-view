@@ -380,6 +380,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
 
     // Wire up edit provider refresh
     editFileSystemProvider.onDidWrite = (repo) => {
+        viewFileSystemProvider.invalidateCache();
         const scm = scmProviders.get(repo.rootUri.fsPath);
         scm?.refresh();
     };

@@ -461,6 +461,7 @@ export async function bootstrap(): Promise<void> {
 
         const viewFs = new JjViewFsService(repoManager);
         const editFs = new JjEditFsService(repoManager, (writtenRepo) => {
+            viewFs.invalidateCache();
             void getOrCreateScmModel(writtenRepo).refresh({ reason: 'edit-fs-write' });
         });
 

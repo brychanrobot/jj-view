@@ -120,6 +120,18 @@ export class VsCodeScmProvider implements vscode.Disposable {
             }),
         );
 
+        const configChangeSub = this.repo.host.config.onDidChangeConfiguration?.((e) => {
+            if (e.affectsConfiguration('jj-view.editableMutableDiffs') && this.scmModel.snapshot) {
+                void this.renderSnapshot({
+                    ...this.scmModel.snapshot,
+                    reason: 'editableMutableDiffs config change',
+                });
+            }
+        });
+        if (configChangeSub) {
+            this.disposables.push(configChangeSub);
+        }
+
         // Initial refresh
         this.refresh({ forceSnapshot: true, reason: 'initialization' }).catch((err) => {
             try {
@@ -152,6 +164,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
         }
 
         const openDiffOnClick = this.repo.host.config.get<boolean>('openDiffOnClick', true) ?? true;
+        const editableMutableDiffs = this.repo.host.config.get<boolean>('editableMutableDiffs', true) ?? true;
         const currentEntry = snapshot.currentEntry;
 
         if (currentEntry) {
@@ -233,7 +246,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
             const remainingAncestors = snapshot.ancestors.length - 1 - i;
             group.resourceStates = ancestor.changes.map((c: JjStatusEntry) => {
                 const state = this.toResourceState(c, ancestor.entry.change_id, {
-                    editable: ancestor.isMutable,
+                    editable: ancestor.isMutable && editableMutableDiffs,
                     squashable: ancestor.canSquash,
                     multipleAncestors: remainingAncestors > 0,
                     openDiffOnClick,

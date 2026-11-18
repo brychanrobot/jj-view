@@ -503,12 +503,28 @@ export class VsCodeHostNavigation implements HostNavigation {
     }
 }
 
+function isUriMatchForTab(tabUri: Uri, targetUri: Uri): boolean {
+    if (targetUri.scheme === 'file') {
+        return tabUri.scheme === 'file' && tabUri.fsPath.toLowerCase() === targetUri.fsPath.toLowerCase();
+    }
+    return tabUri.toString() === targetUri.toString();
+}
+
 export async function closeTabsForUri(uri: Uri): Promise<void> {
-    const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
-    const targetFsPath = uri.fsPath.toLowerCase();
-    const matchingTabs = tabs.filter(
-        (t) => t.input instanceof vscode.TabInputText && t.input.uri.fsPath.toLowerCase() === targetFsPath,
-    );
+    const tabGroups = vscode.window.tabGroups?.all;
+    if (!tabGroups) {
+        return;
+    }
+    const tabs = tabGroups.flatMap((g) => g.tabs);
+    const matchingTabs = tabs.filter((t) => {
+        if (t.input instanceof vscode.TabInputText) {
+            return isUriMatchForTab(t.input.uri, uri);
+        }
+        if (t.input instanceof vscode.TabInputTextDiff) {
+            return isUriMatchForTab(t.input.modified, uri) || isUriMatchForTab(t.input.original, uri);
+        }
+        return false;
+    });
     for (const tab of matchingTabs) {
         await vscode.window.tabGroups.close(tab);
     }
@@ -588,16 +604,25 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
         await doc.save();
     }
 
+    private findOpenDocument(uri: Uri): vscode.TextDocument | undefined {
+        const uriStr = uri.toString();
+        return (
+            vscode.workspace.textDocuments.find((d) => d.uri.toString() === uriStr) ??
+            (uri.scheme === 'file'
+                ? vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && d.uri.fsPath === uri.fsPath)
+                : undefined)
+        );
+    }
+
     async saveIfDirty(uri: Uri): Promise<void> {
-        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uri.fsPath);
+        const doc = this.findOpenDocument(uri);
         if (doc?.isDirty) {
             await doc.save();
         }
     }
 
     getOpenDocumentText(uri: Uri): string | undefined {
-        const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uri.fsPath);
-        return doc?.getText();
+        return this.findOpenDocument(uri)?.getText();
     }
 
     getActiveDocumentUri(): Uri | undefined {
@@ -636,6 +661,7 @@ export class VsCodeHostDocuments implements HostDocuments, HostDisposable {
             .map((tab) => ({
                 originalUri: tab.input.original,
                 modifiedUri: tab.input.modified,
+                label: tab.label,
                 close: async () => {
                     await vscode.window.tabGroups?.close(tab);
                 },

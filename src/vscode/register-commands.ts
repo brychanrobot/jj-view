@@ -62,6 +62,7 @@ import {
 } from '../core/commands/squash-revision';
 import { squashHunkIntoParentCommand, squashSelectionIntoParentCommand } from '../core/commands/squash-selection';
 import { syncCommand } from '../core/commands/sync';
+import { disableDiffEditingCommand, enableDiffEditingCommand } from '../core/commands/toggle-diff-editable';
 import { undoCommand } from '../core/commands/undo';
 import { uploadCommand } from '../core/commands/upload';
 import { uploadStackCommand } from '../core/commands/upload-stack';
@@ -129,6 +130,7 @@ import {
     createSquashHunkIntoParentPayload,
     createSquashSelectionIntoParentPayload,
 } from './payloads/squash-selection.payload';
+import { createToggleDiffEditablePayload } from './payloads/toggle-diff-editable.payload';
 import { createUploadPayload, createUploadStackPayload } from './payloads/upload.payload';
 import { createViewFileAtRevisionPayload } from './payloads/view-file-at-revision.payload';
 import { createWorkspaceDeletePayload } from './payloads/workspace-delete.payload';
@@ -294,6 +296,16 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         ),
         registerCommand('jj-view.refresh', refreshCommand),
         registerCommandWithPayload('jj-view.openFile', createOpenFilePayload, openFileCommand),
+        registerCommandWithPayload(
+            'jj-view.enableDiffEditing',
+            createToggleDiffEditablePayload,
+            enableDiffEditingCommand,
+        ),
+        registerCommandWithPayload(
+            'jj-view.disableDiffEditing',
+            createToggleDiffEditablePayload,
+            disableDiffEditingCommand,
+        ),
         registerCommandWithPayload('jj-view.openChanges', createOpenChangesPayload, openChangesCommand),
         registerCommandWithPayload('jj-view.pickChange', createPickChangePayload, pickChangeCommand),
         registerCommand('jj-view.undo', undoCommand),

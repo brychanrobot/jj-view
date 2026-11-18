@@ -5,6 +5,9 @@
 
 import { render } from 'svelte/server';
 import { describe, expect, it, vi } from 'vitest';
+import { Uri } from '../../src/core/uri-utils';
+import { ContextKeyService } from '../src/menu/context-key-service';
+import { MenuRegistry } from '../src/menu/menu-registry';
 import TabBar from '../src/tabs/TabBar.svelte';
 import type { TabEntry } from '../src/tabs/tab-types';
 
@@ -164,5 +167,98 @@ describe('TabBar Component (SSR & Rendering)', () => {
         expect(html).toContain('data-vscode-context=');
         expect(html).toContain('&quot;menuId&quot;:&quot;editor/title/context&quot;');
         expect(html).toContain('&quot;tabId&quot;:&quot;tab-1&quot;');
+    });
+
+    it('renders editor/title inline navigation actions for active jj-view and jj-edit tabs and hides them for file tabs', () => {
+        const menuRegistry = new MenuRegistry();
+        const rootContext = new ContextKeyService();
+        const viewTab: TabEntry = {
+            id: 'diff-view',
+            title: 'ancestor.txt (abc)',
+            tooltip: '/repo/ancestor.txt',
+            iconClass: 'codicon codicon-diff',
+            preview: false,
+            isDirty: false,
+            view: {
+                type: 'diff',
+                title: 'ancestor.txt (abc)',
+                leftUri: Uri.parse('jj-view:///ancestor.txt#mode=diff&base=abc&side=left'),
+                rightUri: Uri.parse('jj-view:///ancestor.txt#mode=diff&base=abc&side=right'),
+            },
+        };
+        const editTab: TabEntry = {
+            id: 'diff-edit',
+            title: 'ancestor.txt (abc)',
+            tooltip: '/repo/ancestor.txt',
+            iconClass: 'codicon codicon-diff',
+            preview: false,
+            isDirty: false,
+            view: {
+                type: 'diff',
+                title: 'ancestor.txt (abc)',
+                leftUri: Uri.parse('jj-view:///ancestor.txt#mode=diff&base=abc&side=left'),
+                rightUri: Uri.parse('jj-edit:///ancestor.txt#root=/repo&jj-revision=abc&revision=abc'),
+            },
+        };
+        const fileTab: TabEntry = {
+            id: 'wc-file',
+            title: 'wc.txt',
+            tooltip: '/repo/wc.txt',
+            iconClass: 'codicon codicon-file',
+            preview: false,
+            isDirty: false,
+            view: {
+                type: 'diff',
+                title: 'wc.txt',
+                leftUri: Uri.parse('jj-view:///wc.txt#mode=diff&base=@&side=left'),
+                rightUri: Uri.file('/repo/wc.txt'),
+            },
+        };
+
+        const viewHtml = render(TabBar, {
+            props: {
+                tabs: [viewTab, editTab, fileTab],
+                activeTabId: 'diff-view',
+                menuRegistry,
+                rootContext,
+                onSelectTab: vi.fn(),
+                onCloseTab: vi.fn(),
+                onPinTab: vi.fn(),
+                onReorderTabs: vi.fn(),
+            },
+        }).body;
+        expect(viewHtml).toContain('data-testid="editor-title-action-jj-view.enableDiffEditing"');
+        expect(viewHtml).toContain('data-testid="editor-title-action-jj-view.openFile"');
+        expect(viewHtml).not.toContain('data-testid="editor-title-action-jj-view.disableDiffEditing"');
+
+        const editHtml = render(TabBar, {
+            props: {
+                tabs: [viewTab, editTab, fileTab],
+                activeTabId: 'diff-edit',
+                menuRegistry,
+                rootContext,
+                onSelectTab: vi.fn(),
+                onCloseTab: vi.fn(),
+                onPinTab: vi.fn(),
+                onReorderTabs: vi.fn(),
+            },
+        }).body;
+        expect(editHtml).toContain('data-testid="editor-title-action-jj-view.disableDiffEditing"');
+        expect(editHtml).toContain('data-testid="editor-title-action-jj-view.openFile"');
+        expect(editHtml).not.toContain('data-testid="editor-title-action-jj-view.enableDiffEditing"');
+
+        const fileHtml = render(TabBar, {
+            props: {
+                tabs: [viewTab, editTab, fileTab],
+                activeTabId: 'wc-file',
+                menuRegistry,
+                rootContext,
+                onSelectTab: vi.fn(),
+                onCloseTab: vi.fn(),
+                onPinTab: vi.fn(),
+                onReorderTabs: vi.fn(),
+            },
+        }).body;
+        expect(fileHtml).not.toContain('data-testid="editor-title-actions"');
     });
 });

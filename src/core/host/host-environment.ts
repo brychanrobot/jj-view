@@ -97,6 +97,7 @@ export interface TextSelectionRange {
 export interface HostDiffTab {
     readonly originalUri: Uri;
     readonly modifiedUri: Uri;
+    readonly label?: string;
     close(): Promise<void>;
 }
 

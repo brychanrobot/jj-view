@@ -48,6 +48,10 @@ export function reviveResourceState(raw: Record<string, unknown>): JjResourceSta
     };
 }
 
+function isRawUriLike(value: unknown): value is Parameters<typeof Uri.revive>[0] {
+    return typeof value === 'object' && value !== null && 'scheme' in value;
+}
+
 export function unpackContextPayload(payload: unknown): unknown {
     if (typeof payload !== 'object' || payload === null) {
         return payload;
@@ -65,18 +69,18 @@ export function unpackContextPayload(payload: unknown): unknown {
             ),
         };
     }
-    if ('resourceUri' in record && record.resourceUri && typeof record.resourceUri === 'object') {
-        const rawUri = record.resourceUri as Parameters<typeof Uri.revive>[0];
+    if (
+        isRawUriLike(record.resourceUri) ||
+        isRawUriLike(record.rootUri) ||
+        isRawUriLike(record.leftUri) ||
+        isRawUriLike(record.rightUri)
+    ) {
         return {
             ...record,
-            resourceUri: Uri.revive(rawUri),
-        };
-    }
-    if ('rootUri' in record && record.rootUri && typeof record.rootUri === 'object') {
-        const rawUri = record.rootUri as Parameters<typeof Uri.revive>[0];
-        return {
-            ...record,
-            rootUri: Uri.revive(rawUri),
+            ...(isRawUriLike(record.resourceUri) ? { resourceUri: Uri.revive(record.resourceUri) } : {}),
+            ...(isRawUriLike(record.rootUri) ? { rootUri: Uri.revive(record.rootUri) } : {}),
+            ...(isRawUriLike(record.leftUri) ? { leftUri: Uri.revive(record.leftUri) } : {}),
+            ...(isRawUriLike(record.rightUri) ? { rightUri: Uri.revive(record.rightUri) } : {}),
         };
     }
     return payload;
