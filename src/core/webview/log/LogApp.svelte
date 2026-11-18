@@ -146,12 +146,13 @@ const dragManager = new DragManager((item, target, modifier) => {
 });
 
 $effect(() => {
-    if (dragManager.isDragging) {
-        document.body.style.userSelect = 'none';
-        return () => {
-            document.body.style.userSelect = '';
-        };
+    if (!dragManager.isDragging) {
+        return;
     }
+    document.body.style.userSelect = 'none';
+    return () => {
+        document.body.style.userSelect = '';
+    };
 });
 
 useRpcReceiver<LogViewHostToWebviewMessage>(LogViewHostToWebviewMessageSchema, {
@@ -467,10 +468,21 @@ function handleGraphAction(action: string, payload: ActionPayload) {
         word-break: break-word;
     }
 
+    .app-container {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 0;
+        height: 100%;
+        width: 100%;
+        min-height: 0;
+        overflow: hidden;
+    }
+
     .scroll-container {
-        flex: 1;
+        flex: 1 1 0;
+        min-height: 0;
+        height: 100%;
         overflow: auto;
-        min-height: 100vh;
     }
 
     .drag-preview-overlay {
