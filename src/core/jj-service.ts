@@ -182,6 +182,35 @@ function unquoteGitPath(rawPath: string): string {
     return rawPath;
 }
 
+/**
+ * Formats a workspace-relative file path as an exact JJ `root-file:"..."` fileset literal
+ * so fileset metacharacters (`:`, `*`, `~`, parentheses) and leading dashes are treated as literal path characters.
+ */
+export function formatRootFileFileset(relPath: string): string {
+    let escaped = '';
+    for (const ch of relPath) {
+        const code = ch.charCodeAt(0);
+        if (ch === '\\') {
+            escaped += '\\\\';
+        } else if (ch === '"') {
+            escaped += '\\"';
+        } else if (ch === '\t') {
+            escaped += '\\t';
+        } else if (ch === '\r') {
+            escaped += '\\r';
+        } else if (ch === '\n') {
+            escaped += '\\n';
+        } else if (ch === '\0') {
+            escaped += '\\0';
+        } else if (code < 0x20 || code === 0x7f) {
+            escaped += `\\x${code.toString(16).padStart(2, '0')}`;
+        } else {
+            escaped += ch;
+        }
+    }
+    return `root-file:"${escaped}"`;
+}
+
 export class JjService {
     public binaryPath: string;
     public processTracker?: JjProcessTracker;
@@ -867,6 +896,31 @@ export class JjService {
         }
         cmdArgs.push('--', ...relativePaths);
         await this.run('restore', cmdArgs, { isMutation: true, label: 'restore' });
+    }
+
+    /**
+     * Split specific file(s) from a revision into a new commit placed before or after it.
+     */
+    async splitFiles(options: {
+        revision: string;
+        paths: string[];
+        placement: 'before' | 'after';
+        message?: string;
+    }): Promise<void> {
+        if (options.paths.length === 0) {
+            return;
+        }
+        const revision = options.revision.trim();
+        if (revision.length === 0) {
+            throw new Error('Revision must not be empty.');
+        }
+        const relPaths = await Promise.all(options.paths.map((p) => this.toRepoRelative(p)));
+        const filesets = Array.from(new Set(relPaths.map((p) => toForwardSlash(p)))).map((rel) =>
+            formatRootFileFileset(rel),
+        );
+        const placementFlag = options.placement === 'before' ? '-B' : '-A';
+        const args = ['-r', revision, placementFlag, revision, '-m', options.message ?? '', '--', ...filesets];
+        await this.run('split', args, { isMutation: true, label: 'split' });
     }
 
     /**

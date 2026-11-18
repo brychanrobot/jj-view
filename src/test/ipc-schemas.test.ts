@@ -358,6 +358,18 @@ describe('IPC Schemas Unit Tests', () => {
                     payload: { changeId: 'kkmpptxz' },
                 }).success,
             ).toBe(true);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'splitFiles',
+                    payload: { changeId: 'kkmpptxz', paths: ['a.txt', 'b.txt'], placement: 'before' },
+                }).success,
+            ).toBe(true);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'splitFiles',
+                    payload: { changeId: 'kkmpptxz', paths: ['a.txt'], placement: 'after' },
+                }).success,
+            ).toBe(true);
         });
 
         it('rejects invalid CommitDetailsToHostMessage payloads', () => {
@@ -372,6 +384,18 @@ describe('IPC Schemas Unit Tests', () => {
                 CommitDetailsToHostMessageSchema.safeParse({
                     type: 'openDiff',
                     payload: { changeId: 'kkmpptxz' }, // missing file
+                }).success,
+            ).toBe(false);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'splitFiles',
+                    payload: { changeId: 'kkmpptxz', paths: [], placement: 'before' }, // empty paths
+                }).success,
+            ).toBe(false);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'splitFiles',
+                    payload: { changeId: 'kkmpptxz', paths: ['a.txt'], placement: 'onto' }, // invalid placement
                 }).success,
             ).toBe(false);
         });

@@ -245,6 +245,16 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             icon: '$(jj-icon-squash-into)',
         },
         {
+            command: 'jj-view.splitFilesBefore',
+            title: 'Split into New Change Before',
+            category: 'JJ View',
+        },
+        {
+            command: 'jj-view.splitFilesAfter',
+            title: 'Split into New Change After',
+            category: 'JJ View',
+        },
+        {
             command: 'jj-view.setBookmark',
             title: 'Set Bookmark',
             category: 'JJ View',
@@ -557,6 +567,14 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 when: 'false',
             },
             {
+                command: 'jj-view.splitFilesBefore',
+                when: 'false',
+            },
+            {
+                command: 'jj-view.splitFilesAfter',
+                when: 'false',
+            },
+            {
                 command: 'jj-view.completeSquashRevision',
                 when: 'false',
             },
@@ -768,6 +786,16 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.squashFilesIntoChild',
                 group: 'inline@5',
                 when: 'scmResourceState =~ /\\bjj\\.resource\\.allowSquashIntoChild\\b/',
+            },
+            {
+                command: 'jj-view.splitFilesBefore',
+                group: '1_modification@1',
+                when: 'scmResourceState =~ /\\bjj\\.resource\\.allowSplit\\b/',
+            },
+            {
+                command: 'jj-view.splitFilesAfter',
+                group: '1_modification@2',
+                when: 'scmResourceState =~ /\\bjj\\.resource\\.allowSplit\\b/',
             },
         ],
         'webview/context': [

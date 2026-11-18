@@ -3,10 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import path from 'pathe';
 import { formatCommitDescription } from '../../utils/format-utils';
+import type { HostFs } from '../host/host-system';
 import { ScmContextValue } from '../jj-context-keys';
 import type { JjResourceState } from '../scm-resource-state';
-import { getFsPathFromUri, Uri } from '../uri-utils';
+import {
+    getFsPathFromUri,
+    getRevisionFromUri,
+    isInsideRelativePath,
+    normalizeDriveLetter,
+    resolveInsideRealRootAsync,
+    Uri,
+} from '../uri-utils';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
@@ -49,10 +58,10 @@ function hasResourceStates(arg: unknown): arg is { resourceStates: unknown[] } {
     return Array.isArray(obj.resourceStates);
 }
 
-export function collectResourceStates(args: unknown[]): JjResourceState[] {
+function collectResourceStatesRaw(args: unknown[]): JjResourceState[] {
     const resourceStates: JjResourceState[] = [];
 
-    const processArg = (arg: unknown) => {
+    const processArg = (arg: unknown): void => {
         if (!arg) {
             return;
         }
@@ -69,10 +78,13 @@ export function collectResourceStates(args: unknown[]): JjResourceState[] {
     };
 
     args.forEach(processArg);
+    return resourceStates;
+}
 
+export function collectResourceStates(args: unknown[]): JjResourceState[] {
     // De-duplicate by fsPath
     const unique = new Map<string, JjResourceState>();
-    for (const state of resourceStates) {
+    for (const state of collectResourceStatesRaw(args)) {
         unique.set(getFsPathFromUri(state.resourceUri), state);
     }
 
@@ -171,6 +183,92 @@ export function extractRevisions(args: unknown[]): string[] {
     }
 
     return Array.from(unique.values());
+}
+
+/**
+ * Resolves a filesystem path to a workspace-relative path, verifying containment
+ * across symlinks via `fs.realpath`. Returns `undefined` when outside the workspace.
+ */
+export async function resolveWorkspaceRelativePath(
+    workspaceRoot: string,
+    filePath: string,
+    fs?: HostFs,
+): Promise<string | undefined> {
+    const relFromRoot = path.relative(normalizeDriveLetter(workspaceRoot), normalizeDriveLetter(filePath));
+    if (isInsideRelativePath(relFromRoot)) {
+        return path.normalize(relFromRoot);
+    }
+    if (!fs) {
+        return undefined;
+    }
+    let realRoot = workspaceRoot;
+    try {
+        realRoot = await fs.realpath(workspaceRoot);
+    } catch {
+        // Keep original workspaceRoot when realpath is unavailable
+    }
+    return resolveInsideRealRootAsync(filePath, realRoot, fs);
+}
+
+/**
+ * Extracts file paths and target revision from either SCM resource states
+ * or explicit `{ paths, revision }` command payload objects.
+ */
+export function extractSplitFilesPayload(args: unknown[]): {
+    paths: string[];
+    revision: string;
+    validationError?: string;
+} {
+    const rawStates = collectResourceStatesRaw(args);
+    if (rawStates.length > 0) {
+        const distinctRevisions = new Set<string>();
+        for (const state of rawStates) {
+            const stateRevision = state.revision?.trim() || getRevisionFromUri(state.resourceUri)?.trim();
+            if (stateRevision) {
+                distinctRevisions.add(stateRevision);
+            }
+        }
+        if (distinctRevisions.size > 1) {
+            return {
+                paths: [],
+                revision: Array.from(distinctRevisions)[0],
+                validationError:
+                    'Cannot split files selected across multiple revisions. Select files from a single change.',
+            };
+        }
+
+        const uniquePaths = new Set<string>();
+        const paths: string[] = [];
+        for (const state of rawStates) {
+            const fsPath = getFsPathFromUri(state.resourceUri);
+            if (!uniquePaths.has(fsPath)) {
+                uniquePaths.add(fsPath);
+                paths.push(fsPath);
+            }
+        }
+        const revision = Array.from(distinctRevisions)[0] || extractRevision(args) || '@';
+        return { paths, revision };
+    }
+
+    const paths: string[] = [];
+    const seen = new Set<string>();
+    for (const arg of args) {
+        if (!arg || typeof arg !== 'object' || Array.isArray(arg) || !('paths' in arg)) {
+            continue;
+        }
+        if (!Array.isArray(arg.paths)) {
+            continue;
+        }
+        for (const item of arg.paths) {
+            if (typeof item === 'string' && item.trim().length > 0 && !seen.has(item)) {
+                seen.add(item);
+                paths.push(item);
+            }
+        }
+    }
+
+    const revision = extractRevision(args) || '@';
+    return { paths, revision };
 }
 
 export function extractBookmarkName(args: unknown[]): string | undefined {

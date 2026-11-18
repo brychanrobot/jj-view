@@ -61,4 +61,5 @@ export enum ScmContextValue {
     ResourceAllowSquashIntoChild = 'jj.resource.allowSquashIntoChild',
     ResourceAllowOpen = 'jj.resource.allowOpen',
     ResourceAllowOpenMergeEditor = 'jj.resource.allowOpenMergeEditor',
+    ResourceAllowSplit = 'jj.resource.allowSplit',
 }

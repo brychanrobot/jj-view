@@ -48,6 +48,7 @@ import { refreshCommand } from '../../../src/core/commands/refresh';
 import { restoreCommand } from '../../../src/core/commands/restore';
 import { restoreFileFromRevisionCommand } from '../../../src/core/commands/restore-file-from-revision';
 import { simplifyParentsCommand } from '../../../src/core/commands/simplify-parents';
+import { splitFilesAfterCommand, splitFilesBeforeCommand } from '../../../src/core/commands/split-files';
 import {
     squashFilesIntoAncestorCommand,
     squashFilesIntoChildCommand,
@@ -124,6 +125,7 @@ import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
 import { createRestorePayload } from './payloads/restore.payload';
 import { createRestoreFileFromRevisionPayload } from './payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from './payloads/simplify-parents.payload';
+import { createSplitFilesPayload } from './payloads/split-files.payload';
 import {
     createSquashFilesIntoAncestorPayload,
     createSquashFilesIntoChildPayload,
@@ -355,6 +357,8 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         squashFilesIntoAncestorCommand,
     );
     registerWithPayload('jj-view.squashFilesIntoChild', createSquashFilesIntoChildPayload, squashFilesIntoChildCommand);
+    registerWithPayload('jj-view.splitFilesBefore', createSplitFilesPayload, splitFilesBeforeCommand);
+    registerWithPayload('jj-view.splitFilesAfter', createSplitFilesPayload, splitFilesAfterCommand);
     registerWithPayload(
         'jj-view.squashSelectionIntoParent',
         createSquashSelectionIntoParentPayload,

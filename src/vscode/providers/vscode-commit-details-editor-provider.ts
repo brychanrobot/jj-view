@@ -178,6 +178,7 @@ export class VsCodeCommitDetailsEditorProvider
                             editable: !payload.isImmutable,
                             openDiffOnClick: true,
                             workingCopyChangeId: wcChangeId,
+                            mutableCommit: !payload.isImmutable,
                         });
                         if (state.command) {
                             await vscode.commands.executeCommand(

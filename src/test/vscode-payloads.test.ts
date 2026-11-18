@@ -32,6 +32,7 @@ import { createRebaseOntoSelectedPayload } from '../vscode/payloads/rebase.paylo
 import { createRestorePayload } from '../vscode/payloads/restore.payload';
 import { createRestoreFileFromRevisionPayload } from '../vscode/payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from '../vscode/payloads/simplify-parents.payload';
+import { createSplitFilesPayload } from '../vscode/payloads/split-files.payload';
 import {
     createSquashFilesIntoAncestorPayload,
     createSquashFilesIntoChildPayload,
@@ -424,6 +425,46 @@ describe('vscode payloads', () => {
             const payload = createSquashFilesIntoChildPayload([{ resourceUri: uri }, 'srcRev', 'targetChild']);
             expect(payload.revision).toBe('srcRev');
             expect(payload.childRevision).toBe('targetChild');
+        });
+    });
+
+    describe('split files payloads', () => {
+        it('createSplitFilesPayload extracts single and multi-selected SCM resource states', () => {
+            const uri1 = Uri.file('/test/a.txt');
+            const uri2 = Uri.file('/test/b.txt');
+            const clicked = { resourceUri: uri1, revision: 'rev1' };
+            const selected = [clicked, { resourceUri: uri2, revision: 'rev1' }];
+
+            const payload = createSplitFilesPayload([clicked, selected]);
+            expect(payload.paths).toEqual([uri1.fsPath, uri2.fsPath]);
+            expect(payload.revision).toBe('rev1');
+        });
+
+        it('createSplitFilesPayload extracts explicit paths and revision object payloads', () => {
+            const payload = createSplitFilesPayload([{ paths: ['a.txt', 'b.txt', 'a.txt'], revision: 'rev42' }]);
+            expect(payload.paths).toEqual(['a.txt', 'b.txt']);
+            expect(payload.revision).toBe('rev42');
+        });
+
+        it('createSplitFilesPayload defaults revision to @ when omitted', () => {
+            const payload = createSplitFilesPayload([{ paths: ['a.txt'] }]);
+            expect(payload.paths).toEqual(['a.txt']);
+            expect(payload.revision).toBe('@');
+        });
+
+        it('createSplitFilesPayload rejects mixed-revision SCM resource states including same path across revisions', () => {
+            const wcUri = Uri.file('/test/shared.txt');
+            const ancestorUri = Uri.from({
+                scheme: 'jj-edit',
+                path: '/shared.txt',
+                fragment: 'root=/test&jj-revision=rev-ancestor&revision=rev-ancestor',
+            });
+            const clicked = { resourceUri: wcUri, revision: '@' };
+            const selected = [clicked, { resourceUri: ancestorUri, revision: 'rev-ancestor' }];
+
+            const payload = createSplitFilesPayload([clicked, selected]);
+            expect(payload.paths).toEqual([]);
+            expect(payload.validationError).toContain('multiple revisions');
         });
     });
 

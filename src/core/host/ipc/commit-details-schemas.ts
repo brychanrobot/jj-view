@@ -42,6 +42,14 @@ export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
             changeId: z.string(),
         }),
     }),
+    z.object({
+        type: z.literal('splitFiles'),
+        payload: z.object({
+            changeId: z.string(),
+            paths: z.array(z.string()).min(1),
+            placement: z.enum(['before', 'after']),
+        }),
+    }),
 ]);
 export type CommitDetailsToHostMessage = z.infer<typeof CommitDetailsToHostMessageSchema>;
 

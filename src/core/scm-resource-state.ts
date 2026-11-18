@@ -42,6 +42,7 @@ export function createJjResourceState(
         openDiffOnClick?: boolean;
         hasChild?: boolean;
         inConflictGroup?: boolean;
+        mutableCommit?: boolean;
     } = {},
 ): JjResourceState {
     const isCurrentWorkingCopy = isWorkingCopyRevision(revision, options.workingCopyChangeId);
@@ -77,6 +78,8 @@ export function createJjResourceState(
 
     flags.push(ScmContextValue.ResourceAllowRestore);
 
+    const isMutableCommit = options.mutableCommit ?? (isCurrentWorkingCopy || Boolean(options.editable));
+
     if (entry.conflicted && options.inConflictGroup) {
         flags.push(ScmContextValue.ResourceAllowOpenMergeEditor);
     } else {
@@ -90,6 +93,10 @@ export function createJjResourceState(
         if (!isCurrentWorkingCopy || options.hasChild) {
             flags.push(ScmContextValue.ResourceAllowSquashIntoChild);
         }
+    }
+
+    if (isMutableCommit) {
+        flags.push(ScmContextValue.ResourceAllowSplit);
     }
 
     const contextValue = flags.join(' ');

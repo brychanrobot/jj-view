@@ -78,12 +78,14 @@ const repoDisplayNames = $derived(formatRepositoryDisplayNames((repositories ?? 
 
 function buildConflictItems(snap: ScmSnapshot | undefined, root: string): JjResourceState[] {
     const changeId = snap?.currentEntry?.change_id || '@';
+    const mutableCommit = !(snap?.currentEntry?.is_immutable ?? false);
     return (
         snap?.conflictedPaths.map((cPath) =>
             createJjResourceState({ path: cPath, status: 'modified', conflicted: true }, '@', root, {
                 openDiffOnClick,
                 inConflictGroup: true,
                 workingCopyChangeId: changeId,
+                mutableCommit,
             }),
         ) ?? []
     );
@@ -91,6 +93,7 @@ function buildConflictItems(snap: ScmSnapshot | undefined, root: string): JjReso
 
 function buildWorkingCopyItems(snap: ScmSnapshot | undefined, root: string): JjResourceState[] {
     const changeId = snap?.currentEntry?.change_id || '@';
+    const mutableCommit = !(snap?.currentEntry?.is_immutable ?? false);
     const conflicted = new Set(snap?.conflictedPaths ?? []);
     return (snap?.workingCopyChanges ?? [])
         .filter((c) => !conflicted.has(c.path))
@@ -101,6 +104,7 @@ function buildWorkingCopyItems(snap: ScmSnapshot | undefined, root: string): JjR
                 openDiffOnClick,
                 hasChild: snap?.hasChild,
                 workingCopyChangeId: changeId,
+                mutableCommit,
             }),
         );
 }
@@ -406,6 +410,7 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                                                 multipleAncestors: remainingAncestors > 0,
                                                 openDiffOnClick,
                                                 workingCopyChangeId: repoChangeId,
+                                                mutableCommit: ancestor.isMutable,
                                             }),
                                         )}
                                         <ScmResourceGroup
@@ -505,6 +510,7 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                             multipleAncestors: remainingAncestors > 0,
                             openDiffOnClick,
                             workingCopyChangeId: currentChangeId,
+                            mutableCommit: ancestor.isMutable,
                         }),
                     )}
                     <ScmResourceGroup

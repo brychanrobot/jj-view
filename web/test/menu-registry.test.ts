@@ -253,6 +253,23 @@ describe('MenuRegistry & Icon Resolution', () => {
         expect(allCommands).toContain('jj-view.openFile');
         expect(allCommands).toContain('jj-view.restore');
         expect(allCommands).toContain('jj-view.squashFilesIntoParent');
+        expect(allCommands).not.toContain('jj-view.splitFilesBefore');
+        expect(allCommands).not.toContain('jj-view.splitFilesAfter');
+
+        const splitContext = rootContext.createScoped({
+            scmResourceState: 'jj.resource.allowOpen jj.resource.allowRestore jj.resource.allowSplit',
+        });
+        const splitInlineCommands = registry
+            .getInlineActions('scm/resourceState/context', splitContext)
+            .map((a) => a.command);
+        expect(splitInlineCommands).not.toContain('jj-view.splitFilesBefore');
+        expect(splitInlineCommands).not.toContain('jj-view.splitFilesAfter');
+
+        const splitContextCommands = registry
+            .getContextActions('scm/resourceState/context', splitContext)
+            .flatMap((g) => g.items.map((i) => i.command));
+        expect(splitContextCommands).toContain('jj-view.splitFilesBefore');
+        expect(splitContextCommands).toContain('jj-view.splitFilesAfter');
     });
 
     it('resolves view/title inline actions for log view including workspaceAdd', () => {

@@ -329,9 +329,10 @@ async function openFileDiffForChange(
             fallbackEntry: file,
         }) ??
         createJjResourceState(file, changeId, workspaceRoot, {
-            editable: isWorkingCopy || (isImmutable !== undefined ? !isImmutable : false),
+            editable: isImmutable !== undefined ? !isImmutable : isWorkingCopy,
             openDiffOnClick: true,
             workingCopyChangeId: isWorkingCopy ? changeId : currentSnapshot?.currentEntry?.change_id,
+            mutableCommit: isImmutable !== undefined ? !isImmutable : isWorkingCopy,
         });
     await tabDocManager.loadDiffFromUris(
         matchingState.leftUri,

@@ -190,6 +190,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
                 multipleAncestors: snapshot.ancestors.length > 1,
                 openDiffOnClick,
                 hasChild: snapshot.hasChild,
+                mutableCommit: !(currentEntry?.is_immutable ?? false),
             });
             decorationMap.set(state.resourceUri.toString(), c);
             decorationMap.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot), c);
@@ -201,6 +202,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
             const state = this.toResourceState(entry, currentEntry?.change_id || '@', {
                 openDiffOnClick,
                 inConflictGroup: true,
+                mutableCommit: !(currentEntry?.is_immutable ?? false),
             });
             decorationMap.set(state.resourceUri.toString(), entry);
             decorationMap.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot), entry);
@@ -235,6 +237,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
                     squashable: ancestor.canSquash,
                     multipleAncestors: remainingAncestors > 0,
                     openDiffOnClick,
+                    mutableCommit: ancestor.isMutable,
                 });
                 decorationMap.set(state.resourceUri.toString(), c);
                 return state;

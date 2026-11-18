@@ -299,5 +299,34 @@ describe('createJjResourceState', () => {
                 expect(flags).toContain('jj.resource.allowSquashIntoChild');
             });
         });
+
+        describe('Split capability (allowSplit)', () => {
+            it('sets allowSplit for working copy (@) and matched workingCopyChangeId', () => {
+                const wcState = createJjResourceState(entry, '@', root);
+                expect(wcState.contextValue?.split(' ')).toContain('jj.resource.allowSplit');
+
+                const matchedState = createJjResourceState(entry, 'rev-wc', root, {
+                    workingCopyChangeId: 'rev-wc',
+                });
+                expect(matchedState.contextValue?.split(' ')).toContain('jj.resource.allowSplit');
+            });
+
+            it('sets allowSplit when mutableCommit or editable is true and omits when false', () => {
+                const mutableState = createJjResourceState(entry, 'rev123', root, { mutableCommit: true });
+                expect(mutableState.contextValue?.split(' ')).toContain('jj.resource.allowSplit');
+
+                const editableState = createJjResourceState(entry, 'rev123', root, { editable: true });
+                expect(editableState.contextValue?.split(' ')).toContain('jj.resource.allowSplit');
+
+                const immutableState = createJjResourceState(entry, 'rev123', root, {
+                    editable: true,
+                    mutableCommit: false,
+                });
+                expect(immutableState.contextValue?.split(' ')).not.toContain('jj.resource.allowSplit');
+
+                const defaultAncestorState = createJjResourceState(entry, 'rev123', root);
+                expect(defaultAncestorState.contextValue?.split(' ')).not.toContain('jj.resource.allowSplit');
+            });
+        });
     });
 });

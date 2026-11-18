@@ -163,6 +163,8 @@ The extension automatically refreshes the view when:
 - `JJ View: Squash Revision into Parent (Use Destination Message)`: Squash the current change into its parent, keeping the parent's description and discarding the source's description.
 - `JJ View: Squash Revision into Ancestor...`: Squash the current change into an ancestor.
 - `JJ View: Squash Revision into Ancestor (Use Destination Message)...`: Squash the current change into an ancestor, keeping the ancestor's description and discarding the source's description.
+- `JJ View: Split into New Change Before`: Extract selected file(s) from a mutable change into a new parent change inserted before it.
+- `JJ View: Split into New Change After`: Extract selected file(s) from a mutable change into a new child change inserted after it.
 - `JJ View: Absorb`: Move changes into the mutable ancestor where they belong.
 - `JJ View: New Merge Change`: Create a merge commit.
 - `JJ View: Rebase onto Selected`: Rebase the current change onto a selected target.

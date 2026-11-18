@@ -4,64 +4,16 @@
  */
 import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
-import type { HostFs } from '../host/host-system';
 import { promptForRevision, showJjError } from '../host/ui-helpers';
-import { isInsideRelativePath, normalizeDriveLetter, resolveInsideRealRootAsync, type Uri } from '../uri-utils';
-import { RevisionQuery } from './command-utils';
+import { formatRootFileFileset } from '../jj-service';
+import type { Uri } from '../uri-utils';
+import { RevisionQuery, resolveWorkspaceRelativePath } from './command-utils';
+
+export { formatRootFileFileset, resolveWorkspaceRelativePath };
 
 export interface RestoreFileFromRevisionPayload {
     fileUri?: Uri;
     revision?: string;
-}
-
-/**
- * Formats a workspace-relative file path as an exact JJ `root-file:"..."` fileset literal
- * so fileset metacharacters (`:`, `*`, `~`, parentheses) and leading dashes are treated as literal path characters.
- */
-export function formatRootFileFileset(relPath: string): string {
-    let escaped = '';
-    for (const ch of relPath) {
-        const code = ch.charCodeAt(0);
-        if (ch === '\\') {
-            escaped += '\\\\';
-        } else if (ch === '"') {
-            escaped += '\\"';
-        } else if (ch === '\t') {
-            escaped += '\\t';
-        } else if (ch === '\r') {
-            escaped += '\\r';
-        } else if (ch === '\n') {
-            escaped += '\\n';
-        } else if (ch === '\0') {
-            escaped += '\\0';
-        } else if (code < 0x20 || code === 0x7f) {
-            escaped += `\\x${code.toString(16).padStart(2, '0')}`;
-        } else {
-            escaped += ch;
-        }
-    }
-    return `root-file:"${escaped}"`;
-}
-
-export async function resolveWorkspaceRelativePath(
-    workspaceRoot: string,
-    filePath: string,
-    fs?: HostFs,
-): Promise<string | undefined> {
-    const relFromRoot = path.relative(normalizeDriveLetter(workspaceRoot), normalizeDriveLetter(filePath));
-    if (isInsideRelativePath(relFromRoot)) {
-        return path.normalize(relFromRoot);
-    }
-    if (!fs) {
-        return undefined;
-    }
-    let realRoot = workspaceRoot;
-    try {
-        realRoot = await fs.realpath(workspaceRoot);
-    } catch {
-        // Keep original workspaceRoot when realpath is unavailable
-    }
-    return resolveInsideRealRootAsync(filePath, realRoot, fs);
 }
 
 export async function restoreFileFromRevisionCommand(
