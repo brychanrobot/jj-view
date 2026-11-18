@@ -72,7 +72,9 @@ $effect(() => {
     const resizeObserver = new ResizeObserver(measure);
 
     const findContent = (): HTMLElement | null => {
-        const el = contentEl.querySelector('.scroll-container > *') ?? contentEl.firstElementChild;
+        const el =
+            contentEl.querySelector('.scroll-container > *, .status-scroll-container > *') ??
+            contentEl.firstElementChild;
         return el instanceof HTMLElement ? el : null;
     };
 
