@@ -531,6 +531,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 updateContextKeys(undefined);
                 hostEnvironment.commands.setContextKey(JjContextKey.ParentMutable, false);
                 hostEnvironment.commands.setContextKey(JjContextKey.HasChild, false);
+                logWebviewProvider.updateRepository(undefined).catch((err) => {
+                    outputChannel.error('[Extension] Failed to clear webview repository', toError(err));
+                });
             }
         }),
         {

@@ -147,6 +147,8 @@ export const LogViewPayloadSchema = z.object({
     theme: z.string().optional(),
     graphLabelAlignment: z.string().optional(),
     hiddenActions: z.array(CommitActionSchema).optional(),
+    hasRepository: z.boolean().optional(),
+    errorMessage: z.string().optional(),
 });
 export type LogViewPayload = z.infer<typeof LogViewPayloadSchema>;
 

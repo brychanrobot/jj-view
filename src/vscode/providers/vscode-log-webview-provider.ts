@@ -88,7 +88,9 @@ export class VsCodeLogWebviewProvider implements vscode.WebviewViewProvider, vsc
             }),
             webviewView.onDidChangeVisibility(() => {
                 if (webviewView.visible) {
-                    this.controller.setCommits(this.controller.commits);
+                    if (this.controller.hasSettledState) {
+                        this.controller.setCommits(this.controller.commits);
+                    }
                     this.controller.refresh('becameVisible').catch((e) => {
                         this.outputChannel?.error(`[VsCodeLogWebviewProvider] Visibility refresh error: ${e}`);
                     });

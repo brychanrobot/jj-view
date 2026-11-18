@@ -435,6 +435,7 @@ export async function bootstrap(): Promise<void> {
             markStartup('scanForRepositories done (blocking: no cached repository)');
             repo = repoManager.focusedRepository ?? repoManager.repositories[0];
         }
+        const hasDiscoveredRepo = Boolean(repo);
         if (!repo) {
             const storePath = `${repoRoot}/.jj/repo`;
             repo = new JjRepository(
@@ -447,6 +448,7 @@ export async function bootstrap(): Promise<void> {
                 processTracker,
             );
         }
+        const hasInitialRepo = hasDiscoveredRepo || (await repo.isValid({ force: true }));
         repoManager.registerRepositoryInstance(repo);
         markStartup('repository registered');
 
@@ -469,7 +471,7 @@ export async function bootstrap(): Promise<void> {
             }
         });
 
-        logController = new LogViewController(repo, webHostEnv, {
+        logController = new LogViewController(hasInitialRepo ? repo : undefined, webHostEnv, {
             messenger: logBridge.messenger,
             logger: outputChannel,
             onSelectionChange: (ids) => {
@@ -493,11 +495,25 @@ export async function bootstrap(): Promise<void> {
         // changes itself, but the log controller only refreshes on its own
         // mutations, so watcher-driven and external `jj` changes would otherwise
         // never reach the graph. The controller coalesces bursts.
-        let repoStatusSub = repo.onDidStatusChange((event) => {
-            logController?.refresh(event.reason).catch((err: unknown) => {
-                outputChannel.error('Log refresh on status change failed', toError(err));
+        const attachRepoStatusSub = (targetRepo: JjRepository): { dispose: () => void } =>
+            targetRepo.onDidStatusChange(async (event) => {
+                if (logController && !logController.repository) {
+                    const valid = await targetRepo.isValid({ force: true }).catch(() => false);
+                    if (!valid || !logController || logController.repository) {
+                        return;
+                    }
+                    if (repoManager.focusedRepository !== targetRepo) {
+                        return;
+                    }
+                    logController.repository = targetRepo;
+                    return;
+                }
+                logController?.refresh(event.reason).catch((err: unknown) => {
+                    outputChannel.error('Log refresh on status change failed', toError(err));
+                });
             });
-        });
+
+        let repoStatusSub = attachRepoStatusSub(repo);
 
         // Same as the extension host: one manager that follows the focused
         // repository and the working copy, and is retargeted by showComments.
@@ -545,9 +561,15 @@ export async function bootstrap(): Promise<void> {
             }
         };
 
-        repoManager.onDidChangeFocusedRepository((r) => {
+        let focusChangeSeq = 0;
+        repoManager.onDidChangeFocusedRepository(async (r) => {
+            const seq = ++focusChangeSeq;
             updateCodeForgeContext(r);
             if (!r) {
+                repoStatusSub.dispose();
+                if (logController) {
+                    logController.repository = undefined;
+                }
                 return;
             }
             if (r.rootUri.fsPath !== hostSystem.repoRoot) {
@@ -555,13 +577,13 @@ export async function bootstrap(): Promise<void> {
                 void webHostEnv.config.reload();
             }
             repoStatusSub.dispose();
-            repoStatusSub = r.onDidStatusChange((event) => {
-                logController?.refresh(event.reason).catch((err: unknown) => {
-                    outputChannel.error('Log refresh on status change failed', toError(err));
-                });
-            });
+            const valid = await r.isValid({ force: true }).catch(() => false);
+            if (seq !== focusChangeSeq) {
+                return;
+            }
+            repoStatusSub = attachRepoStatusSub(r);
             if (logController) {
-                logController.repository = r;
+                logController.repository = valid ? r : undefined;
             }
         });
         updateCodeForgeContext(repo);

@@ -285,9 +285,47 @@ describe('IPC Schemas Unit Tests', () => {
                         theme: 'default',
                         graphLabelAlignment: 'aligned',
                         hiddenActions: ['edit', 'abandon'],
+                        hasRepository: true,
                     },
                 }).success,
             ).toBe(true);
+            expect(
+                LogViewHostToWebviewMessageSchema.safeParse({
+                    type: 'update',
+                    payload: {
+                        commits: [],
+                        hasRepository: false,
+                    },
+                }).success,
+            ).toBe(true);
+            expect(
+                LogViewHostToWebviewMessageSchema.safeParse({
+                    type: 'update',
+                    payload: {
+                        commits: [],
+                        hasRepository: true,
+                        errorMessage: 'Failed to invoke jj log',
+                    },
+                }).success,
+            ).toBe(true);
+            expect(
+                LogViewHostToWebviewMessageSchema.safeParse({
+                    type: 'update',
+                    payload: {
+                        commits: [],
+                        hasRepository: 'yes',
+                    },
+                }).success,
+            ).toBe(false);
+            expect(
+                LogViewHostToWebviewMessageSchema.safeParse({
+                    type: 'update',
+                    payload: {
+                        commits: [],
+                        errorMessage: 123,
+                    },
+                }).success,
+            ).toBe(false);
             expect(
                 LogViewHostToWebviewMessageSchema.safeParse({
                     type: 'updateHiddenActions',

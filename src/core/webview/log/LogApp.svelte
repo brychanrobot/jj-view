@@ -8,6 +8,7 @@ import {
     type CommitAction,
     type LogViewHostToWebviewMessage,
     LogViewHostToWebviewMessageSchema,
+    type LogViewPayload,
     type LogViewToHostMessage,
     LogViewToHostMessageSchema,
 } from '../../host/ipc/log-view-schemas';
@@ -20,16 +21,32 @@ import { DragManager } from './drag-manager.svelte';
 import { findMatchingCommit } from './utils/commit-utils';
 import { calculateNextSelection, hasImmutableSelection } from './utils/selection-utils';
 
-let commits = $state<JjLogEntry[]>([]);
-let minChangeIdLength = $state(1);
-let theme = $state('default');
-let graphLabelAlignment = $state('aligned');
-let loading = $state(true);
+interface Props {
+    initialState?: LogViewPayload;
+}
+
+let { initialState }: Props = $props();
+
+// svelte-ignore state_referenced_locally
+let commits = $state<JjLogEntry[]>(initialState?.commits ?? []);
+// svelte-ignore state_referenced_locally
+let minChangeIdLength = $state(initialState?.minChangeIdLength ?? 1);
+// svelte-ignore state_referenced_locally
+let theme = $state(initialState?.theme ?? 'default');
+// svelte-ignore state_referenced_locally
+let graphLabelAlignment = $state(initialState?.graphLabelAlignment ?? 'aligned');
+// svelte-ignore state_referenced_locally
+let loading = $state(initialState === undefined);
+// svelte-ignore state_referenced_locally
+let hasRepository = $state(initialState?.hasRepository ?? true);
+// svelte-ignore state_referenced_locally
+let errorMessage = $state<string | undefined>(initialState?.errorMessage);
 let selectedCommitIds = $state<Set<string>>(new Set());
 let rawHighlightQuery = $state<string | undefined>(undefined);
 const highlightedCommit = $derived(findMatchingCommit(commits, rawHighlightQuery));
 const highlightedCommitId = $derived(highlightedCommit?.change_id);
-let hiddenActions = $state<Set<CommitAction>>(new Set());
+// svelte-ignore state_referenced_locally
+let hiddenActions = $state<Set<CommitAction>>(new Set(initialState?.hiddenActions ?? []));
 
 function scrollToCommit(changeId: string) {
     if (typeof document === 'undefined') {
@@ -144,8 +161,12 @@ useRpcReceiver<LogViewHostToWebviewMessage>(LogViewHostToWebviewMessageSchema, {
         theme: th,
         graphLabelAlignment: align,
         hiddenActions: hidden,
+        hasRepository: hasRepo,
+        errorMessage: errMsg,
     }) => {
         commits = newCommits;
+        hasRepository = hasRepo ?? true;
+        errorMessage = errMsg;
         if (minLen !== undefined) {
             minChangeIdLength = minLen;
         }
@@ -307,8 +328,23 @@ function handleGraphAction(action: string, payload: ActionPayload) {
 />
 
 {#if loading}
-    <div class="loading-state">
+    <div class="loading-state" role="status" aria-live="polite">
         Loading changes...
+    </div>
+{:else if !hasRepository}
+    <div class="status-scroll-container">
+        <div class="log-status-state log-no-repo-state" data-testid="log-no-repo-state" role="status">
+            <span class="codicon codicon-repo log-status-icon" aria-hidden="true"></span>
+            <p class="log-status-title">No Jujutsu repository found in this workspace.</p>
+        </div>
+    </div>
+{:else if errorMessage && commits.length === 0}
+    <div class="status-scroll-container">
+        <div class="log-status-state log-error-state" data-testid="log-error-state" role="alert">
+            <span class="codicon codicon-error log-status-icon" aria-hidden="true"></span>
+            <p class="log-status-title">Unable to load Jujutsu log</p>
+            <p class="log-status-detail">{errorMessage}</p>
+        </div>
     </div>
 {:else}
     <div
@@ -377,6 +413,60 @@ function handleGraphAction(action: string, payload: ActionPayload) {
         color: var(--vscode-descriptionForeground);
     }
 
+    .status-scroll-container {
+        flex: 1 1 0;
+        min-height: 0;
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .log-status-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 20px 16px;
+        margin: 0;
+        text-align: center;
+        color: var(--vscode-descriptionForeground);
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        line-height: 1.4;
+    }
+
+    .log-status-icon.codicon {
+        font-size: 24px;
+        color: var(--vscode-icon-foreground, var(--vscode-descriptionForeground));
+        opacity: 0.85;
+    }
+
+    .log-status-title {
+        margin: 0;
+        color: var(--vscode-descriptionForeground);
+        font-size: var(--vscode-font-size);
+    }
+
+    .log-error-state .log-status-icon.codicon {
+        color: var(--vscode-errorForeground, var(--vscode-descriptionForeground));
+        opacity: 1;
+    }
+
+    .log-error-state .log-status-title {
+        color: var(--vscode-errorForeground, var(--vscode-descriptionForeground));
+        font-weight: 600;
+    }
+
+    .log-status-detail {
+        margin: 0;
+        max-width: 100%;
+        color: var(--vscode-descriptionForeground);
+        font-size: 12px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
     .scroll-container {
         flex: 1;
         overflow: auto;
@@ -393,7 +483,7 @@ function handleGraphAction(action: string, payload: ActionPayload) {
     .bookmark-preview-wrapper {
         cursor: grabbing;
         opacity: 1;
-        box-shadow: 0 4px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.2));
+        box-shadow: 0 4px 8px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 20%, transparent);
     }
 </style>
 

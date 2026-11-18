@@ -147,8 +147,8 @@ export class JjRepository implements Disposable {
 
     private _disposed = false;
     private _isValid: boolean | undefined;
-    async isValid(): Promise<boolean> {
-        if (this._isValid !== undefined) {
+    async isValid(options?: { force?: boolean }): Promise<boolean> {
+        if (!options?.force && this._isValid !== undefined) {
             return this._isValid;
         }
         const hostFs = this.host.system?.fs;
