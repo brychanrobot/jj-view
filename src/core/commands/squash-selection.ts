@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
 import { getFsPathFromUri, getRevisionFromUri, type Uri } from '../uri-utils';
@@ -30,11 +29,11 @@ export async function squashHunkIntoParentCommand(
         return;
     }
 
-    const relPath = path.relative(ctx.repo.jj.workspaceRoot, getFsPathFromUri(uri));
+    const fsPath = getFsPathFromUri(uri);
     const revision = payload?.revision || getRevisionFromUri(uri) || '@';
 
     try {
-        await ctx.repo.jj.squashSelectionIntoParent(relPath, ranges, revision);
+        await ctx.repo.jj.squashSelectionIntoParent(fsPath, ranges, revision);
         await ctx.repo.refresh({ reason: 'after squash hunk into parent' });
     } catch (e: unknown) {
         await showJjError(ctx.host.ui, e, 'Failed to squash hunk', ctx.repo.jj, ctx.log);
@@ -52,11 +51,10 @@ export async function squashSelectionIntoParentCommand(
     }
 
     const fsPath = getFsPathFromUri(uri);
-    const relPath = path.relative(ctx.repo.jj.workspaceRoot, fsPath);
     const revision = payload?.revision || getRevisionFromUri(uri) || '@';
 
     try {
-        await ctx.repo.jj.squashSelectionIntoParent(relPath, ranges, revision);
+        await ctx.repo.jj.squashSelectionIntoParent(fsPath, ranges, revision);
     } catch (e: unknown) {
         await showJjError(ctx.host.ui, e, 'Failed to squash selection', ctx.repo.jj, ctx.log);
     } finally {

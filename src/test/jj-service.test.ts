@@ -5,11 +5,16 @@
 
 import * as cp from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import type { ProcessExecOptions, ProcessResult } from '../core/host/host-system';
+import { NodeHostFs, NodeHostProcess, NodeHostSystem } from '../core/host/node-host-system';
 import { JjProcessTracker } from '../core/jj-process-tracker';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
 import { buildGraph, ScopedTestRepo, TestRepo } from './test-repo';
+import { exposePrivate } from './test-utils';
 
 describe('JjService Unit Tests', () => {
     let jjService: JjService;
@@ -2042,5 +2047,435 @@ log = "none()"
             await jjService.next();
             expect(repo.getParents('@')).toEqual([ids.c2.changeId]);
         });
+    });
+});
+
+interface JjServicePathHelpers {
+    toRelative(filePath: string): Promise<string>;
+    toRepoRelative(filePath: string): Promise<string>;
+}
+
+class WinDriveStubFs extends NodeHostFs {
+    public readonly realpathCalls: string[] = [];
+    private readonly normalizedMap: Map<string, string>;
+
+    constructor(realpathMap: ReadonlyMap<string, string>) {
+        super();
+        this.normalizedMap = new Map(Array.from(realpathMap.entries(), ([k, v]) => [k.replace(/\\/g, '/'), v]));
+    }
+
+    override async realpath(targetPath: string): Promise<string> {
+        this.realpathCalls.push(targetPath);
+        const mapped = this.normalizedMap.get(targetPath.replace(/\\/g, '/'));
+        if (mapped !== undefined) {
+            return mapped;
+        }
+        throw Object.assign(new Error(`ENOENT: ${targetPath}`), { code: 'ENOENT' });
+    }
+}
+
+class WinDriveStubProcess extends NodeHostProcess {
+    public rootCalls = 0;
+
+    constructor(private readonly rootOutput: string) {
+        super();
+    }
+
+    override async execFile(
+        file: string,
+        args: readonly string[],
+        options?: ProcessExecOptions,
+    ): Promise<ProcessResult> {
+        if (args.includes('root')) {
+            this.rootCalls++;
+            return { stdout: `${this.rootOutput}\n`, stderr: '', exitCode: 0 };
+        }
+        return super.execFile(file, args, options);
+    }
+}
+
+describe('JjService Symlinked workspaceRoot', () => {
+    let repo: TestRepo;
+
+    beforeEach(() => {
+        repo = new TestRepo();
+        repo.init();
+    });
+
+    afterEach(async () => {
+        await repo.dispose();
+    });
+
+    test('toRelative and toRepoRelative resolve realpath, symlink, deleted, and dotdot paths under symlinked workspaceRoot', async () => {
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-sym-paths-'));
+        const tempSymlink = path.join(tempContainer.path, 'ws-link');
+        const otherSymlink = path.join(tempContainer.path, 'other-ws-link');
+        const symlinkType = process.platform === 'win32' ? 'junction' : 'dir';
+        using _wsLink = new ScopedSymlink(tempSymlink, repo.path, symlinkType);
+        using _otherLink = new ScopedSymlink(otherSymlink, repo.path, symlinkType);
+
+        repo.writeFile('sub/file.txt', 'hello\n');
+        repo.writeFile('..notes.txt', 'dotdot\n');
+
+        const symlinkJj = new JjService(tempSymlink, NO_OP_LOGGER);
+        const helpers = exposePrivate<JjServicePathHelpers>(symlinkJj);
+
+        // Realpath inputs (the failure mode before #323)
+        expect(await helpers.toRelative(path.join(repo.path, 'sub', 'file.txt'))).toBe('sub/file.txt');
+        expect(await helpers.toRepoRelative(path.join(repo.path, 'sub', 'file.txt'))).toBe('sub/file.txt');
+
+        // Symlinked inputs (same symlink and alternate symlink)
+        expect(await helpers.toRelative(path.join(tempSymlink, 'sub', 'file.txt'))).toBe('sub/file.txt');
+        expect(await helpers.toRepoRelative(path.join(tempSymlink, 'sub', 'file.txt'))).toBe('sub/file.txt');
+        expect(await helpers.toRelative(path.join(otherSymlink, 'sub', 'file.txt'))).toBe('sub/file.txt');
+        expect(await helpers.toRepoRelative(path.join(otherSymlink, 'sub', 'file.txt'))).toBe('sub/file.txt');
+
+        // Deleted / non-existent leaf files climb to nearest existing directory
+        expect(await helpers.toRelative(path.join(repo.path, 'sub', 'deleted.txt'))).toBe('sub/deleted.txt');
+        expect(await helpers.toRepoRelative(path.join(repo.path, 'sub', 'deleted.txt'))).toBe('sub/deleted.txt');
+
+        // Files whose names start with `..` are treated as inside workspace
+        expect(await helpers.toRelative(path.join(repo.path, '..notes.txt'))).toBe('..notes.txt');
+        expect(await helpers.toRepoRelative(path.join(repo.path, '..notes.txt'))).toBe('..notes.txt');
+        expect(await helpers.toRelative(path.join(tempSymlink, '..notes.txt'))).toBe('..notes.txt');
+
+        // Relative and fileset inputs pass through without mangling
+        expect(await helpers.toRelative('sub/file.txt')).toBe('sub/file.txt');
+        expect(await helpers.toRepoRelative('sub/file.txt')).toBe('sub/file.txt');
+        expect(await helpers.toRelative('root-file:"sub/file.txt"')).toBe('root-file:"sub/file.txt"');
+    });
+
+    test('toRelative and toRepoRelative normalize Windows drive-letter casing and cross-drive paths', async () => {
+        const directService = new JjService('C:\\repo', NO_OP_LOGGER);
+        const directHelpers = exposePrivate<JjServicePathHelpers>(directService);
+        expect(await directHelpers.toRelative('c:/repo/sub/file.txt')).toBe('sub/file.txt');
+
+        const stubFs = new WinDriveStubFs(
+            new Map([
+                ['C:\\sym-repo', 'c:\\real-repo'],
+                ['C:\\real-repo', 'C:\\real-repo'],
+                ['D:\\junction', 'c:\\real-repo'],
+                ['D:\\junction\\sub\\file.txt', 'c:\\real-repo\\sub\\file.txt'],
+                ['C:\\real-repo\\sub\\file.txt', 'C:\\real-repo\\sub\\file.txt'],
+            ]),
+        );
+        const stubProcess = new WinDriveStubProcess('C:\\real-repo');
+        const stubSystem = new NodeHostSystem({ fs: stubFs, process: stubProcess });
+        const symlinkService = new JjService('C:\\sym-repo', NO_OP_LOGGER, { system: stubSystem });
+        const symlinkHelpers = exposePrivate<JjServicePathHelpers>(symlinkService);
+
+        // toRelative resolves workspaceReal without spawning `jj root`
+        expect(await symlinkHelpers.toRelative('C:\\real-repo\\sub\\file.txt')).toBe('sub/file.txt');
+        expect(stubProcess.rootCalls).toBe(0);
+
+        // normRepoReal ('c:/real-repo') === normWorkspaceReal ('c:/real-repo') despite differing casing
+        expect(await symlinkHelpers.toRepoRelative('sub/file.txt')).toBe('sub/file.txt');
+        expect(await symlinkHelpers.toRelative('D:\\junction\\sub\\file.txt')).toBe('sub/file.txt');
+        expect(await symlinkHelpers.toRepoRelative('D:\\junction\\sub\\file.txt')).toBe('sub/file.txt');
+
+        // Subdirectory/deleted-file climb through D:\junction -> c:\real-repo without leaf mapping
+        expect(await symlinkHelpers.toRelative('D:\\junction\\sub\\deleted.txt')).toBe('sub/deleted.txt');
+        expect(await symlinkHelpers.toRepoRelative('D:\\junction\\sub\\deleted.txt')).toBe('sub/deleted.txt');
+
+        // Non-existent path on Windows drive terminates cleanly at drive root without probing '/'
+        await symlinkHelpers.toRelative('C:\\nonexistent\\deleted.txt');
+        expect(stubFs.realpathCalls).not.toContain('/');
+
+        expect(await symlinkHelpers.toRepoRelative('A:b.txt')).toBe('A:b.txt');
+    });
+
+    test.skipIf(process.platform === 'win32')(
+        'tracked leaf symlinks inside repository are not dereferenced under symlinked workspaceRoot',
+        async () => {
+            using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-leaf-sym-'));
+            const tempSymlink = path.join(tempContainer.path, 'ws-link');
+            const otherSymlink = path.join(tempContainer.path, 'other-link');
+            using _wsLink = new ScopedSymlink(tempSymlink, repo.path, 'dir');
+            using _otherLink = new ScopedSymlink(otherSymlink, repo.path, 'dir');
+
+            const outsideTarget = path.join(tempContainer.path, 'outside.txt');
+            fs.writeFileSync(outsideTarget, 'outside target\n', 'utf-8');
+
+            repo.writeFile('target.txt', 'internal target\n');
+            fs.symlinkSync('target.txt', path.join(repo.path, 'sym-internal.txt'));
+            fs.symlinkSync(outsideTarget, path.join(repo.path, 'sym-external.txt'));
+            repo.snapshot();
+            repo.describe('parent with symlinks');
+
+            repo.new();
+            fs.unlinkSync(path.join(repo.path, 'sym-internal.txt'));
+            fs.symlinkSync('target-v2.txt', path.join(repo.path, 'sym-internal.txt'));
+            repo.snapshot();
+
+            const symlinkJj = new JjService(tempSymlink, NO_OP_LOGGER);
+            const helpers = exposePrivate<JjServicePathHelpers>(symlinkJj);
+
+            for (const baseRoot of [tempSymlink, repo.path, otherSymlink]) {
+                expect(await helpers.toRelative(path.join(baseRoot, 'sym-internal.txt'))).toBe('sym-internal.txt');
+                expect(await helpers.toRepoRelative(path.join(baseRoot, 'sym-internal.txt'))).toBe('sym-internal.txt');
+                expect(await helpers.toRelative(path.join(baseRoot, 'sym-external.txt'))).toBe('sym-external.txt');
+                expect(await helpers.toRepoRelative(path.join(baseRoot, 'sym-external.txt'))).toBe('sym-external.txt');
+            }
+
+            const realInternalSym = path.join(repo.path, 'sym-internal.txt');
+            const diffOutput = await symlinkJj.getDiff('@', realInternalSym);
+            expect(diffOutput).toContain('sym-internal.txt');
+            expect(diffOutput).toContain('target-v2.txt');
+
+            await symlinkJj.restore([realInternalSym]);
+            expect(fs.readlinkSync(path.join(repo.path, 'sym-internal.txt'))).toBe('target.txt');
+            expect(fs.readFileSync(path.join(repo.path, 'target.txt'), 'utf-8')).toBe('internal target\n');
+        },
+    );
+
+    test('setFileContent and setFilesContent write files with realpath inputs under symlinked workspaceRoot', async () => {
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-sym-write-'));
+        const tempSymlink = path.join(tempContainer.path, 'ws-link');
+        using _wsLink = new ScopedSymlink(tempSymlink, repo.path, process.platform === 'win32' ? 'junction' : 'dir');
+
+        const ids = await buildGraph(repo, [
+            {
+                label: 'parent',
+                description: 'parent',
+                files: { 'sub/a.txt': 'orig a\n', 'sub/b.txt': 'orig b\n' },
+            },
+            { label: 'child', parents: ['parent'], description: 'child', isCurrentWorkingCopy: true },
+        ]);
+
+        const symlinkJj = new JjService(tempSymlink, NO_OP_LOGGER);
+
+        await symlinkJj.setFileContent(ids.parent.changeId, path.join(repo.path, 'sub', 'a.txt'), 'single a\n');
+        expect(repo.getFileContent(ids.parent.changeId, 'sub/a.txt')).toBe('single a\n');
+
+        await symlinkJj.setFilesContent(
+            ids.parent.changeId,
+            new Map([
+                [path.join(repo.path, 'sub', 'a.txt'), 'batch a\n'],
+                [path.join(repo.path, 'sub', 'b.txt'), 'batch b\n'],
+            ]),
+        );
+        expect(repo.getFileContent(ids.parent.changeId, 'sub/a.txt')).toBe('batch a\n');
+        expect(repo.getFileContent(ids.parent.changeId, 'sub/b.txt')).toBe('batch b\n');
+    });
+
+    test('squashSelectionIntoParent moves selected lines using realpath under symlinked workspaceRoot', async () => {
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-sym-partial-'));
+        const tempSymlink = path.join(tempContainer.path, 'ws-link');
+        using _wsLink = new ScopedSymlink(tempSymlink, repo.path, process.platform === 'win32' ? 'junction' : 'dir');
+
+        const ids = await buildGraph(repo, [
+            {
+                label: 'parent',
+                description: 'parent',
+                files: { 'sub/partial.txt': 'line 0\nline 1\n' },
+            },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'child',
+                files: { 'sub/partial.txt': 'line 0\nline 1\nline 2\nline 3\n' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const symlinkJj = new JjService(tempSymlink, NO_OP_LOGGER);
+        const realFilePath = path.join(repo.path, 'sub', 'partial.txt');
+
+        await symlinkJj.squashSelectionIntoParent(realFilePath, [{ startLine: 2, endLine: 2 }], ids.child.changeId);
+
+        expect(repo.getFileContent(ids.parent.changeId, 'sub/partial.txt')).toBe('line 0\nline 1\nline 2\n');
+        expect(repo.getFileContent(ids.child.changeId, 'sub/partial.txt')).toBe('line 0\nline 1\nline 2\nline 3\n');
+
+        const remainingDiff = await symlinkJj.getDiff(ids.child.changeId, realFilePath);
+        expect(remainingDiff).not.toContain('+line 2');
+        expect(remainingDiff).toContain('+line 3');
+    });
+
+    test('getFileContent, getDiff, restore, squashRevision, and absorb work with realpaths under symlinked workspaceRoot', async () => {
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-sym-ops-'));
+        const tempSymlink = path.join(tempContainer.path, 'ws-link');
+        using _wsLink = new ScopedSymlink(tempSymlink, repo.path, process.platform === 'win32' ? 'junction' : 'dir');
+
+        const ids = await buildGraph(repo, [
+            {
+                label: 'parent',
+                description: 'parent',
+                files: {
+                    'sub/tracked.txt': 'v1\n',
+                    'sub/unchanged.txt': 'constant\n',
+                    'sub/restore-me.txt': 'initial restore\n',
+                    'sub/deleted-restore.txt': 'restore deleted\n',
+                    'sub/squash-me.txt': 'parent squash\n',
+                    'sub/absorb-me.txt': 'line1\nline2\n',
+                },
+            },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'child',
+                files: {
+                    'sub/tracked.txt': 'v2\n',
+                    'sub/restore-me.txt': 'modified restore\n',
+                    'sub/squash-me.txt': 'child squash\n',
+                    'sub/absorb-me.txt': 'line1\nline2 absorbed\n',
+                },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        repo.deleteFile('sub/deleted-restore.txt');
+
+        const symlinkJj = new JjService(tempSymlink, NO_OP_LOGGER);
+
+        // getFileContent (cached diff hit + fallback jj file show for unchanged file)
+        expect(await symlinkJj.getFileContent(path.join(repo.path, 'sub', 'tracked.txt'), ids.parent.changeId)).toBe(
+            'v1\n',
+        );
+        expect(await symlinkJj.getFileContent(path.join(repo.path, 'sub', 'unchanged.txt'), ids.child.changeId)).toBe(
+            'constant\n',
+        );
+
+        // getDiff
+        const diff = await symlinkJj.getDiff(ids.child.changeId, path.join(repo.path, 'sub', 'tracked.txt'));
+        expect(diff).toContain('-v1');
+        expect(diff).toContain('+v2');
+
+        // restore (both modified file and deleted file passed by realpath)
+        await symlinkJj.restore([
+            path.join(repo.path, 'sub', 'restore-me.txt'),
+            path.join(repo.path, 'sub', 'deleted-restore.txt'),
+        ]);
+        expect(fs.readFileSync(path.join(repo.path, 'sub', 'restore-me.txt'), 'utf-8')).toBe('initial restore\n');
+        expect(fs.readFileSync(path.join(repo.path, 'sub', 'deleted-restore.txt'), 'utf-8')).toBe('restore deleted\n');
+
+        // squashRevision
+        await symlinkJj.squashRevision({ paths: [path.join(repo.path, 'sub', 'squash-me.txt')] });
+        expect(repo.getFileContent('@-', 'sub/squash-me.txt')).toBe('child squash\n');
+
+        // absorb
+        await symlinkJj.absorb({ paths: [path.join(repo.path, 'sub', 'absorb-me.txt')] });
+        expect(repo.getFileContent('@-', 'sub/absorb-me.txt')).toBe('line1\nline2 absorbed\n');
+    });
+
+    test('secondary jj workspace accessed via symlinked workspaceRoot where repoRoot !== workspaceRoot', async () => {
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-sym-secws-'));
+        const baseIds = await buildGraph(repo, [
+            {
+                label: 'base',
+                description: 'base',
+                files: {
+                    'sub/ws.txt': 'base ws\nline2\n',
+                    'sub/unchanged.txt': 'same\n',
+                    'sub/restore.txt': 'base restore\n',
+                    'sub/squash.txt': 'base squash\n',
+                    'sub/absorb.txt': 'keep\nchange\n',
+                },
+            },
+        ]);
+
+        const secondWsPath = path.join(tempContainer.path, 'second_ws');
+        const secondRepo = repo.workspaceAdd('second_ws', baseIds.base.changeId, secondWsPath);
+        try {
+            // Add a parent commit with its own file edits in secondRepo and a working copy child commit on top
+            secondRepo.writeFile('sub/ws-edit.txt', 'initial ws edit\n');
+            secondRepo.writeFile('sub/absorb.txt', 'keep\nchange\n');
+            secondRepo.snapshot();
+            secondRepo.describe('ws parent');
+            const wsParentId = secondRepo.getChangeId('@');
+            secondRepo.new([wsParentId], 'ws child');
+            secondRepo.writeFile('sub/ws.txt', 'base ws\nline2\nline3\nline4\n');
+            secondRepo.writeFile('sub/restore.txt', 'modified restore\n');
+            secondRepo.writeFile('sub/squash.txt', 'child squash\n');
+            secondRepo.writeFile('sub/absorb.txt', 'keep\nchange absorbed\n');
+            secondRepo.snapshot();
+
+            const wsSymlink = path.join(tempContainer.path, 'second-ws-link');
+            using _wsLink = new ScopedSymlink(
+                wsSymlink,
+                secondRepo.path,
+                process.platform === 'win32' ? 'junction' : 'dir',
+            );
+
+            const secJj = new JjService(wsSymlink, NO_OP_LOGGER);
+            const helpers = exposePrivate<JjServicePathHelpers>(secJj);
+
+            // jj root returns the canonical secondRepo.path, which differs from symlink workspaceRoot
+            const discoveredRepoRoot = await secJj.getRepoRoot();
+            expect(discoveredRepoRoot).not.toBe(secJj.workspaceRoot);
+            expect(discoveredRepoRoot).toBeSameFsPath(secondRepo.path);
+            expect(await secJj.getRepoStorePath()).toBeSameFsPath(path.join(repo.path, '.jj', 'repo'));
+            expect(await secJj.getMainWorkspaceRoot()).toBeSameFsPath(repo.path);
+
+            const realWsFile = path.join(secondRepo.path, 'sub', 'ws.txt');
+            expect(await helpers.toRelative(realWsFile)).toBe('sub/ws.txt');
+            expect(await helpers.toRepoRelative(realWsFile)).toBe('sub/ws.txt');
+
+            expect(await secJj.getFileContent(path.join(secondRepo.path, 'sub', 'unchanged.txt'), '@')).toBe('same\n');
+            expect(await secJj.getDiff('@', realWsFile)).toContain('+line3');
+
+            await secJj.setFileContent(wsParentId, path.join(secondRepo.path, 'sub', 'ws-edit.txt'), 'edited\n');
+            expect(secondRepo.getFileContent(wsParentId, 'sub/ws-edit.txt')).toBe('edited\n');
+
+            await secJj.squashSelectionIntoParent(realWsFile, [{ startLine: 2, endLine: 2 }], '@');
+            expect(secondRepo.getFileContent(wsParentId, 'sub/ws.txt')).toBe('base ws\nline2\nline3\n');
+            const postSquashDiff = await secJj.getDiff('@', realWsFile);
+            expect(postSquashDiff).not.toContain('+line3');
+            expect(postSquashDiff).toContain('+line4');
+
+            await secJj.restore([path.join(secondRepo.path, 'sub', 'restore.txt')]);
+            expect(fs.readFileSync(path.join(secondRepo.path, 'sub', 'restore.txt'), 'utf-8')).toBe('base restore\n');
+
+            await secJj.squashRevision({ paths: [path.join(secondRepo.path, 'sub', 'squash.txt')] });
+            expect(secondRepo.getFileContent(wsParentId, 'sub/squash.txt')).toBe('child squash\n');
+
+            await secJj.absorb({ paths: [path.join(secondRepo.path, 'sub', 'absorb.txt')] });
+            expect(secondRepo.getFileContent(wsParentId, 'sub/absorb.txt')).toBe('keep\nchange absorbed\n');
+        } finally {
+            await secondRepo.dispose();
+        }
+    });
+
+    test('symlinked subdirectory workspaceRoot maps distinct repoReal and workspaceReal paths', async () => {
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-sym-subdir-'));
+        const subDir = path.join(repo.path, 'nested', 'app');
+        fs.mkdirSync(subDir, { recursive: true });
+        const subSymlink = path.join(tempContainer.path, 'sub-link');
+        using _subLink = new ScopedSymlink(subSymlink, subDir, process.platform === 'win32' ? 'junction' : 'dir');
+
+        const ids = await buildGraph(repo, [
+            {
+                label: 'parent',
+                description: 'parent',
+                files: {
+                    'nested/app/item.txt': 'l0\nl1\n',
+                    'nested/app/restore.txt': 'orig\n',
+                },
+            },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'child',
+                files: {
+                    'nested/app/item.txt': 'l0\nl1\nl2\nl3\n',
+                    'nested/app/restore.txt': 'mod\n',
+                },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const subJj = new JjService(subSymlink, NO_OP_LOGGER);
+        const helpers = exposePrivate<JjServicePathHelpers>(subJj);
+        const realItemPath = path.join(subDir, 'item.txt');
+
+        expect(await helpers.toRelative(realItemPath)).toBe('item.txt');
+        expect(await helpers.toRepoRelative(realItemPath)).toBe('nested/app/item.txt');
+        expect(await helpers.toRepoRelative('item.txt')).toBe('nested/app/item.txt');
+
+        await subJj.setFilesContent(ids.parent.changeId, new Map([[realItemPath, 'l0\nl1\n']]));
+        await subJj.squashSelectionIntoParent(realItemPath, [{ startLine: 2, endLine: 2 }], ids.child.changeId);
+        expect(repo.getFileContent(ids.parent.changeId, 'nested/app/item.txt')).toBe('l0\nl1\nl2\n');
+        expect(await subJj.getDiff(ids.child.changeId, realItemPath)).toContain('+l3');
+
+        await subJj.restore([path.join(subDir, 'restore.txt')]);
+        expect(fs.readFileSync(path.join(subDir, 'restore.txt'), 'utf-8')).toBe('orig\n');
     });
 });
