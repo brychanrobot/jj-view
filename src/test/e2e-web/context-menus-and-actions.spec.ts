@@ -407,7 +407,9 @@ test.describe('Standalone Web Context Menus and Actions', () => {
         await baseOption.click();
 
         await expect(quickInput).toHaveCount(0);
-        await expect.poll(() => testRepo.readFile('restore-target.txt'), { timeout: 10000 }).toBe('v1 original\n');
+        await expect
+            .poll(() => testRepo.readFileIfExists('restore-target.txt'), { timeout: 10000 })
+            .toBe('v1 original\n');
     });
 
     test('should flush dirty buffer, restore from revision, and not clobber with stale auto-save', async ({
@@ -464,7 +466,9 @@ test.describe('Standalone Web Context Menus and Actions', () => {
         await baseOption.click();
 
         await expect(quickInput).toHaveCount(0);
-        await expect.poll(() => testRepo.readFile('dirty-restore.txt'), { timeout: 10000 }).toBe('v1 baseline\n');
+        await expect
+            .poll(() => testRepo.readFileIfExists('dirty-restore.txt'), { timeout: 10000 })
+            .toBe('v1 baseline\n');
         await expect(tab).not.toHaveClass(/dirty/, { timeout: 5000 });
         await expect(diffViewer).toContainText('v1 baseline', { timeout: 5000 });
         await expect(diffViewer).not.toContainText('unsaved edit');

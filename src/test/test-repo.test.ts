@@ -14,7 +14,9 @@ describe('TestRepo', () => {
         repo.init();
     });
 
-    afterEach(() => {});
+    afterEach(async () => {
+        await repo.dispose();
+    });
 
     it('basic operations', () => {
         repo.writeFile('file.txt', 'hello');
@@ -25,6 +27,16 @@ describe('TestRepo', () => {
 
         const id = repo.getChangeId('@');
         expect(id).toBeTruthy();
+    });
+
+    it('readFileIfExists returns file content, undefined on ENOENT, and rethrows non-ENOENT errors', () => {
+        expect(repo.readFileIfExists('missing.txt')).toBeUndefined();
+
+        repo.writeFile('nested/present.txt', 'hello world');
+        expect(repo.readFileIfExists('nested/present.txt')).toBe('hello world');
+
+        // Reading a directory triggers EISDIR (or EPERM/EACCES on Windows), not ENOENT
+        expect(() => repo.readFileIfExists('nested')).toThrow();
     });
 
     it('buildGraph creates expected structure', async () => {

@@ -10,6 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { match, P } from 'ts-pattern';
 import which from 'which';
+import { isNodeErrorWithCode } from '../utils/error-utils';
 import { recordCommandTrace } from './perf-trace';
 
 function memoize<T>(fn: () => T): () => T {
@@ -467,6 +468,22 @@ export class TestRepo {
 
     readFile(relativePath: string): string {
         return fs.readFileSync(path.join(this.path, relativePath), 'utf-8');
+    }
+
+    /**
+     * Reads a file relative to the repository root, returning `undefined` when it
+     * does not exist (`ENOENT`, e.g. during a transient unlink+rename window) and
+     * rethrowing any other filesystem error.
+     */
+    readFileIfExists(relativePath: string): string | undefined {
+        try {
+            return this.readFile(relativePath);
+        } catch (err) {
+            if (isNodeErrorWithCode(err, 'ENOENT')) {
+                return undefined;
+            }
+            throw err;
+        }
     }
 
     getFileContent(revision: string, relativePath: string): string {

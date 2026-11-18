@@ -24,3 +24,10 @@ export function getErrorMessage(error: unknown): string {
     }
     return String(error);
 }
+
+/**
+ * Checks whether an unknown caught value is an object carrying the given Node/system error code.
+ */
+export function isNodeErrorWithCode(error: unknown, code: string): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
