@@ -6,6 +6,7 @@ import '@vscode-elements/elements';
 import { mount } from 'svelte';
 import { initBridge } from '../transport/bridge.svelte';
 import LogApp from './LogApp.svelte';
+import './log-webview.css';
 
 const rootElement = document.getElementById('root');
 if (rootElement) {

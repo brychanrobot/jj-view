@@ -92,8 +92,25 @@ describe('LogApp SSR Rendering', () => {
         expect(styleBlock).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
         expect(styleBlock).not.toMatch(/\brgba?\(/i);
         expect(styleBlock).toContain('.status-scroll-container');
+        expect(styleBlock).toContain('.app-container');
+        expect(styleBlock).toContain('.scroll-container');
+        expect(styleBlock).not.toContain('100vh');
         expect(styleBlock).toContain('.log-status-icon.codicon');
         expect(styleBlock).toContain('var(--vscode-descriptionForeground)');
         expect(styleBlock).toContain('var(--vscode-errorForeground, var(--vscode-descriptionForeground))');
+    });
+
+    it('clamps the VS Code log webview root without hardcoding colors in LogPane.svelte', () => {
+        const logWebviewCss = fs.readFileSync(path.resolve(__dirname, '../core/webview/log/log-webview.css'), 'utf8');
+        expect(logWebviewCss).toContain('overflow: hidden;');
+        expect(logWebviewCss).toContain('height: 100%;');
+
+        const logPaneSource = fs.readFileSync(path.resolve(__dirname, '../../web/src/log/LogPane.svelte'), 'utf8');
+        const styleMatch = /<style>([\s\S]*?)<\/style>/.exec(logPaneSource);
+        expect(styleMatch).not.toBeNull();
+        const styleBlock = styleMatch?.[1] ?? '';
+        expect(styleBlock).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+        expect(styleBlock).not.toMatch(/\brgba?\(/i);
+        expect(styleBlock).not.toContain('100vh');
     });
 });

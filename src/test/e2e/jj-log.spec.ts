@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { expect } from '@playwright/test';
+import { expect, type Frame, type Locator, type Page } from '@playwright/test';
 import { getPersonDisplayStrings } from '../../core/webview/common/utils/person-utils';
 import { toUnicodeSansBold, toUnicodeSansRegular } from '../../core/webview/log/utils/commit-tooltip';
 import { buildGraph, ROOT_ID, TestRepo } from '../test-repo';
 import {
     clickLogAction,
     dragAndDrop,
+    ensureViewVisible,
     focusJJLog,
     getLogWebview,
     pickQuickPickItem,
@@ -21,6 +22,159 @@ import {
     waitForWebviewCommitRemoved,
     waitForWebviewWorkingCopy,
 } from './e2e-helpers';
+import type { VSCodeFixture } from './vscode-fixture';
+
+interface LogScrollTelemetry {
+    readonly docClientH: number;
+    readonly docScrollH: number;
+    readonly docScrollTop: number;
+    readonly bodyClientH: number;
+    readonly bodyScrollH: number;
+    readonly bodyScrollTop: number;
+    readonly rootClientH: number;
+    readonly rootScrollH: number;
+    readonly appClientH: number;
+    readonly appScrollH: number;
+    readonly scClientH: number;
+    readonly scScrollH: number;
+    readonly scScrollTop: number;
+    readonly scClientW: number;
+    readonly scScrollW: number;
+    readonly verticalScrollables: readonly string[];
+}
+
+async function getLogScrollTelemetry(webview: Frame): Promise<LogScrollTelemetry> {
+    return await webview.evaluate(() => {
+        const sc = document.querySelector('.scroll-container');
+        const app = document.querySelector('.app-container');
+        const root = document.getElementById('root');
+        const docEl = document.documentElement;
+        const body = document.body;
+        const scrollingEl = document.scrollingElement;
+
+        const verticalScrollables: string[] = [];
+        for (const el of Array.from(document.querySelectorAll('*'))) {
+            const style = getComputedStyle(el);
+            const isScrollableY = style.overflowY === 'auto' || style.overflowY === 'scroll';
+            if (isScrollableY && el.scrollHeight > el.clientHeight + 1) {
+                const classPart =
+                    typeof el.className === 'string' && el.className.trim()
+                        ? `.${el.className.trim().split(/\s+/).join('.')}`
+                        : '';
+                verticalScrollables.push(`${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${classPart}`);
+            }
+        }
+
+        return {
+            docClientH: docEl.clientHeight,
+            docScrollH: docEl.scrollHeight,
+            docScrollTop: scrollingEl?.scrollTop ?? docEl.scrollTop,
+            bodyClientH: body.clientHeight,
+            bodyScrollH: body.scrollHeight,
+            bodyScrollTop: body.scrollTop,
+            rootClientH: root?.clientHeight ?? 0,
+            rootScrollH: root?.scrollHeight ?? 0,
+            appClientH: app?.clientHeight ?? 0,
+            appScrollH: app?.scrollHeight ?? 0,
+            scClientH: sc?.clientHeight ?? 0,
+            scScrollH: sc?.scrollHeight ?? 0,
+            scScrollTop: sc?.scrollTop ?? 0,
+            scClientW: sc?.clientWidth ?? 0,
+            scScrollW: sc?.scrollWidth ?? 0,
+            verticalScrollables,
+        };
+    });
+}
+
+function expectNoOuterVerticalOverflow(t: LogScrollTelemetry): void {
+    expect(t.docScrollH).toBeLessThanOrEqual(t.docClientH);
+    expect(t.bodyScrollH).toBeLessThanOrEqual(t.bodyClientH);
+    expect(t.rootScrollH).toBeLessThanOrEqual(t.rootClientH);
+    expect(t.appScrollH).toBeLessThanOrEqual(t.appClientH);
+}
+
+function expectSingleVerticalLogScrollbar(t: LogScrollTelemetry): void {
+    expectNoOuterVerticalOverflow(t);
+    expect(t.scScrollH).toBeGreaterThan(t.scClientH);
+    expect(t.scScrollW).toBeLessThanOrEqual(t.scClientW);
+    expect(t.verticalScrollables).toHaveLength(1);
+    expect(t.verticalScrollables[0]).toContain('scroll-container');
+}
+
+async function openLogPaneWithCollapsedChanges(
+    page: Page,
+    height: number,
+): Promise<{ webview: Frame; changesHeader: Locator; collapsedChanges: boolean }> {
+    const logHeader = page.locator('.pane-header', { hasText: 'JJ Log' }).first();
+    await ensureViewVisible(page, logHeader, 'Control+Alt+l');
+    if ((await logHeader.getAttribute('aria-expanded')) === 'false') {
+        await logHeader.click();
+    }
+    const changesHeader = page.locator('.pane-header', { hasText: 'Changes' }).first();
+    await expect(changesHeader).toBeVisible({ timeout: 10000 });
+    let collapsedChanges = false;
+    if ((await changesHeader.getAttribute('aria-expanded')) === 'true') {
+        await changesHeader.click();
+        await expect(changesHeader).toHaveAttribute('aria-expanded', 'false');
+        collapsedChanges = true;
+    }
+    await page.keyboard.press('Control+Alt+l');
+    await page.setViewportSize({ width: 1280, height });
+
+    const webview = await getLogWebview(page);
+    await expect(webview.locator('.commit-row').first()).toBeVisible({ timeout: 15000 });
+    await expect.poll(async () => (await getLogScrollTelemetry(webview)).scClientH).toBeGreaterThan(280);
+    return { webview, changesHeader, collapsedChanges };
+}
+
+interface ScrollTestCleanupState {
+    readonly activePage?: Page;
+    readonly originalViewport: { width: number; height: number } | null;
+    readonly changesHeader?: Locator;
+    readonly collapsedChanges: boolean;
+    readonly originalColorTheme?: string;
+    readonly changedTheme: boolean;
+}
+
+async function restoreScrollTestState(
+    vscode: VSCodeFixture,
+    repo: TestRepo,
+    state: ScrollTestCleanupState,
+): Promise<void> {
+    if (state.changedTheme) {
+        await vscode
+            .evaluate(async (vscodeApi, _api, targetTheme) => {
+                if (typeof targetTheme !== 'string') {
+                    return;
+                }
+                await vscodeApi.workspace
+                    .getConfiguration('workbench')
+                    .update('colorTheme', targetTheme, vscodeApi.ConfigurationTarget.Global);
+            }, state.originalColorTheme ?? 'Default Dark Modern')
+            .catch(() => {});
+        if (state.activePage) {
+            await expect(state.activePage.locator('.monaco-workbench'))
+                .not.toHaveClass(/(?:^|\s)vs(?:\s|$)/, { timeout: 5000 })
+                .catch(() => {});
+        }
+    }
+    if (state.collapsedChanges && state.changesHeader) {
+        const isExpanded = await state.changesHeader.getAttribute('aria-expanded').catch(() => null);
+        if (isExpanded === 'false') {
+            await state.changesHeader.click().catch(() => {});
+            await expect(state.changesHeader)
+                .toHaveAttribute('aria-expanded', 'true', { timeout: 5000 })
+                .catch(() => {});
+        }
+    }
+    if (state.activePage && state.originalViewport) {
+        await state.activePage.setViewportSize(state.originalViewport).catch(() => {});
+    }
+    if (state.activePage) {
+        await vscode.clearRepositoryManager().catch(() => {});
+    }
+    await repo.dispose();
+}
 
 test.describe('JJ Log Pane E2E', () => {
     test('Webview Initialization & Rendering', async ({ vscode }) => {
@@ -593,5 +747,152 @@ test.describe('JJ Log Pane E2E', () => {
         );
 
         await expect(featureDesc).toHaveAttribute('title', expectedPattern);
+    });
+
+    test('Log view renders strictly one vertical scrollable container for long history (#397)', async ({ vscode }) => {
+        const repo = new TestRepo();
+        let activePage: Page | undefined;
+        let originalViewport: { width: number; height: number } | null = null;
+        let changesHeader: Locator | undefined;
+        let collapsedChanges = false;
+        let originalColorTheme: string | undefined;
+        let changedTheme = false;
+
+        try {
+            repo.init();
+            await buildGraph(repo, [
+                { label: 'b0', description: 'base commit', files: { 'f.txt': '0' } },
+                { label: 'b1', parents: ['b0'], description: 'branch 1 commit', files: { 'f1.txt': '1' } },
+                { label: 'b2', parents: ['b0'], description: 'branch 2 commit', files: { 'f2.txt': '2' } },
+                {
+                    label: 'merge',
+                    parents: ['b1', 'b2'],
+                    description: 'merge branch 1 and branch 2',
+                    files: { 'merge.txt': 'm' },
+                },
+            ]);
+            for (let i = 1; i <= 45; i++) {
+                repo.writeFile('history.txt', `revision ${i}\n`);
+                repo.describe(`feat: log scrollbar commit ${i}`);
+                if (i < 45) {
+                    repo.new();
+                }
+            }
+
+            const { page } = await vscode.openWorkspace(repo);
+            activePage = page;
+            originalViewport =
+                page.viewportSize() ??
+                (await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight })));
+            const rawTheme = await vscode.evaluate((vscodeApi) =>
+                vscodeApi.workspace.getConfiguration('workbench').get<string>('colorTheme'),
+            );
+            originalColorTheme = typeof rawTheme === 'string' && rawTheme.length > 0 ? rawTheme : 'Default Dark Modern';
+
+            const opened = await openLogPaneWithCollapsedChanges(page, 500);
+            const webview = opened.webview;
+            changesHeader = opened.changesHeader;
+            collapsedChanges = opened.collapsedChanges;
+
+            const initialTelemetry = await getLogScrollTelemetry(webview);
+            expectSingleVerticalLogScrollbar(initialTelemetry);
+
+            // Scroll via mouse wheel and verify strictly .scroll-container scrolls to bottom without outer scroll
+            const scrollContainer = webview.locator('.scroll-container');
+            await scrollContainer.hover();
+            await expect
+                .poll(async () => {
+                    await page.mouse.wheel(0, 400);
+                    return (await getLogScrollTelemetry(webview)).scScrollTop;
+                })
+                .toBeGreaterThan(0);
+
+            const bottomRow = webview.locator('.commit-row', { hasText: 'base commit' });
+            await bottomRow.scrollIntoViewIfNeeded();
+            await expect(bottomRow).toBeVisible();
+
+            const scrolledTelemetry = await getLogScrollTelemetry(webview);
+            expect(scrolledTelemetry.docScrollTop).toBe(0);
+            expect(scrolledTelemetry.bodyScrollTop).toBe(0);
+            expect(scrolledTelemetry.scScrollTop).toBeGreaterThan(0);
+            expectSingleVerticalLogScrollbar(scrolledTelemetry);
+
+            // Resize viewport height and verify clientHeight adapts cleanly with strictly one scrollable container
+            await page.setViewportSize({ width: 1280, height: 380 });
+            await expect
+                .poll(async () => (await getLogScrollTelemetry(webview)).scClientH)
+                .toBeLessThan(initialTelemetry.scClientH);
+            const resizedTelemetry = await getLogScrollTelemetry(webview);
+            expectSingleVerticalLogScrollbar(resizedTelemetry);
+
+            // Verify single-scrollbar invariant in Default Light Modern theme as well
+            await page.setViewportSize({ width: 1280, height: 500 });
+            await expect.poll(async () => (await getLogScrollTelemetry(webview)).scClientH).toBeGreaterThan(280);
+            const darkWebviewBg = await webview.evaluate(() => getComputedStyle(document.body).backgroundColor);
+            changedTheme = true;
+            await vscode.evaluate(async (vscodeApi) => {
+                await vscodeApi.workspace
+                    .getConfiguration('workbench')
+                    .update('colorTheme', 'Default Light Modern', vscodeApi.ConfigurationTarget.Global);
+            });
+            await expect(page.locator('.monaco-workbench')).toHaveClass(/(?:^|\s)vs(?:\s|$)/, { timeout: 10000 });
+            await expect
+                .poll(async () => await webview.evaluate(() => getComputedStyle(document.body).backgroundColor))
+                .not.toBe(darkWebviewBg);
+
+            const lightTelemetry = await getLogScrollTelemetry(webview);
+            expectSingleVerticalLogScrollbar(lightTelemetry);
+        } finally {
+            await restoreScrollTestState(vscode, repo, {
+                activePage,
+                originalViewport,
+                changesHeader,
+                collapsedChanges,
+                originalColorTheme,
+                changedTheme,
+            });
+        }
+    });
+
+    test('Log view renders zero vertical scrollables for short history (#397)', async ({ vscode }) => {
+        const repo = new TestRepo();
+        let activePage: Page | undefined;
+        let originalViewport: { width: number; height: number } | null = null;
+        let changesHeader: Locator | undefined;
+        let collapsedChanges = false;
+
+        try {
+            repo.init();
+            repo.writeFile('a.txt', 'hello\n');
+            repo.describe('feat: short history base');
+            repo.new();
+            repo.writeFile('b.txt', 'world\n');
+            repo.describe('feat: short history top');
+
+            const { page } = await vscode.openWorkspace(repo);
+            activePage = page;
+            originalViewport =
+                page.viewportSize() ??
+                (await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight })));
+
+            const opened = await openLogPaneWithCollapsedChanges(page, 500);
+            const webview = opened.webview;
+            changesHeader = opened.changesHeader;
+            collapsedChanges = opened.collapsedChanges;
+
+            const telemetry = await getLogScrollTelemetry(webview);
+            expectNoOuterVerticalOverflow(telemetry);
+            expect(telemetry.scScrollH).toBeLessThanOrEqual(telemetry.scClientH);
+            expect(telemetry.scScrollW).toBeLessThanOrEqual(telemetry.scClientW);
+            expect(telemetry.verticalScrollables).toHaveLength(0);
+        } finally {
+            await restoreScrollTestState(vscode, repo, {
+                activePage,
+                originalViewport,
+                changesHeader,
+                collapsedChanges,
+                changedTheme: false,
+            });
+        }
     });
 });

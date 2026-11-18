@@ -182,8 +182,8 @@ function handleHeaderClick(e: MouseEvent): void {
     height: 100%;
     width: 100%;
     min-height: 0;
-    background-color: var(--vscode-sideBar-background, #171717);
-    color: var(--vscode-foreground, #d4d4d4);
+    background-color: var(--vscode-sideBar-background);
+    color: var(--vscode-foreground);
     overflow: hidden;
 }
 
@@ -193,9 +193,9 @@ function handleHeaderClick(e: MouseEvent): void {
     justify-content: space-between;
     height: 35px;
     padding: 0 16px;
-    background-color: var(--vscode-editorGroupHeader-tabsBackground, #171717);
-    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, #1d1d1d);
-    border-top: 1px solid var(--vscode-editorGroupHeader-tabsBorder, #1d1d1d);
+    background-color: var(--vscode-editorGroupHeader-tabsBackground);
+    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder);
+    border-top: 1px solid var(--vscode-editorGroupHeader-tabsBorder);
     user-select: none;
     flex-shrink: 0;
     box-sizing: border-box;
@@ -220,14 +220,14 @@ function handleHeaderClick(e: MouseEvent): void {
 }
 
 .log-title-button:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder, #007fd4);
+    outline: 1px solid var(--vscode-focusBorder);
     outline-offset: 1px;
     border-radius: 4px;
 }
 
 .log-title-button .codicon {
     font-size: 16px;
-    color: var(--vscode-icon-foreground, #8a8a8a);
+    color: var(--vscode-icon-foreground, var(--vscode-descriptionForeground));
 }
 
 .log-title {
@@ -235,7 +235,7 @@ function handleHeaderClick(e: MouseEvent): void {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.6px;
-    color: var(--vscode-descriptionForeground, #8a8a8a);
+    color: var(--vscode-descriptionForeground);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -249,7 +249,7 @@ function handleHeaderClick(e: MouseEvent): void {
 
 .toolbar-button {
     background: transparent;
-    color: var(--vscode-icon-foreground, #8a8a8a);
+    color: var(--vscode-icon-foreground, var(--vscode-descriptionForeground));
     border: none;
     border-radius: 4px;
     width: 24px;
@@ -263,7 +263,7 @@ function handleHeaderClick(e: MouseEvent): void {
 }
 
 .toolbar-button:hover {
-    background-color: var(--vscode-toolbar-hoverBackground, rgba(31, 62, 94, 0.45));
+    background-color: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
     color: var(--vscode-foreground);
 }
 
@@ -279,23 +279,6 @@ function handleHeaderClick(e: MouseEvent): void {
     font-size: var(--vscode-font-size, 13px);
 }
 
-:global(.log-content > .app-container) {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    flex: 1 1 0;
-    overflow: hidden;
-}
-
-:global(.log-content .scroll-container) {
-    flex: 1 1 0 !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-}
-
 :global(.log-content .commit-id) {
     font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace) !important;
     font-size: 12px !important;
@@ -304,6 +287,6 @@ function handleHeaderClick(e: MouseEvent): void {
 :global(.log-content .commit-desc) {
     font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif);
     font-size: var(--vscode-font-size, 13px);
-    color: var(--vscode-foreground, #d4d4d4);
+    color: var(--vscode-foreground);
 }
 </style>
