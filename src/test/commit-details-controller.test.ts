@@ -1090,4 +1090,53 @@ describe('CommitDetailsController Domain Unit Tests', () => {
             populateSpy.mockRestore();
         }
     });
+
+    test('dispatches openFileOnRemote and copyRemoteFileUrl from file context menu messages', async () => {
+        testRepo.writeFile('src/item.ts', 'const v = 1;\n');
+        testRepo.describe('commit for remote links');
+        const changeId = testRepo.getChangeId('@');
+        const commitId = testRepo.getCommitId('@');
+
+        const repoInstance = await repositoryManager.maybeRegisterRepositoryContainingUri(Uri.file(testRepo.path));
+        if (!repoInstance) {
+            throw new Error('repo not found');
+        }
+
+        const detailsController = new CommitDetailsController(changeId, repoInstance, fakeHost);
+        const executeSpy = vi.spyOn(fakeHost.commands, 'executeCommand');
+
+        try {
+            await detailsController.load();
+
+            const openHandled = await detailsController.handleMessage({
+                type: 'openFileOnRemote',
+                payload: { changeId, path: 'src/item.ts', status: 'added' },
+            });
+            const copyHandled = await detailsController.handleMessage({
+                type: 'copyRemoteFileUrl',
+                payload: { changeId, path: 'src/item.ts', status: 'deleted' },
+            });
+
+            expect(openHandled).toBe(true);
+            expect(copyHandled).toBe(true);
+            expect(executeSpy).toHaveBeenCalledWith('jj-view.openFileOnRemote', {
+                filePath: 'src/item.ts',
+                isRepoRelative: true,
+                revision: commitId,
+                fileStatus: 'added',
+                skipActiveSelection: true,
+                rootUri: repoInstance.rootUri,
+            });
+            expect(executeSpy).toHaveBeenCalledWith('jj-view.copyRemoteFileUrl', {
+                filePath: 'src/item.ts',
+                isRepoRelative: true,
+                revision: commitId,
+                fileStatus: 'deleted',
+                skipActiveSelection: true,
+                rootUri: repoInstance.rootUri,
+            });
+        } finally {
+            detailsController.dispose();
+        }
+    });
 });

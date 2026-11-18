@@ -24,6 +24,8 @@ interface BaseProps {
     onOpenMultiDiff: () => void;
     onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
     onSplitFiles?: (paths: string[], placement: 'before' | 'after') => void;
+    onOpenFileOnRemote?: (file: JjStatusEntry) => void;
+    onCopyRemoteFileUrl?: (file: JjStatusEntry) => void;
 }
 
 const baseProps: BaseProps = {
@@ -265,20 +267,30 @@ describe('CommitDetails hydration', () => {
             target.remove();
         }
 
-        // Immutable commit must not open split context menu
+        // Immutable commit hides split context menu items while exposing remote file actions
         const immTarget = document.createElement('div');
         document.body.appendChild(immTarget);
+        const onCopyRemoteFileUrl = vi.fn();
         const immDispose = clientMod.mountDetails(immTarget, {
             ...baseProps,
             files: sampleFiles,
             isImmutable: true,
             onSplitFiles,
+            onCopyRemoteFileUrl,
         });
         try {
             const immRow = immTarget.querySelector<HTMLButtonElement>('.file-row');
             immRow?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }));
             clientMod.flush();
-            expect(immTarget.querySelector('[data-testid="commit-details-file-context-menu"]')).toBeNull();
+            const immMenu = immTarget.querySelector('[data-testid="commit-details-file-context-menu"]');
+            expect(immMenu).not.toBeNull();
+            expect(immMenu?.querySelector('[data-testid="details-split-before"]')).toBeNull();
+            expect(immMenu?.querySelector('[data-testid="details-split-after"]')).toBeNull();
+            const copyBtn = immMenu?.querySelector<HTMLButtonElement>('[data-testid="details-copy-remote-file-url"]');
+            expect(copyBtn).not.toBeNull();
+            copyBtn?.click();
+            clientMod.flush();
+            expect(onCopyRemoteFileUrl).toHaveBeenCalledWith(sampleFiles[0]);
         } finally {
             immDispose();
             immTarget.remove();

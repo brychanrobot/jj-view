@@ -10,7 +10,11 @@ import type { Uri } from '../../../src/core/uri-utils';
 import type { CommentThreadHandle } from '../comments/comments-store.svelte';
 import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
 import { isBinaryFile, isImageByExtension, isSvgByExtension } from './binary-detection';
-import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
+import {
+    buildEditorContextJson,
+    type EditorChatContextSelection,
+    resolveDiffOrFileSelection,
+} from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, getOrCreateDiffWorkerPool, isLightTheme } from './highlighter-setup';
 import {
@@ -665,6 +669,17 @@ onDestroy(() => {
     }
     cleanupInstances();
 });
+
+const editorContextJson = $derived(
+    buildEditorContextJson({
+        isInDiffEditor: true,
+        resourceUri,
+        isWorkingCopy,
+        filename,
+        fileStatus,
+        parentMutable,
+    }),
+);
 </script>
 
 <div class="pierre-diff-viewer" data-testid="pierre-diff-viewer">
@@ -751,7 +766,7 @@ onDestroy(() => {
                 : undefined}
         />
     {:else if isBinary}
-        <div class="binary-card" data-testid="binary-diff-card">
+        <div class="binary-card" data-testid="binary-diff-card" data-vscode-context={editorContextJson}>
             <i class="codicon codicon-file-binary binary-icon" aria-hidden="true"></i>
             <h3>Binary file not shown</h3>
             <p class="binary-filename">{filename}</p>
@@ -764,24 +779,7 @@ onDestroy(() => {
             bind:this={containerEl}
             class="diff-content-container"
             data-testid="diff-content-container"
-            data-vscode-context={JSON.stringify({
-                menuId: 'editor/context',
-                isInDiffEditor: true,
-                'jj.parentMutable': parentMutable,
-                resourceScheme: resourceUri?.scheme ?? (isWorkingCopy ? 'file' : 'jj-view'),
-                resourceFilename: filename.replace(/\s*\([^)]*\)$/, '').trim(),
-                resourceUri: resourceUri
-                    ? {
-                          scheme: resourceUri.scheme,
-                          path: resourceUri.path,
-                          fsPath: resourceUri.fsPath,
-                          authority: resourceUri.authority,
-                          query: resourceUri.query,
-                          fragment: resourceUri.fragment,
-                      }
-                    : undefined,
-                preventDefaultContextMenuItems: true,
-            })}
+            data-vscode-context={editorContextJson}
         ></div>
     {/if}
 </div>

@@ -29,6 +29,7 @@ import { createNewAfterPayload } from '../vscode/payloads/new-after.payload';
 import { createNewBeforePayload } from '../vscode/payloads/new-before.payload';
 import { createPickChangePayload } from '../vscode/payloads/pick-change.payload';
 import { createRebaseOntoSelectedPayload } from '../vscode/payloads/rebase.payload';
+import { createRemoteFileUrlPayload } from '../vscode/payloads/remote-file-url.payload';
 import { createRestorePayload } from '../vscode/payloads/restore.payload';
 import { createRestoreFileFromRevisionPayload } from '../vscode/payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from '../vscode/payloads/simplify-parents.payload';
@@ -663,6 +664,71 @@ describe('vscode payloads', () => {
                 tabGroup.activeTab = prevTab;
                 vscode.window.activeTextEditor = prevEditor;
             }
+        });
+    });
+
+    describe('remote file url payload', () => {
+        it('extracts active editor URI and 1-based line range for Command Palette and editor/context', () => {
+            const fileUri = Uri.file('/workspace/repo/src/app.ts');
+            const prevEditor = vscode.window.activeTextEditor;
+
+            try {
+                vscode.window.activeTextEditor = createMock<vscode.TextEditor>({
+                    document: createMock<vscode.TextDocument>({ uri: fileUri }),
+                    selection: new vscode.Selection(new vscode.Position(3, 0), new vscode.Position(8, 5)),
+                });
+
+                const fromPalette = createRemoteFileUrlPayload([]);
+                expect(fromPalette.fileUri?.toString()).toBe(fileUri.toString());
+                expect(fromPalette.lineRange).toEqual({ startLine: 4, endLine: 9 });
+                expect(fromPalette.skipActiveSelection).toBeUndefined();
+
+                const fromEditorContext = createRemoteFileUrlPayload([fileUri]);
+                expect(fromEditorContext.fileUri?.toString()).toBe(fileUri.toString());
+                expect(fromEditorContext.lineRange).toEqual({ startLine: 4, endLine: 9 });
+                expect(fromEditorContext.skipActiveSelection).toBe(false);
+
+                // Explorer context menu passes [clickedUri, selectedUris] and skips active editor selection
+                const fromExplorer = createRemoteFileUrlPayload([fileUri, [fileUri]]);
+                expect(fromExplorer.fileUri?.toString()).toBe(fileUri.toString());
+                expect(fromExplorer.lineRange).toBeUndefined();
+                expect(fromExplorer.skipActiveSelection).toBe(true);
+            } finally {
+                vscode.window.activeTextEditor = prevEditor;
+            }
+        });
+
+        it('extracts SCM resource state and explicit Commit Details payloads without active editor selection', () => {
+            const revUri = Uri.parse('jj-view:///src/a.ts#root=/repo&jj-revision=xyz&revision=xyz');
+            const fromScm = createRemoteFileUrlPayload([
+                {
+                    resourceUri: revUri,
+                    revision: 'xyz',
+                    status: 'deleted',
+                },
+            ]);
+            expect(fromScm.fileUri?.toString()).toBe(revUri.toString());
+            expect(fromScm.revision).toBe('xyz');
+            expect(fromScm.fileStatus).toBe('deleted');
+            expect(fromScm.skipActiveSelection).toBe(true);
+
+            const fromDetails = createRemoteFileUrlPayload([
+                {
+                    filePath: 'src/a.ts',
+                    isRepoRelative: true,
+                    revision: 'commit123',
+                    fileStatus: 'modified',
+                },
+            ]);
+            expect(fromDetails).toEqual({
+                fileUri: undefined,
+                filePath: 'src/a.ts',
+                isRepoRelative: true,
+                revision: 'commit123',
+                fileStatus: 'modified',
+                lineRange: undefined,
+                skipActiveSelection: true,
+            });
         });
     });
 });

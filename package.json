@@ -768,6 +768,18 @@
                 "title": "Copy Unresolved Comments",
                 "category": "JJ View",
                 "icon": "$(copy)"
+            },
+            {
+                "command": "jj-view.openFileOnRemote",
+                "title": "Open File on Remote",
+                "category": "JJ View",
+                "icon": "$(link-external)"
+            },
+            {
+                "command": "jj-view.copyRemoteFileUrl",
+                "title": "Copy Remote File Link",
+                "category": "JJ View",
+                "icon": "$(link)"
             }
         ],
         "keybindings": [
@@ -935,6 +947,14 @@
                 {
                     "command": "jj-view.pickChange",
                     "when": "false"
+                },
+                {
+                    "command": "jj-view.openFileOnRemote",
+                    "when": "jj.hasRepository && (resourceScheme == 'file' || resourceScheme == 'jj-view' || resourceScheme == 'jj-edit')"
+                },
+                {
+                    "command": "jj-view.copyRemoteFileUrl",
+                    "when": "jj.hasRepository && (resourceScheme == 'file' || resourceScheme == 'jj-view' || resourceScheme == 'jj-edit')"
                 }
             ],
             "view/title": [
@@ -1281,6 +1301,16 @@
                     "command": "jj-view.splitFilesAfter",
                     "group": "1_modification@2",
                     "when": "scmResourceState =~ /\\bjj\\.resource\\.allowSplit\\b/"
+                },
+                {
+                    "command": "jj-view.openFileOnRemote",
+                    "group": "7_remote@1",
+                    "when": "scmResourceState =~ /\\bjj\\.resource\\./"
+                },
+                {
+                    "command": "jj-view.copyRemoteFileUrl",
+                    "group": "7_remote@2",
+                    "when": "scmResourceState =~ /\\bjj\\.resource\\./"
                 }
             ],
             "scm/change/title": [
@@ -1369,6 +1399,16 @@
                     "command": "jj-view.restoreFileFrom",
                     "group": "jj-view",
                     "when": "resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.openFileOnRemote",
+                    "group": "jj-view_remote@1",
+                    "when": "jj.hasRepository && (resourceScheme == 'file' || resourceScheme == 'jj-view' || resourceScheme == 'jj-edit')"
+                },
+                {
+                    "command": "jj-view.copyRemoteFileUrl",
+                    "group": "jj-view_remote@2",
+                    "when": "jj.hasRepository && (resourceScheme == 'file' || resourceScheme == 'jj-view' || resourceScheme == 'jj-edit')"
                 }
             ],
             "explorer/context": [
@@ -1386,6 +1426,16 @@
                     "command": "jj-view.restoreFileFrom",
                     "group": "jj-view",
                     "when": "resourceScheme == 'file' && !explorerResourceIsFolder"
+                },
+                {
+                    "command": "jj-view.openFileOnRemote",
+                    "group": "jj-view_remote@1",
+                    "when": "jj.hasRepository && !explorerResourceIsFolder && resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.copyRemoteFileUrl",
+                    "group": "jj-view_remote@2",
+                    "when": "jj.hasRepository && !explorerResourceIsFolder && resourceScheme == 'file'"
                 }
             ],
             "comments/commentThread/context": [

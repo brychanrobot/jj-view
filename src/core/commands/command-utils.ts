@@ -5,6 +5,7 @@
 
 import path from 'pathe';
 import { formatCommitDescription } from '../../utils/format-utils';
+import { extractRemoteLineRange } from '../../utils/remote-url-utils';
 import type { HostFs } from '../host/host-system';
 import { ScmContextValue } from '../jj-context-keys';
 import type { JjResourceState } from '../scm-resource-state';
@@ -12,10 +13,12 @@ import {
     getFsPathFromUri,
     getRevisionFromUri,
     isInsideRelativePath,
+    isWorkingCopyRevision,
     normalizeDriveLetter,
     resolveInsideRealRootAsync,
     Uri,
 } from '../uri-utils';
+import type { RemoteFileUrlPayload } from './remote-file-url';
 
 // Internal type guards to keep the messy VS Code argument matching encapsulated
 
@@ -456,6 +459,122 @@ export function extractUriFromArgs(args: unknown[]): Uri | undefined {
 }
 export function extractFileUri(args: unknown[]): Uri | undefined {
     return extractUriFromArgs(args);
+}
+
+/**
+ * Converts a `Uri` instance or serialized URI-like object into a canonical core `Uri`.
+ */
+export function reviveUriLike(value: unknown): Uri | undefined {
+    if (Uri.isUri(value)) {
+        return value;
+    }
+    if (typeof value !== 'object' || value === null || !('scheme' in value) || !('path' in value)) {
+        return undefined;
+    }
+    if (typeof value.scheme !== 'string' || typeof value.path !== 'string') {
+        return undefined;
+    }
+    return Uri.from({
+        scheme: value.scheme,
+        authority: 'authority' in value && typeof value.authority === 'string' ? value.authority : '',
+        path: value.path,
+        query: 'query' in value && typeof value.query === 'string' ? value.query : '',
+        fragment: 'fragment' in value && typeof value.fragment === 'string' ? value.fragment : '',
+    });
+}
+
+export interface ExtractedRemoteFileUrlArgs {
+    payload: RemoteFileUrlPayload;
+    hasExplicitSource: boolean;
+}
+
+/**
+ * Extracts a normalized `RemoteFileUrlPayload` from explicit payload objects, SCM resource states,
+ * or URI command arguments using strict type narrowing across VS Code and Web hosts.
+ */
+export function extractRemoteFileUrlPayload(args: unknown[]): ExtractedRemoteFileUrlArgs {
+    const firstArg = args[0];
+
+    if (typeof firstArg === 'object' && firstArg !== null && !Array.isArray(firstArg) && !reviveUriLike(firstArg)) {
+        const hasExplicitKeys =
+            'filePath' in firstArg || 'fileUri' in firstArg || 'lineRange' in firstArg || 'menuId' in firstArg;
+        if (hasExplicitKeys) {
+            const explicitUri =
+                ('fileUri' in firstArg ? reviveUriLike(firstArg.fileUri) : undefined) ??
+                ('resourceUri' in firstArg ? reviveUriLike(firstArg.resourceUri) : undefined);
+            const rawFilePath =
+                'filePath' in firstArg && typeof firstArg.filePath === 'string' ? firstArg.filePath : undefined;
+            const rawRevision =
+                'revision' in firstArg && typeof firstArg.revision === 'string'
+                    ? firstArg.revision
+                    : extractRevision(args);
+            const revision =
+                explicitUri?.scheme === 'file' || (rawRevision && isWorkingCopyRevision(rawRevision))
+                    ? undefined
+                    : rawRevision;
+            const skipActiveSelection =
+                'skipActiveSelection' in firstArg && typeof firstArg.skipActiveSelection === 'boolean'
+                    ? firstArg.skipActiveSelection
+                    : Boolean(rawFilePath && !explicitUri);
+
+            return {
+                hasExplicitSource: true,
+                payload: {
+                    fileUri: explicitUri,
+                    filePath: rawFilePath,
+                    isRepoRelative:
+                        'isRepoRelative' in firstArg && typeof firstArg.isRepoRelative === 'boolean'
+                            ? firstArg.isRepoRelative
+                            : undefined,
+                    revision,
+                    fileStatus:
+                        'fileStatus' in firstArg && typeof firstArg.fileStatus === 'string'
+                            ? firstArg.fileStatus
+                            : undefined,
+                    lineRange: 'lineRange' in firstArg ? extractRemoteLineRange(firstArg.lineRange) : undefined,
+                    skipActiveSelection,
+                },
+            };
+        }
+
+        if ('resourceUri' in firstArg) {
+            const resourceUri = reviveUriLike(firstArg.resourceUri);
+            if (resourceUri) {
+                const rawRevision =
+                    'revision' in firstArg && typeof firstArg.revision === 'string'
+                        ? firstArg.revision
+                        : extractRevision(args);
+                const revision =
+                    resourceUri.scheme === 'file' || (rawRevision && isWorkingCopyRevision(rawRevision))
+                        ? undefined
+                        : rawRevision;
+                return {
+                    hasExplicitSource: true,
+                    payload: {
+                        fileUri: resourceUri,
+                        revision,
+                        fileStatus:
+                            'status' in firstArg && typeof firstArg.status === 'string' ? firstArg.status : undefined,
+                        skipActiveSelection: true,
+                    },
+                };
+            }
+        }
+    }
+
+    const argUri = extractFileUri(args);
+    if (argUri) {
+        const coreUri = reviveUriLike(argUri) ?? argUri;
+        return {
+            hasExplicitSource: true,
+            payload: {
+                fileUri: coreUri,
+                revision: coreUri.scheme === 'file' ? undefined : extractRevision(args),
+            },
+        };
+    }
+
+    return { hasExplicitSource: false, payload: {} };
 }
 
 export { getErrorMessage, toError } from '../../utils/error-utils';

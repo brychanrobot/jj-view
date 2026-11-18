@@ -17,7 +17,11 @@ import type { CommentThreadHandle } from '../comments/comments-store.svelte';
 import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
 import type { MultiDiffFileEntry } from '../tabs/tab-types';
 import { isBinaryFile, isImageByExtension } from './binary-detection';
-import { type EditorChatContextSelection, resolveMultiDiffSelection } from './chat-context-selection';
+import {
+    buildEditorContextJson,
+    type EditorChatContextSelection,
+    resolveMultiDiffSelection,
+} from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
 import {
@@ -271,6 +275,18 @@ $effect(() => {
         }
     });
 });
+
+const multiDiffContextJson = $derived.by(() => {
+    const firstEntry = files[0];
+    const primaryUri = firstEntry ? (firstEntry.rightUri ?? firstEntry.leftUri) : undefined;
+    return buildEditorContextJson({
+        isInDiffEditor: true,
+        resourceUri: primaryUri,
+        isWorkingCopy: firstEntry?.isWorkingCopy,
+        filename: firstEntry?.filename,
+        fileStatus: firstEntry?.fileStatus,
+    });
+});
 </script>
 
 <div class="pierre-multi-diff-viewer" data-testid="pierre-multi-diff-viewer">
@@ -304,11 +320,7 @@ $effect(() => {
             class="diff-content-container"
             data-testid="multi-diff-content-container"
             bind:this={containerEl}
-            data-vscode-context={JSON.stringify({
-                menuId: 'editor/context',
-                isInDiffEditor: true,
-                preventDefaultContextMenuItems: true,
-            })}
+            data-vscode-context={multiDiffContextJson}
         ></div>
 
         {#if imageFiles.length > 0}

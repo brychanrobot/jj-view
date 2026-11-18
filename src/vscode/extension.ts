@@ -232,6 +232,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
         hostEnvironment.commands.setContextKey('jj.codeForgeTerm', provider?.changeTerm?.toLowerCase() || 'change');
     };
     updateContextKeys(undefined);
+    hostEnvironment.commands.setContextKey(JjContextKey.HasRepository, repositoryManager.repositories.length > 0);
 
     context.subscriptions.push(
         vscode.commands.registerCommand('jj-view.manageAuth', async () => {
@@ -483,6 +484,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
             checkGitColocation(repo.jj).catch((e) => {
                 outputChannel.error(`[Extension] Colocation check failed for ${repoPrefix}`, toError(e));
             });
+            hostEnvironment.commands.setContextKey(
+                JjContextKey.HasRepository,
+                repositoryManager.repositories.length > 0,
+            );
         }),
         repositoryManager.onDidCloseRepository(async (repo) => {
             const sub = activeScmSubscriptions.get(repo.rootUri.fsPath);
@@ -491,6 +496,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Api> {
                 activeScmSubscriptions.delete(repo.rootUri.fsPath);
             }
             scmProviders.delete(repo.rootUri.fsPath);
+            hostEnvironment.commands.setContextKey(
+                JjContextKey.HasRepository,
+                repositoryManager.repositories.length > 0,
+            );
         }),
     );
 

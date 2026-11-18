@@ -119,7 +119,7 @@ categories:
     -   Required: Use proper type guards, narrowed interfaces, or
         `createMock<T>` / `createVscodeMock` in tests.
     -   Avoid redundant `as Record<string, unknown>` casts after `'prop' in obj`
-        checks; rely on direct `'prop' in obj` type narrowing instead.
+        checks; rely on direct `'prop' in obj` type narrowing instead, and declare global `Window` test properties (`declare global { interface Window { ... } }`) rather than double-casting `window as unknown as ...` in Playwright `evaluate`/`addInitScript` probes.
 -   **No Omnibus Union Parameters (`GEMINI.md:15`)**:
     -   Forbidden: Polymorphic parameter unions
         (`target: Locator | { x: number; y: number }`,
@@ -191,6 +191,7 @@ categories:
 -   **Validate Uniform Revisions Across Multi-Selected SCM Resource States Before Path Deduplication**: Inspect raw `JjResourceState` entries before `fsPath` deduplication in multi-file SCM payload extractors and reject mixed `revision` / `getRevisionFromUri` selections instead of collapsing identical filenames across groups or splitting files from adjacent revisions.
 -   **Defer Unsettled Webview Updates & Guard Repo Identity/Version Across Async Refreshes**: Return `undefined` from `WebviewRpcReceiver` `getState` until an attached repository's initial refresh settles (`hasSettledState`), set `maxQueueSize: 0` on `WebviewRpcReceiver` so detached prior-repo `_outboundQueue` snapshots cannot flush before unsettled `getState()` checks, skip `sender.update` (in config/theme setters) and visibility-triggered `setCommits` calls while unsettled, and guard async validation/fetch continuations by both repository object identity and a monotonic `_repoChangeVersion` counter (`this._repo !== targetRepo || this._repoChangeVersion !== targetRepoVersion`, bypassing cached `isValid({ force: true })` on explicit refreshes) rather than filesystem path strings alone.
 -   **Scope Root Overflow Clamping to Per-Webview Entry CSS & Size Shared Containers Without `100vh`**: Keep `html, body, #root { height: 100%; overflow: hidden; }` inside per-webview entrypoint stylesheets (such as `log-webview.css`, never shared `media/main.css` or `vscode-webview-html.ts` when sibling webviews rely on `body` scrolling), and size shared Svelte flex scroll regions with `flex: 1 1 0; height: 100%; min-height: 0;` rather than `min-height: 100vh` so parent hosts never need `:global(... !important)` overrides.
+-   **Buffer Early Host Context Keys & Share URI/Context Extraction Without Forge Leakage**: Buffer `WebHostCommands.setContextKey` values until `App.svelte` binds `ContextKeyService` (gating `HasRepository` on `repoManager ? scmRepositories.length > 0 : ...`), check `contextMenu.file` identity (not `selectedPaths`) when closing stale single-file menus, gate forge-specific path stripping (`/a/`) and global host overrides by forge applicability, and use `::remote_bookmarks()` + deterministic single-parent queries alongside `mode=uploaded` / `revision=none` / deleted `side=right` checks in revision resolution.
 
 ### 4. Testing & Visual Verification Quality
 

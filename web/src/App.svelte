@@ -10,6 +10,7 @@ import { ProcessMonitorController } from '../../src/core/controllers/process-mon
 import { DiffTabCleaner } from '../../src/core/diff-tab-cleaner';
 import type { HostDiffTab, HostOpenOptions } from '../../src/core/host/host-environment';
 import type { RemoteHostSystem } from '../../src/core/host/remote-host-system';
+import { JjContextKey } from '../../src/core/jj-context-keys';
 import type { JjEditFsService } from '../../src/core/jj-edit-fs-service';
 import { JjProcessTracker } from '../../src/core/jj-process-tracker';
 import type { JjRepository } from '../../src/core/jj-repository';
@@ -18,7 +19,7 @@ import type { JjStatusEntry } from '../../src/core/jj-types';
 import type { JjViewFsService } from '../../src/core/jj-view-fs-service';
 import type { ScmModel, ScmSnapshot } from '../../src/core/scm-model';
 import { createJjResourceState, type JjResourceState } from '../../src/core/scm-resource-state';
-import { getRevisionFromUri, getUriParams, isWorkingCopyRevision, Uri } from '../../src/core/uri-utils';
+import { getUriParams, Uri } from '../../src/core/uri-utils';
 import type { WebviewTransport } from '../../src/core/webview/transport/types';
 import { toError } from '../../src/utils/error-utils';
 import { OutputChannel } from '../../src/utils/output-channel';
@@ -31,6 +32,11 @@ import { TabDocumentManager } from './app/tab-document-manager.svelte';
 import { applyTheme, openThemePicker } from './app/theme-picker';
 import { UpdateCoordinator } from './app/update-coordinator';
 import { createInMemoryBridge } from './bridge/in-memory-bridge';
+import {
+    enrichWebRemoteFilePayload,
+    resolveActiveTabDocumentSelections,
+    resolveActiveTabDocumentUri,
+} from './commands/payloads/remote-file-url.payload';
 import { CommentsStore, type CommentThreadHandle, normalizeThreadPath } from './comments/comments-store.svelte';
 import {
     type EditorChatContextSelection,
@@ -220,12 +226,7 @@ const contextMenuController = new ContextMenuController({
 
 $effect(() => {
     const activeTab = tabDocManager.activeTab;
-    const uri =
-        activeTab?.view.type === 'diff'
-            ? (activeTab.view.rightUri ?? activeTab.view.leftUri)
-            : activeTab?.view.type === 'file' || activeTab?.view.type === 'merge'
-              ? activeTab.view.uri
-              : undefined;
+    const uri = resolveActiveTabDocumentUri(activeTab);
     tabDocManager.activeTabSelection = undefined;
     webHostEnv?.documents.notifyActiveDocumentChanged(uri);
     rootContext.set('resourceScheme', uri?.scheme);
@@ -249,6 +250,13 @@ $effect(() => {
 
 $effect(() => {
     rootContext.set('ag.isSidecar', webHostEnv?.sidecar.isAvailable ?? false);
+});
+
+$effect(() => {
+    rootContext.set(
+        JjContextKey.HasRepository,
+        repoManager ? scmRepositories.length > 0 : Boolean(focusedRepo || scmModel),
+    );
 });
 
 function triggerThemePicker(): Promise<void> {
@@ -812,20 +820,13 @@ onMount(() => {
         webHostEnv.ui.setQuickInputService(activeQuickInput);
 
         webHostEnv.documents.setDelegate({
-            getActiveDocumentUri: () => {
-                const activeTab = tabDocManager.activeTab;
-                if (!activeTab) {
-                    return undefined;
-                }
-                if (activeTab.view.type === 'diff') {
-                    return activeTab.view.rightUri ?? activeTab.view.leftUri;
-                }
-                if (activeTab.view.type === 'file' || activeTab.view.type === 'merge') {
-                    return activeTab.view.uri;
-                }
-                return undefined;
-            },
-            getActiveDocumentSelections: () => tabDocManager.activeTabSelection,
+            getActiveDocumentUri: () =>
+                resolveActiveTabDocumentUri(tabDocManager.activeTab, resolveActiveChatContextSelection()),
+            getActiveDocumentSelections: () =>
+                resolveActiveTabDocumentSelections(
+                    tabDocManager.activeTabSelection,
+                    resolveActiveChatContextSelection(),
+                ),
             getOpenDocumentUris: () => {
                 const uris: Uri[] = [];
                 for (const t of tabDocManager.tabs) {
@@ -1196,7 +1197,14 @@ onMount(() => {
             y={contextMenuController.state.y}
             groups={contextMenuController.state.groups}
             onSelect={(cmd) => {
-                void handleAction(cmd, contextMenuController.state.payload);
+                const enriched = enrichWebRemoteFilePayload({
+                    commandId: cmd,
+                    payload: contextMenuController.state.payload,
+                    activeTab: tabDocManager.activeTab,
+                    editorSelection: contextMenuController.contextMenuSelectionSnapshot,
+                    activeTabSelection: tabDocManager.activeTabSelection,
+                });
+                void handleAction(cmd, enriched);
             }}
             onClose={() => contextMenuController.closeContextMenu()}
         />

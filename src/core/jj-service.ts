@@ -490,6 +490,22 @@ export class JjService {
         return this.resolveRelativeToRealRoot(filePath, repoReal);
     }
 
+    /**
+     * Resolves a file path (absolute or workspace-relative) to a forward-slash path relative to
+     * the repository root, or `undefined` if the path lies outside the repository.
+     */
+    async resolveRepoRelativePath(filePath: string): Promise<string | undefined> {
+        const rel = await this.toRepoRelative(filePath);
+        if (!isInsideRelativePath(rel)) {
+            return undefined;
+        }
+        const normalized = toForwardSlash(rel).replace(/^\/+|\/+$/g, '');
+        if (!normalized || normalized === '.') {
+            return '';
+        }
+        return normalized;
+    }
+
     private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {
         const isWin = this.system.platform === 'win32';
         const normalizedScriptPath = path.normalize(scriptPath);
@@ -1506,6 +1522,35 @@ export class JjService {
         }
     }
 
+    /**
+     * Returns the forge web base URL resolved by jujutsu's `git_web_url([remote])` template.
+     * When `remote` is omitted, prefers `'origin'` and falls back to the first configured remote.
+     */
+    async getGitWebUrl(remote?: string): Promise<string | undefined> {
+        let targetRemote = remote?.trim();
+        if (!targetRemote) {
+            const remotes = await this.getGitRemotes();
+            if (remotes.length === 0) {
+                return undefined;
+            }
+            targetRemote = remotes.find((r) => r.name === 'origin')?.name ?? remotes[0]?.name;
+        }
+
+        const escapedRemote = targetRemote ? targetRemote.replace(/\\/g, '\\\\').replace(/"/g, '\\"') : undefined;
+        const template = escapedRemote ? `git_web_url("${escapedRemote}")` : 'git_web_url()';
+
+        try {
+            const output = await this.run('log', ['--no-graph', '-r', 'root()', '-T', template], {
+                useCachedSnapshot: true,
+                label: 'getGitWebUrl',
+            });
+            const trimmed = output.trim();
+            return trimmed.length > 0 ? trimmed : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
     async getChildren(revision: string = '@'): Promise<string[]> {
         const output = await this.run(
             'log',
@@ -1543,6 +1588,27 @@ export class JjService {
                 .filter((line) => line.length > 0);
         } catch {
             return nonEmptyPaths;
+        }
+    }
+
+    /**
+     * Returns whether `repoRelativePath` exists in the tree at `revision`.
+     */
+    async hasFileAtRevision(repoRelativePath: string, revision: string): Promise<boolean> {
+        const trimmedPath = repoRelativePath.trim();
+        const trimmedRev = revision.trim();
+        if (!trimmedPath || !trimmedRev) {
+            return false;
+        }
+        try {
+            const output = await this.run(
+                'file',
+                ['list', '-r', trimmedRev, '-T', 'path.display() ++ "\\n"', formatRootFileFileset(trimmedPath)],
+                { useCachedSnapshot: true, label: 'hasFileAtRevision' },
+            );
+            return output.trim().length > 0;
+        } catch {
+            return true;
         }
     }
 

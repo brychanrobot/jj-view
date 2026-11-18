@@ -10,6 +10,10 @@ import type { MultiDiffFileEntry } from '../tabs/tab-types';
 export interface EditorChatContextSelection {
     /** Display filename (cleaned of trailing revision suffix). */
     filename: string;
+    /** Optional resolved resource URI (`leftUri` for deletions or `rightUri` / file URI). */
+    resourceUri?: Uri;
+    /** Optional status of the file entry (e.g. `'deleted'`). */
+    fileStatus?: string;
     /** Optional workspace/filesystem path or URI path if available. */
     fsPath?: string;
     /** Optional revision label (e.g. '@', short change_id). */
@@ -437,6 +441,8 @@ export function resolveMultiDiffSelection(
 
         return {
             filename: cleanName,
+            resourceUri: targetUri,
+            fileStatus: targetEntry.fileStatus,
             fsPath,
             revision,
             startLine,
@@ -471,6 +477,8 @@ export function resolveMultiDiffSelection(
         const targetUri = side === 'deletions' ? entry.leftUri : (entry.rightUri ?? entry.leftUri);
         return {
             filename: cleanViewerFilename(entry.filename),
+            resourceUri: targetUri,
+            fileStatus: entry.fileStatus,
             fsPath: targetUri ? getFsPathFromUri(targetUri) : undefined,
             revision: extractViewerRevision(entry.filename, targetUri, entry.isWorkingCopy),
             startLine: startIdx + 1,
@@ -573,4 +581,36 @@ export function formatChatContextMessage(selection: EditorChatContextSelection, 
         return `${header}\n${codeBlock}\n\n${trimmedPrompt}`;
     }
     return `${header}\n${codeBlock}`;
+}
+
+/**
+ * Serializes a unified `data-vscode-context` JSON attribute for standalone Pierre editor/diff viewers.
+ */
+export function buildEditorContextJson(options: {
+    isInDiffEditor: boolean;
+    resourceUri?: Uri;
+    isWorkingCopy?: boolean;
+    filename?: string;
+    fileStatus?: string;
+    parentMutable?: boolean;
+}): string {
+    return JSON.stringify({
+        menuId: 'editor/context',
+        isInDiffEditor: options.isInDiffEditor,
+        ...(options.parentMutable !== undefined ? { 'jj.parentMutable': options.parentMutable } : {}),
+        ...(options.fileStatus ? { fileStatus: options.fileStatus } : {}),
+        resourceScheme: options.resourceUri?.scheme ?? (options.isWorkingCopy ? 'file' : 'jj-view'),
+        ...(options.filename ? { resourceFilename: cleanViewerFilename(options.filename) } : {}),
+        resourceUri: options.resourceUri
+            ? {
+                  scheme: options.resourceUri.scheme,
+                  path: options.resourceUri.path,
+                  fsPath: options.resourceUri.fsPath,
+                  authority: options.resourceUri.authority,
+                  query: options.resourceUri.query,
+                  fragment: options.resourceUri.fragment,
+              }
+            : undefined,
+        preventDefaultContextMenuItems: true,
+    });
 }

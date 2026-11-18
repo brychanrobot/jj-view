@@ -770,10 +770,17 @@ export class WebHostAuth implements HostAuth {
 
 export class WebHostCommands implements HostCommands {
     private readonly commandMap = new Map<string, (...args: never[]) => unknown>();
+    private readonly pendingContextKeys = new Map<string, unknown>();
     private contextKeySetter: ContextKeySetter | undefined;
 
     public setContextKeySetter(setter: ContextKeySetter | undefined): void {
         this.contextKeySetter = setter;
+        if (setter && this.pendingContextKeys.size > 0) {
+            for (const [key, value] of this.pendingContextKeys.entries()) {
+                setter.set(key, value);
+            }
+            this.pendingContextKeys.clear();
+        }
     }
 
     public registerCommand<T extends (...args: never[]) => unknown>(commandId: string, callback: T): HostDisposable {
@@ -802,7 +809,11 @@ export class WebHostCommands implements HostCommands {
     }
 
     public async setContextKey(key: string, value: unknown): Promise<void> {
-        this.contextKeySetter?.set(key, value);
+        if (this.contextKeySetter) {
+            this.contextKeySetter.set(key, value);
+        } else {
+            this.pendingContextKeys.set(key, value);
+        }
     }
 }
 

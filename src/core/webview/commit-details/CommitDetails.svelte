@@ -46,6 +46,8 @@ interface Props {
     onCompareWithUploaded?: () => void;
     onDescriptionChange?: (description: string, selectionStart: number, selectionEnd: number) => void;
     onSplitFiles?: (paths: string[], placement: 'before' | 'after') => void;
+    onOpenFileOnRemote?: (file: JjStatusEntry) => void;
+    onCopyRemoteFileUrl?: (file: JjStatusEntry) => void;
 }
 
 let {
@@ -78,6 +80,8 @@ let {
     onCompareWithUploaded,
     onDescriptionChange,
     onSplitFiles,
+    onOpenFileOnRemote,
+    onCopyRemoteFileUrl,
 }: Props = $props();
 
 const [idPart, offsetPart] = $derived(changeId.split('/'));
@@ -105,7 +109,7 @@ let menuEl = $state<HTMLDivElement | null>(null);
 
 let selectedPaths = $state<Set<string>>(new Set());
 let lastClickedIndex = $state<number | null>(null);
-let contextMenu = $state<{ x: number; y: number } | null>(null);
+let contextMenu = $state<{ x: number; y: number; file: JjStatusEntry } | null>(null);
 let menuPosX = $state(0);
 let menuPosY = $state(0);
 let prevSelectionChangeId = $state(untrack(() => changeId));
@@ -441,7 +445,6 @@ function closeContextMenu(restoreFocus = false): void {
 $effect(() => {
     const currentChangeId = changeId;
     const currentFiles = files;
-    const currentImmutable = isImmutable;
     untrack(() => {
         if (prevSelectionChangeId !== currentChangeId) {
             prevSelectionChangeId = currentChangeId;
@@ -466,8 +469,13 @@ $effect(() => {
                 lastClickedIndex = currentFiles.length - 1;
             }
         }
-        if (contextMenu && (currentImmutable || !currentFiles.some((f) => selectedPaths.has(f.path)))) {
-            closeContextMenu();
+        if (contextMenu) {
+            const updatedFile = currentFiles.find((f) => f.path === contextMenu?.file.path);
+            if (!updatedFile) {
+                closeContextMenu();
+            } else if (updatedFile.status !== contextMenu.file.status) {
+                contextMenu = { ...contextMenu, file: updatedFile };
+            }
         }
     });
 });
@@ -553,9 +561,6 @@ function handleFileClick(e: MouseEvent, file: JjStatusEntry, idx: number): void 
 function handleFileContextMenu(e: MouseEvent, file: JjStatusEntry, idx: number): void {
     e.preventDefault();
     e.stopPropagation();
-    if (isImmutable) {
-        return;
-    }
     if (!selectedPaths.has(file.path)) {
         selectedPaths = new Set([file.path]);
         lastClickedIndex = idx;
@@ -563,7 +568,21 @@ function handleFileContextMenu(e: MouseEvent, file: JjStatusEntry, idx: number):
     menuPosX = e.clientX;
     menuPosY = e.clientY;
     menuOpenerEl = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
-    contextMenu = { x: e.clientX, y: e.clientY };
+    contextMenu = { x: e.clientX, y: e.clientY, file };
+}
+
+function triggerRemoteFileAction(action: 'open' | 'copy'): void {
+    const targetFile = contextMenu?.file;
+    closeContextMenu();
+    if (!targetFile) {
+        return;
+    }
+    const snapshot = $state.snapshot(targetFile);
+    if (action === 'open') {
+        onOpenFileOnRemote?.(snapshot);
+        return;
+    }
+    onCopyRemoteFileUrl?.(snapshot);
 }
 
 function triggerSplit(placement: 'before' | 'after'): void {
@@ -983,7 +1002,7 @@ function handleWindowKeydown(e: KeyboardEvent): void {
         </div>
     </div>
 
-    {#if contextMenu && !isImmutable}
+    {#if contextMenu}
         <div
             bind:this={menuEl}
             class="details-context-menu"
@@ -993,23 +1012,44 @@ function handleWindowKeydown(e: KeyboardEvent): void {
             style={`left: ${menuPosX}px; top: ${menuPosY}px;`}
             oncontextmenu={(e) => e.preventDefault()}
         >
+            {#if !isImmutable}
+                <button
+                    type="button"
+                    class="details-menu-item"
+                    role="menuitem"
+                    data-testid="details-split-before"
+                    onclick={() => triggerSplit('before')}
+                >
+                    Split into New Change Before
+                </button>
+                <button
+                    type="button"
+                    class="details-menu-item"
+                    role="menuitem"
+                    data-testid="details-split-after"
+                    onclick={() => triggerSplit('after')}
+                >
+                    Split into New Change After
+                </button>
+                <div class="details-menu-separator" role="separator"></div>
+            {/if}
             <button
                 type="button"
                 class="details-menu-item"
                 role="menuitem"
-                data-testid="details-split-before"
-                onclick={() => triggerSplit('before')}
+                data-testid="details-open-file-on-remote"
+                onclick={() => triggerRemoteFileAction('open')}
             >
-                Split into New Change Before
+                Open File on Remote
             </button>
             <button
                 type="button"
                 class="details-menu-item"
                 role="menuitem"
-                data-testid="details-split-after"
-                onclick={() => triggerSplit('after')}
+                data-testid="details-copy-remote-file-url"
+                onclick={() => triggerRemoteFileAction('copy')}
             >
-                Split into New Change After
+                Copy Remote File Link
             </button>
         </div>
     {/if}
@@ -1580,6 +1620,12 @@ function handleWindowKeydown(e: KeyboardEvent): void {
     .details-menu-item:focus-visible {
         background-color: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
         color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+    }
+
+    .details-menu-separator {
+        height: 1px;
+        margin: 4px 6px;
+        background-color: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
     }
 
     .file-icon {

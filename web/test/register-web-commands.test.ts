@@ -16,6 +16,7 @@ import { Uri } from '../../src/core/uri-utils';
 import { buildGraph, TestRepo } from '../../src/test/test-repo';
 import type { LoggerChannel } from '../../src/utils/output-channel';
 import { createShowDetailsPayload } from '../src/commands/payloads/details.payload';
+import { createRemoteFileUrlPayload } from '../src/commands/payloads/remote-file-url.payload';
 import { createRestoreFileFromRevisionPayload } from '../src/commands/payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from '../src/commands/payloads/simplify-parents.payload';
 import { createSplitFilesPayload } from '../src/commands/payloads/split-files.payload';
@@ -830,5 +831,84 @@ describe('registerWebCommands', () => {
             paths: ['src/a.ts', 'src/b.ts'],
             revision: 'abc123',
         });
+    });
+
+    it('registers jj-view.openFileOnRemote and jj-view.copyRemoteFileUrl without triggering repo.refresh', async () => {
+        const repo = new TestRepo();
+        repo.init({ colocate: false });
+        const repoRefreshSpy = vi.fn().mockResolvedValue(undefined);
+        let hostEnvironment: WebHostEnvironment | undefined;
+
+        try {
+            repo.addRemote('origin', 'https://github.com/acme/web-test.git');
+            repo.writeFile('hello.ts', 'line1\nline2\n');
+            repo.describe('pushed commit');
+            const sha = repo.getCommitId('@');
+            repo.new(undefined, 'wc');
+
+            const jj = new JjService(repo.path, NO_OP_LOGGER);
+            const mockRepo = createMock<JjRepository>({
+                rootUri: Uri.file(repo.path),
+                jj,
+                refresh: repoRefreshSpy,
+            });
+            const mockRepoManager = createMock<JjRepositoryManager>({
+                repositories: [mockRepo],
+                focusedRepository: mockRepo,
+                setFocusedRepository: vi.fn(),
+            });
+            const mockScmModel = createMock<ScmModel>({
+                repo: mockRepo,
+                jj,
+                getSelectedCommitIds: vi.fn().mockReturnValue([]),
+            });
+            const mockRemoteHost = createMock<RemoteHostSystem>({
+                platform: 'linux',
+                fs: createMock<HostFs>({
+                    stat: vi.fn().mockRejectedValue(new Error('ENOENT')),
+                }),
+            });
+            hostEnvironment = new WebHostEnvironment(mockRemoteHost, repo.path);
+            const fileUri = Uri.file(`${repo.path}/hello.ts`);
+            hostEnvironment.documents.setDelegate({
+                getActiveDocumentUri: () => fileUri,
+                getActiveDocumentSelections: () => [{ startLine: 0, endLine: 1 }],
+            });
+
+            registerWebCommands({
+                repositoryManager: mockRepoManager,
+                hostEnvironment,
+                logger: NO_OP_LOGGER,
+                scmModel: mockScmModel,
+            });
+
+            expect(hostEnvironment.commands.hasCommand('jj-view.openFileOnRemote')).toBe(true);
+            expect(hostEnvironment.commands.hasCommand('jj-view.copyRemoteFileUrl')).toBe(true);
+
+            const copySpy = vi.spyOn(hostEnvironment.nav, 'copyToClipboard').mockResolvedValue(undefined);
+            const openSpy = vi.spyOn(hostEnvironment.nav, 'openExternal').mockResolvedValue(undefined);
+
+            await hostEnvironment.commands.executeCommand('jj-view.copyRemoteFileUrl');
+            expect(copySpy).toHaveBeenCalledWith(`https://github.com/acme/web-test/blob/${sha}/hello.ts#L1-L2`);
+
+            await hostEnvironment.commands.executeCommand('jj-view.openFileOnRemote', {
+                filePath: 'hello.ts',
+                isRepoRelative: true,
+                revision: sha,
+            });
+            expect(openSpy).toHaveBeenCalledTimes(1);
+            expect(openSpy.mock.calls[0][0].toString()).toBe(`https://github.com/acme/web-test/blob/${sha}/hello.ts`);
+            expect(repoRefreshSpy).not.toHaveBeenCalled();
+
+            // Payload builder converts 0-based active selections to 1-based line ranges
+            expect(createRemoteFileUrlPayload([], hostEnvironment)).toEqual({
+                fileUri,
+                lineRange: { startLine: 1, endLine: 2 },
+            });
+        } finally {
+            hostEnvironment?.notifications.clearAll();
+            hostEnvironment?.dispose();
+            await repo.dispose();
+        }
     });
 });

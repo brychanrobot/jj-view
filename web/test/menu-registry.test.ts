@@ -397,4 +397,34 @@ describe('MenuRegistry & Icon Resolution', () => {
         expect(filePalette).not.toContain('jj-view.enableDiffEditing');
         expect(filePalette).not.toContain('jj-view.disableDiffEditing');
     });
+
+    it('resolves jj-view.openFileOnRemote and jj-view.copyRemoteFileUrl across menus', () => {
+        const registry = new MenuRegistry();
+        const rootContext = new ContextKeyService();
+
+        const noRepoEditor = rootContext.createScoped({ resourceScheme: 'file' });
+        expect(
+            registry.getContextActions('editor/context', noRepoEditor).flatMap((g) => g.items.map((i) => i.command)),
+        ).not.toContain('jj-view.copyRemoteFileUrl');
+
+        for (const scheme of ['file', 'jj-view', 'jj-edit']) {
+            const ctx = rootContext.createScoped({ 'jj.hasRepository': true, resourceScheme: scheme });
+            const editorCmds = registry
+                .getContextActions('editor/context', ctx)
+                .flatMap((g) => g.items.map((i) => i.command));
+            expect(editorCmds).toContain('jj-view.openFileOnRemote');
+            expect(editorCmds).toContain('jj-view.copyRemoteFileUrl');
+
+            const paletteCmds = registry.getMenuItems('commandPalette', ctx).map((i) => i.command);
+            expect(paletteCmds).toContain('jj-view.openFileOnRemote');
+            expect(paletteCmds).toContain('jj-view.copyRemoteFileUrl');
+        }
+
+        const scmCtx = rootContext.createScoped({ scmResourceState: 'jj.resource.allowRestore jj.resource.allowOpen' });
+        const scmCmds = registry
+            .getContextActions('scm/resourceState/context', scmCtx)
+            .flatMap((g) => g.items.map((i) => i.command));
+        expect(scmCmds).toContain('jj-view.openFileOnRemote');
+        expect(scmCmds).toContain('jj-view.copyRemoteFileUrl');
+    });
 });
