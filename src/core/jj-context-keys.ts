@@ -31,6 +31,9 @@ export enum JjContextKey {
 
     /** Current code forge upload model ('revision' | 'branch' | 'branch-stack' | undefined) */
     CodeForgeUploadModel = 'jj.codeForgeUploadModel',
+
+    /** True when at least one Jujutsu repository is open */
+    HasRepository = 'jj.hasRepository',
 }
 
 /**

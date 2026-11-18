@@ -408,6 +408,18 @@ describe('IPC Schemas Unit Tests', () => {
                     payload: { changeId: 'kkmpptxz', paths: ['a.txt'], placement: 'after' },
                 }).success,
             ).toBe(true);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'openFileOnRemote',
+                    payload: { changeId: 'kkmpptxz', path: 'src/app.ts', status: 'modified' },
+                }).success,
+            ).toBe(true);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'copyRemoteFileUrl',
+                    payload: { changeId: 'kkmpptxz', path: 'src/app.ts' },
+                }).success,
+            ).toBe(true);
         });
 
         it('rejects invalid CommitDetailsToHostMessage payloads', () => {
@@ -434,6 +446,12 @@ describe('IPC Schemas Unit Tests', () => {
                 CommitDetailsToHostMessageSchema.safeParse({
                     type: 'splitFiles',
                     payload: { changeId: 'kkmpptxz', paths: ['a.txt'], placement: 'onto' }, // invalid placement
+                }).success,
+            ).toBe(false);
+            expect(
+                CommitDetailsToHostMessageSchema.safeParse({
+                    type: 'openFileOnRemote',
+                    payload: { changeId: 'kkmpptxz' }, // missing path
                 }).success,
             ).toBe(false);
         });

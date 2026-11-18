@@ -44,6 +44,7 @@ import { prevCommand } from '../core/commands/prev';
 import { rebaseOntoSelectedCommand } from '../core/commands/rebase';
 import { redoCommand } from '../core/commands/redo';
 import { refreshCommand } from '../core/commands/refresh';
+import { copyRemoteFileUrlCommand, openFileOnRemoteCommand } from '../core/commands/remote-file-url';
 import { restoreCommand } from '../core/commands/restore';
 import { restoreFileFromRevisionCommand } from '../core/commands/restore-file-from-revision';
 import { simplifyParentsCommand } from '../core/commands/simplify-parents';
@@ -113,6 +114,7 @@ import { createOpenChangesPayload } from './payloads/open-changes.payload';
 import { createOpenFilePayload } from './payloads/open-file.payload';
 import { createPickChangePayload } from './payloads/pick-change.payload';
 import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
+import { createRemoteFileUrlPayload } from './payloads/remote-file-url.payload';
 import { createRestorePayload } from './payloads/restore.payload';
 import { createRestoreFileFromRevisionPayload } from './payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from './payloads/simplify-parents.payload';
@@ -402,6 +404,8 @@ export function registerCommands(options: RegisterCommandsOptions): void {
         ),
         registerCommandWithPayload('jj-view.splitFilesBefore', createSplitFilesPayload, splitFilesBeforeCommand),
         registerCommandWithPayload('jj-view.splitFilesAfter', createSplitFilesPayload, splitFilesAfterCommand),
+        registerCommandWithPayload('jj-view.openFileOnRemote', createRemoteFileUrlPayload, openFileOnRemoteCommand),
+        registerCommandWithPayload('jj-view.copyRemoteFileUrl', createRemoteFileUrlPayload, copyRemoteFileUrlCommand),
     );
 
     for (const actionId of TOGGLEABLE_COMMIT_ACTIONS) {

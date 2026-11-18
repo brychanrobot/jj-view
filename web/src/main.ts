@@ -563,6 +563,13 @@ export async function bootstrap(): Promise<void> {
         };
 
         let focusChangeSeq = 0;
+        const syncHasRepositoryContext = () => {
+            void webHostEnv.commands.setContextKey(JjContextKey.HasRepository, repoManager.repositories.length > 0);
+        };
+        syncHasRepositoryContext();
+        repoManager.onDidOpenRepository(syncHasRepositoryContext);
+        repoManager.onDidCloseRepository(syncHasRepositoryContext);
+
         repoManager.onDidChangeFocusedRepository(async (r) => {
             const seq = ++focusChangeSeq;
             updateCodeForgeContext(r);

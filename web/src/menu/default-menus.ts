@@ -507,6 +507,18 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             command: 'workbench.action.closeAllEditors',
             title: 'Close All',
         },
+        {
+            command: 'jj-view.openFileOnRemote',
+            title: 'Open File on Remote',
+            category: 'JJ View',
+            icon: '$(link-external)',
+        },
+        {
+            command: 'jj-view.copyRemoteFileUrl',
+            title: 'Copy Remote File Link',
+            category: 'JJ View',
+            icon: '$(link)',
+        },
     ],
     menus: {
         commandPalette: [
@@ -657,6 +669,14 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             {
                 command: 'jj-view.addSelectionToChat',
                 when: 'ag.isSidecar',
+            },
+            {
+                command: 'jj-view.openFileOnRemote',
+                when: "jj.hasRepository && (resourceScheme == 'file' || resourceScheme == 'jj-view' || resourceScheme == 'jj-edit')",
+            },
+            {
+                command: 'jj-view.copyRemoteFileUrl',
+                when: "jj.hasRepository && (resourceScheme == 'file' || resourceScheme == 'jj-view' || resourceScheme == 'jj-edit')",
             },
         ],
         'view/title': [
@@ -816,6 +836,16 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.splitFilesAfter',
                 group: '1_modification@2',
                 when: 'scmResourceState =~ /\\bjj\\.resource\\.allowSplit\\b/',
+            },
+            {
+                command: 'jj-view.openFileOnRemote',
+                group: '7_remote@1',
+                when: 'scmResourceState =~ /\\bjj\\.resource\\./',
+            },
+            {
+                command: 'jj-view.copyRemoteFileUrl',
+                group: '7_remote@2',
+                when: 'scmResourceState =~ /\\bjj\\.resource\\./',
             },
         ],
         'webview/context': [
@@ -1100,6 +1130,16 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
                 command: 'jj-view.restoreFileFrom',
                 group: 'jj-view@4',
                 when: "resourceScheme == 'file'",
+            },
+            {
+                command: 'jj-view.openFileOnRemote',
+                group: 'jj-view_remote@1',
+                when: "jj.hasRepository && (resourceScheme == 'file' || resourceScheme == 'jj-view' || resourceScheme == 'jj-edit')",
+            },
+            {
+                command: 'jj-view.copyRemoteFileUrl',
+                group: 'jj-view_remote@2',
+                when: "jj.hasRepository && (resourceScheme == 'file' || resourceScheme == 'jj-view' || resourceScheme == 'jj-edit')",
             },
         ],
     },

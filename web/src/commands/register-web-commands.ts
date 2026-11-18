@@ -45,6 +45,7 @@ import { prevCommand } from '../../../src/core/commands/prev';
 import { rebaseOntoSelectedCommand } from '../../../src/core/commands/rebase';
 import { redoCommand } from '../../../src/core/commands/redo';
 import { refreshCommand } from '../../../src/core/commands/refresh';
+import { copyRemoteFileUrlCommand, openFileOnRemoteCommand } from '../../../src/core/commands/remote-file-url';
 import { restoreCommand } from '../../../src/core/commands/restore';
 import { restoreFileFromRevisionCommand } from '../../../src/core/commands/restore-file-from-revision';
 import { simplifyParentsCommand } from '../../../src/core/commands/simplify-parents';
@@ -123,6 +124,7 @@ import { createNewBeforePayload } from './payloads/new-before.payload';
 import { createOpenChangesPayload, createOpenFilePayload } from './payloads/open.payload';
 import { createPickChangePayload } from './payloads/pick-change.payload';
 import { createRebaseOntoSelectedPayload } from './payloads/rebase.payload';
+import { createRemoteFileUrlPayload } from './payloads/remote-file-url.payload';
 import { createRestorePayload } from './payloads/restore.payload';
 import { createRestoreFileFromRevisionPayload } from './payloads/restore-file-from-revision.payload';
 import { createSimplifyParentsPayload } from './payloads/simplify-parents.payload';
@@ -403,6 +405,12 @@ export function registerWebCommands(options: RegisterWebCommandsOptions): void {
         createRestoreFileFromRevisionPayload,
         restoreFileFromRevisionCommand,
     );
+    registerWithPayload('jj-view.openFileOnRemote', createRemoteFileUrlPayload, openFileOnRemoteCommand, {
+        refresh: false,
+    });
+    registerWithPayload('jj-view.copyRemoteFileUrl', createRemoteFileUrlPayload, copyRemoteFileUrlCommand, {
+        refresh: false,
+    });
 
     // 9. Workspaces
     registerDirect('jj-view.workspaceAdd', workspaceAddCommand);

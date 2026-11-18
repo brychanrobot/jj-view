@@ -636,12 +636,36 @@ export class CommitDetailsController implements Disposable {
                         ...(this.repo ? { rootUri: this.repo.rootUri } : {}),
                     });
                 },
+                openFileOnRemote: async (payload) => {
+                    await this._executeRemoteFileCommand('jj-view.openFileOnRemote', payload);
+                },
+                copyRemoteFileUrl: async (payload) => {
+                    await this._executeRemoteFileCommand('jj-view.copyRemoteFileUrl', payload);
+                },
             },
             {
                 logger: this._logger,
                 getState: () => this.getState(),
             },
         );
+    }
+
+    private async _executeRemoteFileCommand(
+        commandId: 'jj-view.openFileOnRemote' | 'jj-view.copyRemoteFileUrl',
+        payload: { changeId: string; path: string; status?: string },
+    ): Promise<void> {
+        if (this._disposed) {
+            return;
+        }
+        const revision = this._logEntry?.commit_id || payload.changeId || this.changeId;
+        await this._host.commands.executeCommand(commandId, {
+            filePath: payload.path,
+            isRepoRelative: true,
+            revision,
+            fileStatus: payload.status,
+            skipActiveSelection: true,
+            ...(this.repo ? { rootUri: this.repo.rootUri } : {}),
+        });
     }
 
     public dispose(): void {

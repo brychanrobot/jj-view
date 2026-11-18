@@ -8,7 +8,11 @@ import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
 import type { Uri } from '../../../src/core/uri-utils';
 import { isBinaryFile, isImageByExtension, isSvgByExtension } from './binary-detection';
-import { type EditorChatContextSelection, resolveDiffOrFileSelection } from './chat-context-selection';
+import {
+    buildEditorContextJson,
+    type EditorChatContextSelection,
+    resolveDiffOrFileSelection,
+} from './chat-context-selection';
 import { handleEditorKeyDown } from './editor-shortcuts';
 import { ensureHighlighterRegistered, isLightTheme } from './highlighter-setup';
 import { adoptDiffCustomStyles, HUNK_EXPANSION_CSS } from './hunk-expansion';
@@ -338,6 +342,15 @@ onDestroy(() => {
     }
     cleanupInstances();
 });
+
+const editorContextJson = $derived(
+    buildEditorContextJson({
+        isInDiffEditor: false,
+        resourceUri,
+        isWorkingCopy,
+        filename,
+    }),
+);
 </script>
 
 <div class="pierre-file-viewer" data-testid="pierre-file-viewer">
@@ -354,7 +367,7 @@ onDestroy(() => {
                 : undefined}
         />
     {:else if isBinary}
-        <div class="binary-card" data-testid="binary-file-card">
+        <div class="binary-card" data-testid="binary-file-card" data-vscode-context={editorContextJson}>
             <i class="codicon codicon-file-binary binary-icon" aria-hidden="true"></i>
             <h3>Binary file not shown</h3>
             <p class="binary-filename">{filename}</p>
@@ -367,23 +380,7 @@ onDestroy(() => {
             bind:this={containerEl}
             class="file-content-container"
             data-testid="file-content-container"
-            data-vscode-context={JSON.stringify({
-                menuId: 'editor/context',
-                isInDiffEditor: false,
-                resourceScheme: resourceUri?.scheme ?? (isWorkingCopy ? 'file' : 'jj-view'),
-                resourceFilename: filename.replace(/\s*\([^)]*\)$/, '').trim(),
-                resourceUri: resourceUri
-                    ? {
-                          scheme: resourceUri.scheme,
-                          path: resourceUri.path,
-                          fsPath: resourceUri.fsPath,
-                          authority: resourceUri.authority,
-                          query: resourceUri.query,
-                          fragment: resourceUri.fragment,
-                      }
-                    : undefined,
-                preventDefaultContextMenuItems: true,
-            })}
+            data-vscode-context={editorContextJson}
         ></div>
     {/if}
 </div>

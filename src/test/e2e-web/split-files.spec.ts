@@ -238,7 +238,7 @@ test.describe('Standalone Web Split Files (Issue #612)', () => {
         // Restore dark theme before continuing
         await switchColorTheme(page, 'pierre-dark-soft');
 
-        // Immutable commit must never open Commit Details split context menu
+        // Immutable commit exposes remote file actions in Commit Details context menu, never split actions
         const immRow = page.locator('[data-testid="log-content"] .commit-row', { hasText: 'immutable base commit' });
         await immRow.locator('.commit-desc').click();
         await expect(textarea).toHaveValue('immutable base commit');
@@ -246,7 +246,14 @@ test.describe('Standalone Web Split Files (Issue #612)', () => {
         const immFileRow = detailsView.locator('.file-row[data-file-path="base-only.txt"]');
         await expect(immFileRow).toBeVisible();
         await immFileRow.click({ button: 'right' });
-        await expect(page.locator('[data-testid="commit-details-file-context-menu"]')).toHaveCount(0);
+        const immContextMenu = page.locator('[data-testid="commit-details-file-context-menu"]');
+        await expect(immContextMenu).toBeVisible();
+        await expect(immContextMenu.locator('[data-testid="details-split-before"]')).toHaveCount(0);
+        await expect(immContextMenu.locator('[data-testid="details-split-after"]')).toHaveCount(0);
+        await expect(immContextMenu.locator('[data-testid="details-open-file-on-remote"]')).toBeVisible();
+        await expect(immContextMenu.locator('[data-testid="details-copy-remote-file-url"]')).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(immContextMenu).toHaveCount(0);
 
         // Right-clicking a Working Changes resource in SCM Pane exposes Split Before / Split After
         const wcGroup = page.locator('[data-testid="scm-group-working-copy"]');

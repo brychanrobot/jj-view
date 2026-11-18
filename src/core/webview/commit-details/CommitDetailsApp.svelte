@@ -124,6 +124,24 @@ $effect(() => {
                 void sender.splitFiles({ changeId: detailsCommit.changeId, paths, placement });
             }
         }}
+        onOpenFileOnRemote={(file) => {
+            if (detailsCommit?.changeId) {
+                void sender.openFileOnRemote({
+                    changeId: detailsCommit.changeId,
+                    path: file.path,
+                    status: file.status,
+                });
+            }
+        }}
+        onCopyRemoteFileUrl={(file) => {
+            if (detailsCommit?.changeId) {
+                void sender.copyRemoteFileUrl({
+                    changeId: detailsCommit.changeId,
+                    path: file.path,
+                    status: file.status,
+                });
+            }
+        }}
     />
 {/if}
 

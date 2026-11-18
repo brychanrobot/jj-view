@@ -5,6 +5,12 @@
 import { z } from 'zod';
 import { CodeForgeChangeInfoSchema, JjBookmarkSchema, JjStatusEntrySchema } from '../../jj-schemas';
 
+const RemoteFileActionPayloadSchema = z.object({
+    changeId: z.string(),
+    path: z.string(),
+    status: z.string().optional(),
+});
+
 export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
     z.object({ type: z.literal('webviewLoaded') }),
     z.object({
@@ -49,6 +55,14 @@ export const CommitDetailsToHostMessageSchema = z.discriminatedUnion('type', [
             paths: z.array(z.string()).min(1),
             placement: z.enum(['before', 'after']),
         }),
+    }),
+    z.object({
+        type: z.literal('openFileOnRemote'),
+        payload: RemoteFileActionPayloadSchema,
+    }),
+    z.object({
+        type: z.literal('copyRemoteFileUrl'),
+        payload: RemoteFileActionPayloadSchema,
     }),
 ]);
 export type CommitDetailsToHostMessage = z.infer<typeof CommitDetailsToHostMessageSchema>;
