@@ -48,8 +48,7 @@ import * as PatchHelper from './patch-helper';
 import {
     isInsideRelativePath,
     normalizeDriveLetter,
-    resolveInsideRealRootAsync,
-    resolveNearestRealPathAsync,
+    resolvePathAgainstRealRootAsync,
     toForwardSlash,
 } from './uri-utils';
 
@@ -269,7 +268,7 @@ export class JjService {
      * instance. Different instances (different cwds) still spawn separately.
      */
     async getRepoRoot(): Promise<string> {
-        if (this._repoRoot) {
+        if (this._repoRoot !== undefined) {
             return this._repoRoot;
         }
         if (this._repoRootPromise) {
@@ -368,35 +367,70 @@ export class JjService {
         return message.includes('index.lock') || message.includes('Could not acquire lock');
     }
 
+    private _workspaceReal?: string;
     private _workspaceRealPromise?: Promise<string>;
+    private _realRoots?: { repoReal: string; workspaceReal: string };
     private _realRootsPromise?: Promise<{ repoReal: string; workspaceReal: string }>;
 
     private async getWorkspaceReal(): Promise<string> {
-        if (!this._workspaceRealPromise) {
-            this._workspaceRealPromise = this.system.fs.realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
+        if (this._workspaceReal !== undefined) {
+            return this._workspaceReal;
         }
-        return this._workspaceRealPromise;
+        if (this._workspaceRealPromise) {
+            return this._workspaceRealPromise;
+        }
+        let promise: Promise<string> | undefined;
+        promise = (async () => {
+            try {
+                const real = await this.system.fs.realpath(this.workspaceRoot);
+                this._workspaceReal = real;
+                return real;
+            } catch {
+                return this.workspaceRoot;
+            } finally {
+                if (this._workspaceRealPromise === promise) {
+                    this._workspaceRealPromise = undefined;
+                }
+            }
+        })();
+        this._workspaceRealPromise = promise;
+        return promise;
     }
 
     private async getRealRoots(): Promise<{ repoReal: string; workspaceReal: string }> {
-        if (!this._realRootsPromise) {
-            const promise = (async () => {
+        if (this._realRoots) {
+            return this._realRoots;
+        }
+        if (this._realRootsPromise) {
+            return this._realRootsPromise;
+        }
+        let promise: Promise<{ repoReal: string; workspaceReal: string }> | undefined;
+        promise = (async () => {
+            try {
                 const [repoRoot, workspaceReal] = await Promise.all([this.getRepoRoot(), this.getWorkspaceReal()]);
-                const repoReal = await this.system.fs.realpath(repoRoot).catch(() => repoRoot);
+                let repoReal = repoRoot;
+                let repoRealOk = false;
+                try {
+                    repoReal = await this.system.fs.realpath(repoRoot);
+                    repoRealOk = true;
+                } catch {
+                    repoReal = repoRoot;
+                }
+                const resolvedWorkspaceReal = this._workspaceReal;
+                if (repoRealOk && resolvedWorkspaceReal !== undefined) {
+                    const resolvedRoots = { repoReal, workspaceReal: resolvedWorkspaceReal };
+                    this._realRoots = resolvedRoots;
+                    return resolvedRoots;
+                }
                 return { repoReal, workspaceReal };
-            })();
-            this._realRootsPromise = promise;
-            promise.catch(() => {
+            } finally {
                 if (this._realRootsPromise === promise) {
                     this._realRootsPromise = undefined;
                 }
-            });
-        }
-        return this._realRootsPromise;
-    }
-
-    private async resolveRealPath(filePath: string): Promise<string> {
-        return (await resolveNearestRealPathAsync(filePath, this.system.fs)) ?? filePath;
+            }
+        })();
+        this._realRootsPromise = promise;
+        return promise;
     }
 
     private async workspaceRelativeToRepoRelative(workspaceRelPath: string): Promise<string> {
@@ -411,11 +445,11 @@ export class JjService {
     }
 
     private async resolveRelativeToRealRoot(filePath: string, realRoot: string): Promise<string> {
-        const inside = await resolveInsideRealRootAsync(filePath, realRoot, this.system.fs);
-        if (inside !== undefined) {
-            return inside;
+        const resolution = await resolvePathAgainstRealRootAsync(filePath, realRoot, this.system.fs);
+        if (resolution?.inside) {
+            return resolution.relativePath;
         }
-        const fileReal = await this.resolveRealPath(filePath);
+        const fileReal = resolution?.resolvedPath ?? filePath;
         return path.normalize(
             path.relative(normalizeDriveLetter(path.normalize(realRoot)), normalizeDriveLetter(fileReal)),
         );
@@ -1230,9 +1264,6 @@ export class JjService {
 
     async clearCache(): Promise<void> {
         this._cacheEpoch++;
-        this._repoRoot = undefined;
-        this._workspaceRealPromise = undefined;
-        this._realRootsPromise = undefined;
         this._logEntryCache.clear();
         this._logRevsetPromise = undefined;
         this._gitRoot = undefined;

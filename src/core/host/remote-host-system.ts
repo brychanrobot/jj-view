@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { LruCache } from '../../utils/lru-cache';
 import type { HostHttpRequest } from './host-environment';
 import {
     type FileStat,
@@ -1473,6 +1474,9 @@ export class RemoteHostSystem implements HostSystem {
         }
         this._activeRequests.clear();
         this._activeSubscriptions.clear();
+        if (this.fs instanceof RemoteHostFs) {
+            this.fs.clearRealpathCache();
+        }
 
         if (this._eventSource) {
             try {
@@ -1752,17 +1756,21 @@ class RemoteHostFs implements HostFs {
         return res.exists ?? false;
     }
 
-    private readonly _realpathCache = new Map<string, Promise<string>>();
+    private static readonly MAX_REALPATH_CACHE_ENTRIES = 2048;
+    private readonly _realpathCache = new LruCache<string, Promise<string>>({
+        maxEntries: RemoteHostFs.MAX_REALPATH_CACHE_ENTRIES,
+    });
 
     clearRealpathCache(): void {
         this._realpathCache.clear();
     }
 
     async realpath(targetPath: string): Promise<string> {
-        let promise = this._realpathCache.get(targetPath);
-        if (promise) {
-            return promise;
+        const cached = this._realpathCache.get(targetPath);
+        if (cached) {
+            return cached;
         }
+        let promise: Promise<string> | undefined;
         promise = (async () => {
             try {
                 const res = await this._host.request<{ resolvedPath: string }>('fs.realpath', {
@@ -1770,7 +1778,9 @@ class RemoteHostFs implements HostFs {
                 });
                 return res.resolvedPath;
             } catch (err) {
-                this._realpathCache.delete(targetPath);
+                if (this._realpathCache.peek(targetPath) === promise) {
+                    this._realpathCache.delete(targetPath);
+                }
                 throw err;
             }
         })();

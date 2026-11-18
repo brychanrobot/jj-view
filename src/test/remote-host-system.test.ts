@@ -929,6 +929,157 @@ describe('RemoteHostSystem Unit Tests', () => {
 
             host.dispose();
         });
+
+        it('deduplicates concurrent realpath calls, evicts failed lookups, and enforces LRU capacity (2048)', async () => {
+            const { host, fakeWs } = setupRemoteHost();
+            await host.ready;
+
+            let failNext = true;
+            let realpathRpcCount = 0;
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method !== 'fs.realpath') {
+                    return;
+                }
+                realpathRpcCount++;
+                const targetPath =
+                    typeof msg.params === 'object' &&
+                    msg.params !== null &&
+                    'path' in msg.params &&
+                    typeof msg.params.path === 'string'
+                        ? msg.params.path
+                        : '';
+                if (targetPath === '/mock/flaky' && failNext) {
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        error: { code: RPC_CODE_INTERNAL_ERROR, message: 'transient ENOENT' },
+                    });
+                    return;
+                }
+                fakeWs.simulateMessage({
+                    jsonrpc: '2.0',
+                    id: msg.id,
+                    result: { resolvedPath: `/resolved${targetPath}` },
+                });
+            });
+
+            // 1. Concurrent failure shares 1 RPC, rejects for all callers, and evicts so retry succeeds
+            const flakyResults = await Promise.allSettled([
+                host.fs.realpath('/mock/flaky'),
+                host.fs.realpath('/mock/flaky'),
+            ]);
+            expect(flakyResults.every((r) => r.status === 'rejected')).toBe(true);
+            expect(realpathRpcCount).toBe(1);
+
+            failNext = false;
+            expect(await host.fs.realpath('/mock/flaky')).toBe('/resolved/mock/flaky');
+            expect(realpathRpcCount).toBe(2);
+
+            // 2. Fill remaining LRU capacity (2047 more -> total 2048 entries: /mock/flaky + /p/0..2046)
+            realpathRpcCount = 0;
+            const BATCH = 64;
+            for (let start = 0; start < 2047; start += BATCH) {
+                const batch: Promise<string>[] = [];
+                for (let i = start; i < Math.min(start + BATCH, 2047); i++) {
+                    batch.push(host.fs.realpath(`/p/${i}`));
+                }
+                await Promise.all(batch);
+            }
+            expect(realpathRpcCount).toBe(2047);
+
+            // Touch /mock/flaky so /p/0 becomes the least-recently-used entry
+            expect(await host.fs.realpath('/mock/flaky')).toBe('/resolved/mock/flaky');
+            expect(realpathRpcCount).toBe(2047);
+
+            // Insert /p/2047 -> evicts /p/0
+            expect(await host.fs.realpath('/p/2047')).toBe('/resolved/p/2047');
+            expect(realpathRpcCount).toBe(2048);
+
+            // /mock/flaky and /p/1 remain cached (0 new RPCs)
+            expect(await host.fs.realpath('/mock/flaky')).toBe('/resolved/mock/flaky');
+            expect(await host.fs.realpath('/p/1')).toBe('/resolved/p/1');
+            expect(realpathRpcCount).toBe(2048);
+
+            // /p/0 was evicted and triggers a fresh RPC
+            expect(await host.fs.realpath('/p/0')).toBe('/resolved/p/0');
+            expect(realpathRpcCount).toBe(2049);
+
+            host.dispose();
+        });
+
+        it('guards error eviction by promise identity and clears realpath cache on dispose()', async () => {
+            const { host, fakeWs } = setupRemoteHost();
+            await host.ready;
+
+            let raceCalls = 0;
+            let firstRaceMsgId: unknown;
+            let rpcCount = 0;
+            fakeWs.onClientRequest((msg) => {
+                if (msg.method !== 'fs.realpath') {
+                    return;
+                }
+                rpcCount++;
+                const targetPath =
+                    typeof msg.params === 'object' &&
+                    msg.params !== null &&
+                    'path' in msg.params &&
+                    typeof msg.params.path === 'string'
+                        ? msg.params.path
+                        : '';
+                if (targetPath === '/mock/race') {
+                    raceCalls++;
+                    if (raceCalls === 1) {
+                        firstRaceMsgId = msg.id;
+                        return;
+                    }
+                    fakeWs.simulateMessage({
+                        jsonrpc: '2.0',
+                        id: msg.id,
+                        result: { resolvedPath: '/resolved/new-race' },
+                    });
+                    return;
+                }
+                fakeWs.simulateMessage({
+                    jsonrpc: '2.0',
+                    id: msg.id,
+                    result: { resolvedPath: `/resolved${targetPath}` },
+                });
+            });
+
+            const staleFailurePromise = host.fs.realpath('/mock/race');
+            // Wait for RPC #1 dispatch before evicting /mock/race from LRU
+            await Promise.resolve();
+            await Promise.resolve();
+
+            const BATCH = 64;
+            for (let start = 0; start < 2048; start += BATCH) {
+                const batch: Promise<string>[] = [];
+                for (let i = start; i < Math.min(start + BATCH, 2048); i++) {
+                    batch.push(host.fs.realpath(`/evict-race/${i}`));
+                }
+                await Promise.all(batch);
+            }
+
+            // Re-request /mock/race -> succeeds with '/resolved/new-race'
+            expect(await host.fs.realpath('/mock/race')).toBe('/resolved/new-race');
+            const callsBeforeStaleReject = rpcCount;
+
+            // Now reject the superseded first RPC
+            fakeWs.simulateMessage({
+                jsonrpc: '2.0',
+                id: firstRaceMsgId,
+                error: { code: RPC_CODE_INTERNAL_ERROR, message: 'stale failure' },
+            });
+            await expect(staleFailurePromise).rejects.toThrow('stale failure');
+
+            // Newer /mock/race cache entry must remain intact (0 new RPCs)
+            expect(await host.fs.realpath('/mock/race')).toBe('/resolved/new-race');
+            expect(rpcCount).toBe(callsBeforeStaleReject);
+
+            // dispose() clears _realpathCache so subsequent calls do not return stale cached values
+            host.dispose();
+            await expect(host.fs.realpath('/mock/race')).rejects.toThrow('RemoteHostSystem is disposed');
+        });
     });
 
     describe('File Watching (HostWatcher)', () => {

@@ -5,6 +5,7 @@
 
 import path from 'pathe';
 import { describe, expect, it, vi } from 'vitest';
+import type { HostFs } from '../core/host/host-system';
 import type { JjStatusEntry } from '../core/jj-types';
 import {
     clearCanonicalRootCache,
@@ -23,11 +24,14 @@ import {
     isJjScheme,
     isWorkingCopyRevision,
     parseCommitDetailsUri,
+    resolveInsideRealRootAsync,
+    resolvePathAgainstRealRootAsync,
     toFileUri,
     toForwardSlash,
     Uri,
 } from '../core/uri-utils';
 import './vitest-utils';
+import { createMock } from './test-utils';
 import { createVscodeMock } from './vscode-mock';
 
 // Mock vscode
@@ -676,6 +680,108 @@ describe('pathe cross-platform contract', () => {
             if (query.mode === 'text') {
                 expect(query.text).toBe('Title\n\nBody message');
             }
+        });
+    });
+});
+
+describe('resolvePathAgainstRealRootAsync and resolveInsideRealRootAsync', () => {
+    it('performs a single ancestor walk for an outside-root missing path', async () => {
+        const calls: string[] = [];
+        const realMap = new Map<string, string>([
+            ['/outside', '/real/outside'],
+            ['/real/repo', '/real/repo'],
+        ]);
+        const stubFs = createMock<HostFs>({
+            realpath: async (targetPath: string) => {
+                calls.push(targetPath);
+                const resolved = realMap.get(path.normalize(targetPath));
+                if (resolved !== undefined) {
+                    return resolved;
+                }
+                throw Object.assign(new Error(`ENOENT: ${targetPath}`), { code: 'ENOENT' });
+            },
+        });
+
+        const target = '/outside/missing-a/missing-b/ghost.txt';
+        const res = await resolvePathAgainstRealRootAsync(target, '/real/repo', stubFs);
+        expect(res).toEqual({
+            inside: false,
+            resolvedPath: '/real/outside/missing-a/missing-b/ghost.txt',
+        });
+
+        expect(calls).toEqual([
+            '/outside/missing-a/missing-b',
+            '/outside/missing-a',
+            '/outside',
+            '/outside/missing-a/missing-b/ghost.txt',
+        ]);
+
+        calls.length = 0;
+        expect(await resolveInsideRealRootAsync(target, '/real/repo', stubFs)).toBeUndefined();
+        expect(calls).toEqual([
+            '/outside/missing-a/missing-b',
+            '/outside/missing-a',
+            '/outside',
+            '/outside/missing-a/missing-b/ghost.txt',
+        ]);
+    });
+
+    it('preserves tracked leaf symlinks inside realRoot without dereferencing the leaf', async () => {
+        const calls: string[] = [];
+        const realMap = new Map<string, string>([
+            ['/ws-link/sub', '/real/repo/sub'],
+            ['/ws-link/sub/leaf-link.txt', '/outside/external.txt'],
+        ]);
+        const stubFs = createMock<HostFs>({
+            realpath: async (targetPath: string) => {
+                calls.push(targetPath);
+                const resolved = realMap.get(path.normalize(targetPath));
+                if (resolved !== undefined) {
+                    return resolved;
+                }
+                throw Object.assign(new Error(`ENOENT: ${targetPath}`), { code: 'ENOENT' });
+            },
+        });
+
+        const res = await resolvePathAgainstRealRootAsync('/ws-link/sub/leaf-link.txt', '/real/repo', stubFs);
+        expect(res).toEqual({ inside: true, relativePath: 'sub/leaf-link.txt' });
+        expect(calls).toEqual(['/ws-link/sub']);
+    });
+
+    it('resolves an outside symlink whose target lands inside realRoot', async () => {
+        const realMap = new Map<string, string>([
+            ['/outside', '/outside'],
+            ['/outside/link.txt', '/real/repo/nested/target.txt'],
+        ]);
+        const stubFs = createMock<HostFs>({
+            realpath: async (targetPath: string) => {
+                const resolved = realMap.get(path.normalize(targetPath));
+                if (resolved !== undefined) {
+                    return resolved;
+                }
+                throw Object.assign(new Error(`ENOENT: ${targetPath}`), { code: 'ENOENT' });
+            },
+        });
+
+        const res = await resolvePathAgainstRealRootAsync('/outside/link.txt', '/real/repo', stubFs);
+        expect(res).toEqual({ inside: true, relativePath: 'nested/target.txt' });
+        expect(await resolveInsideRealRootAsync('/outside/link.txt', '/real/repo', stubFs)).toBe('nested/target.txt');
+    });
+
+    it('handles unresolvable roots and Windows drive-letter casing cleanly', async () => {
+        const stubFs = createMock<HostFs>({
+            realpath: async (targetPath: string) => {
+                if (targetPath === 'C:/repo/sub') {
+                    return 'c:/repo/sub';
+                }
+                throw Object.assign(new Error(`ENOENT: ${targetPath}`), { code: 'ENOENT' });
+            },
+        });
+
+        expect(await resolvePathAgainstRealRootAsync('/unmapped/a/b.txt', '/real/repo', stubFs)).toBeUndefined();
+        expect(await resolvePathAgainstRealRootAsync('C:\\repo\\sub\\file.ts', 'C:\\repo', stubFs)).toEqual({
+            inside: true,
+            relativePath: 'sub/file.ts',
         });
     });
 });
