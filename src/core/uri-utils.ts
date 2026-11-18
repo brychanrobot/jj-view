@@ -433,6 +433,59 @@ export async function resolveNearestRealPathAsync(filePath: string, fs: HostFs):
     return undefined;
 }
 
+export type RealRootResolution =
+    | { readonly inside: true; readonly relativePath: string }
+    | { readonly inside: false; readonly resolvedPath: string };
+
+function classifyResolvedPath(resolvedPath: string, normRoot: string): RealRootResolution {
+    const rel = path.relative(normRoot, normalizeDriveLetter(resolvedPath));
+    if (isInsideRelativePath(rel)) {
+        return { inside: true, relativePath: path.normalize(rel) };
+    }
+    return { inside: false, resolvedPath };
+}
+
+/**
+ * Resolves `filePath` against `realRoot` in a single ancestor walk, canonicalizing
+ * the parent directory first so tracked leaf symlinks are preserved rather than
+ * dereferenced to their targets. Returns `{ inside: true, relativePath }` when
+ * inside `realRoot`, `{ inside: false, resolvedPath }` when resolved outside
+ * `realRoot`, or `undefined` if no ancestor exists on disk.
+ */
+export async function resolvePathAgainstRealRootAsync(
+    filePath: string,
+    realRoot: string,
+    fs: HostFs,
+): Promise<RealRootResolution | undefined> {
+    const normRoot = normalizeDriveLetter(path.normalize(realRoot));
+    const parentDir = path.dirname(filePath);
+    const isFilesystemRoot = parentDir === filePath || /^[a-zA-Z]:([/\\])?$/.test(filePath);
+
+    if (isFilesystemRoot) {
+        const rootReal = await resolveNearestRealPathAsync(filePath, fs);
+        return rootReal === undefined ? undefined : classifyResolvedPath(rootReal, normRoot);
+    }
+
+    let parentBasedPath: string | undefined;
+    const parentReal = await resolveNearestRealPathAsync(parentDir, fs);
+    if (parentReal !== undefined) {
+        parentBasedPath = path.join(parentReal, path.basename(filePath));
+        const parentResolution = classifyResolvedPath(parentBasedPath, normRoot);
+        if (parentResolution.inside) {
+            return parentResolution;
+        }
+    }
+
+    let fileReal: string | undefined;
+    try {
+        fileReal = await fs.realpath(filePath);
+    } catch {
+        fileReal = parentBasedPath;
+    }
+
+    return fileReal === undefined ? undefined : classifyResolvedPath(fileReal, normRoot);
+}
+
 /**
  * Resolves `filePath` relative to `realRoot` if it falls inside `realRoot`,
  * canonicalizing the parent directory first so tracked leaf symlinks are preserved
@@ -443,27 +496,8 @@ export async function resolveInsideRealRootAsync(
     realRoot: string,
     fs: HostFs,
 ): Promise<string | undefined> {
-    const normRoot = normalizeDriveLetter(path.normalize(realRoot));
-    const parentDir = path.dirname(filePath);
-    const isFilesystemRoot = parentDir === filePath || /^[a-zA-Z]:([/\\])?$/.test(filePath);
-
-    if (!isFilesystemRoot) {
-        const parentReal = await resolveNearestRealPathAsync(parentDir, fs);
-        if (parentReal !== undefined) {
-            const parentBasedPath = path.join(parentReal, path.basename(filePath));
-            const parentRel = path.relative(normRoot, normalizeDriveLetter(parentBasedPath));
-            if (isInsideRelativePath(parentRel)) {
-                return path.normalize(parentRel);
-            }
-        }
-    }
-
-    const fileReal = await resolveNearestRealPathAsync(filePath, fs);
-    if (fileReal === undefined) {
-        return undefined;
-    }
-    const rel = path.relative(normRoot, normalizeDriveLetter(fileReal));
-    return isInsideRelativePath(rel) ? path.normalize(rel) : undefined;
+    const resolution = await resolvePathAgainstRealRootAsync(filePath, realRoot, fs);
+    return resolution?.inside ? resolution.relativePath : undefined;
 }
 
 function resolveNearestRealPath(fsPath: string): string | undefined {

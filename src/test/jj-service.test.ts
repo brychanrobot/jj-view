@@ -12,6 +12,7 @@ import type { ProcessExecOptions, ProcessResult } from '../core/host/host-system
 import { NodeHostFs, NodeHostProcess, NodeHostSystem } from '../core/host/node-host-system';
 import { JjProcessTracker } from '../core/jj-process-tracker';
 import { formatRootFileFileset, JjService, NO_OP_LOGGER } from '../core/jj-service';
+import { normalizeDriveLetter } from '../core/uri-utils';
 import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
 import { buildGraph, ScopedTestRepo, TestRepo } from './test-repo';
 import { exposePrivate } from './test-utils';
@@ -134,6 +135,218 @@ describe('JjService Unit Tests', () => {
         } finally {
             tracker.dispose();
         }
+    });
+
+    test('retains static root caches across clearCache(), toRepoRelative, getFileContent, and setFileContent cycles', async () => {
+        const ids = await buildGraph(repo, [
+            {
+                label: 'parent',
+                description: 'parent',
+                files: { 'sub/file.txt': 'v1\n' },
+            },
+            {
+                label: 'child',
+                parents: ['parent'],
+                description: 'child',
+                files: { 'sub/file.txt': 'v2\n' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        const tracker = new JjProcessTracker();
+        const realpathCalls: string[] = [];
+        class CountingFs extends NodeHostFs {
+            override async realpath(targetPath: string): Promise<string> {
+                realpathCalls.push(targetPath);
+                return super.realpath(targetPath);
+            }
+        }
+        const subDir = path.join(repo.path, 'sub');
+        const service = new JjService(subDir, NO_OP_LOGGER, {
+            processTracker: tracker,
+            system: new NodeHostSystem({ fs: new CountingFs() }),
+        });
+        const helpers = exposePrivate<JjServicePathHelpers>(service);
+
+        try {
+            // First resolution invokes jj root + root realpaths once
+            expect(await helpers.toRepoRelative('file.txt')).toBe('sub/file.txt');
+            expect(tracker.getHistory().filter((task) => task.label === 'getRepoRoot')).toHaveLength(1);
+            const realpathsAfterWarmup = realpathCalls.length;
+            expect(realpathsAfterWarmup).toBeGreaterThanOrEqual(1);
+
+            // Subsequent read, mutation (auto clearCache), and explicit clearCache cycles reuse static roots
+            expect(await service.getFileContent('file.txt', ids.parent.changeId)).toBe('v1\n');
+            await service.setFileContent(ids.parent.changeId, 'file.txt', 'v1-updated\n');
+            await service.clearCache();
+            expect(await helpers.toRepoRelative('file.txt')).toBe('sub/file.txt');
+            await service.clearCache();
+            expect(await service.getFileContent('file.txt', ids.parent.changeId)).toBe('v1-updated\n');
+
+            expect(tracker.getHistory().filter((task) => task.label === 'getRepoRoot')).toHaveLength(1);
+            expect(realpathCalls).toHaveLength(realpathsAfterWarmup);
+        } finally {
+            tracker.dispose();
+        }
+    });
+
+    test('recovers from transient getRepoRoot and workspace realpath failures', async () => {
+        let failRoot = true;
+        let rootCalls = 0;
+        class FlakyRootProcess extends NodeHostProcess {
+            override async execFile(
+                file: string,
+                args: readonly string[],
+                options?: ProcessExecOptions,
+            ): Promise<ProcessResult> {
+                if (args.includes('root')) {
+                    rootCalls++;
+                    if (failRoot) {
+                        throw new Error('transient jj root failure');
+                    }
+                }
+                return super.execFile(file, args, options);
+            }
+        }
+
+        let failRealpath = true;
+        let workspaceRealpathCalls = 0;
+        const normalizedRepoPath = normalizeDriveLetter(path.resolve(repo.path));
+        class FlakyRealpathFs extends NodeHostFs {
+            override async realpath(targetPath: string): Promise<string> {
+                if (normalizeDriveLetter(path.resolve(targetPath)) === normalizedRepoPath) {
+                    workspaceRealpathCalls++;
+                    if (failRealpath) {
+                        throw Object.assign(new Error('transient realpath failure'), { code: 'EIO' });
+                    }
+                }
+                return super.realpath(targetPath);
+            }
+        }
+
+        const service = new JjService(repo.path, NO_OP_LOGGER, {
+            system: new NodeHostSystem({
+                fs: new FlakyRealpathFs(),
+                process: new FlakyRootProcess(),
+            }),
+        });
+        const helpers = exposePrivate<JjServicePathHelpers>(service);
+
+        // Concurrent failed getRepoRoot calls must not permanently poison the promise
+        await expect(Promise.all([service.getRepoRoot(), service.getRepoRoot()])).rejects.toThrow(
+            'transient jj root failure',
+        );
+        expect(rootCalls).toBe(1);
+
+        failRoot = false;
+        expect(await service.getRepoRoot()).toBeSameFsPath(repo.path);
+        expect(rootCalls).toBe(2);
+        await service.clearCache();
+        expect(await service.getRepoRoot()).toBeSameFsPath(repo.path);
+        expect(rootCalls).toBe(2);
+
+        // Concurrent transient realpath(workspaceRoot) failure falls back gracefully without poisoning
+        using outsideDir = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-flaky-outside-'));
+        await Promise.all([
+            helpers.toRelative(path.join(outsideDir.path, 'a.txt')),
+            helpers.toRelative(path.join(outsideDir.path, 'b.txt')),
+        ]);
+        expect(workspaceRealpathCalls).toBe(1);
+
+        // Next lookup retries realpath(workspaceRoot), succeeds, and caches across clearCache()
+        failRealpath = false;
+        await helpers.toRelative(path.join(outsideDir.path, 'c.txt'));
+        expect(workspaceRealpathCalls).toBe(2);
+        await service.clearCache();
+        await helpers.toRelative(path.join(outsideDir.path, 'd.txt'));
+        expect(workspaceRealpathCalls).toBe(2);
+    });
+
+    test('getRealRoots recovers from transient realpath(repoRoot) and interleaved workspaceReal recovery without poisoning', async () => {
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-realroots-race-'));
+        const wsSymlink = path.join(tempContainer.path, 'ws-link');
+        using _wsLink = new ScopedSymlink(wsSymlink, repo.path, process.platform === 'win32' ? 'junction' : 'dir');
+        const subDir = path.join(wsSymlink, 'sub');
+        fs.mkdirSync(path.join(repo.path, 'sub'), { recursive: true });
+
+        // 1. Transient failure of realpath(repoRoot) does not poison _realRoots
+        let failRepoReal = true;
+        let repoRealCalls = 0;
+        const normalizedRepoPath = normalizeDriveLetter(path.resolve(repo.path));
+        class FlakyRepoRealFs extends NodeHostFs {
+            override async realpath(targetPath: string): Promise<string> {
+                if (normalizeDriveLetter(path.resolve(targetPath)) === normalizedRepoPath) {
+                    repoRealCalls++;
+                    if (failRepoReal) {
+                        throw Object.assign(new Error('transient repoRoot realpath error'), { code: 'EIO' });
+                    }
+                }
+                return super.realpath(targetPath);
+            }
+        }
+
+        const retryService = new JjService(subDir, NO_OP_LOGGER, {
+            system: new NodeHostSystem({ fs: new FlakyRepoRealFs() }),
+        });
+        const retryHelpers = exposePrivate<JjServicePathHelpers>(retryService);
+
+        expect(await retryHelpers.toRepoRelative('file.txt')).toBe('sub/file.txt');
+        expect(repoRealCalls).toBe(1);
+
+        failRepoReal = false;
+        expect(await retryHelpers.toRepoRelative('file.txt')).toBe('sub/file.txt');
+        expect(repoRealCalls).toBe(2);
+        await retryService.clearCache();
+        expect(await retryHelpers.toRepoRelative('file.txt')).toBe('sub/file.txt');
+        expect(repoRealCalls).toBe(2);
+
+        // 2. Interleaved TOCTOU race: getWorkspaceReal() fails initially in getRealRoots(),
+        //    then succeeds via concurrent toRelative() while realpath(repoRoot) is pending;
+        //    _realRoots must NOT cache the stale fallback wsSymlink.
+        let failSubReal = true;
+        let pauseRepoReal = true;
+        let releaseRepoReal!: () => void;
+        const repoRealPaused = new Promise<void>((resolve) => {
+            releaseRepoReal = resolve;
+        });
+        let enterRepoReal!: () => void;
+        const repoRealEntered = new Promise<void>((resolve) => {
+            enterRepoReal = resolve;
+        });
+
+        const normalizedSubDir = normalizeDriveLetter(path.resolve(subDir));
+        class InterleavedFs extends NodeHostFs {
+            override async realpath(targetPath: string): Promise<string> {
+                const norm = normalizeDriveLetter(path.resolve(targetPath));
+                if (norm === normalizedSubDir && failSubReal) {
+                    throw Object.assign(new Error('transient subDir realpath error'), { code: 'EIO' });
+                }
+                if (norm === normalizedRepoPath && pauseRepoReal) {
+                    enterRepoReal();
+                    await repoRealPaused;
+                }
+                return super.realpath(targetPath);
+            }
+        }
+
+        const raceService = new JjService(subDir, NO_OP_LOGGER, {
+            system: new NodeHostSystem({ fs: new InterleavedFs() }),
+        });
+        const raceHelpers = exposePrivate<JjServicePathHelpers>(raceService);
+
+        const pendingRepoRel = raceHelpers.toRepoRelative('file.txt');
+        await repoRealEntered;
+
+        // Concurrent toRelative() retries getWorkspaceReal() and succeeds before realpath(repoRoot) finishes
+        failSubReal = false;
+        expect(await raceHelpers.toRelative(path.join(repo.path, 'sub', 'file.txt'))).toBe('file.txt');
+
+        pauseRepoReal = false;
+        releaseRepoReal();
+
+        expect(await pendingRepoRel).toBe('sub/file.txt');
+        await raceService.clearCache();
+        expect(await raceHelpers.toRepoRelative('file.txt')).toBe('sub/file.txt');
     });
 
     test('getRepoStorePath returns directory for main repo', async () => {
@@ -2531,5 +2744,33 @@ describe('JjService Symlinked workspaceRoot', () => {
 
         await subJj.restore([path.join(subDir, 'restore.txt')]);
         expect(fs.readFileSync(path.join(subDir, 'restore.txt'), 'utf-8')).toBe('orig\n');
+    });
+
+    test('outside-root missing path performs a single ancestor realpath walk', async () => {
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-single-walk-'));
+        const wsSymlink = path.join(tempContainer.path, 'ws-link');
+        using _wsLink = new ScopedSymlink(wsSymlink, repo.path, process.platform === 'win32' ? 'junction' : 'dir');
+
+        const realpathCalls: string[] = [];
+        class TrackingFs extends NodeHostFs {
+            override async realpath(targetPath: string): Promise<string> {
+                realpathCalls.push(targetPath);
+                return super.realpath(targetPath);
+            }
+        }
+
+        const service = new JjService(wsSymlink, NO_OP_LOGGER, {
+            system: new NodeHostSystem({ fs: new TrackingFs() }),
+        });
+        const helpers = exposePrivate<JjServicePathHelpers>(service);
+
+        const outsideMissing = path.join(tempContainer.path, 'missing-a', 'missing-b', 'ghost.txt');
+        const rel = await helpers.toRelative(outsideMissing);
+        expect(rel).toContain('ghost.txt');
+
+        // Each missing ancestor segment and leaf must be probed at most once
+        expect(realpathCalls.filter((p) => p.endsWith('ghost.txt'))).toHaveLength(1);
+        expect(realpathCalls.filter((p) => p.endsWith('missing-b'))).toHaveLength(1);
+        expect(realpathCalls.filter((p) => p.endsWith('missing-a'))).toHaveLength(1);
     });
 });
