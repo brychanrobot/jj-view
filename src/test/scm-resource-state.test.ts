@@ -298,6 +298,20 @@ describe('createJjResourceState', () => {
                 const flags = state.contextValue?.split(' ') || [];
                 expect(flags).toContain('jj.resource.allowSquashIntoChild');
             });
+
+            it('preserves squashable actions on mutable ancestors when editable is false (read-only jj-view)', () => {
+                const state = createJjResourceState(entry, 'rev123', root, {
+                    editable: false,
+                    squashable: true,
+                    multipleAncestors: true,
+                });
+                expect(state.rightUri?.scheme).toBe('jj-view');
+                expect(state.resourceUri.scheme).toBe('jj-view');
+                const flags = state.contextValue?.split(' ') || [];
+                expect(flags).toContain('jj.resource.allowSquashIntoParent');
+                expect(flags).toContain('jj.resource.allowSquashIntoAncestor');
+                expect(flags).toContain('jj.resource.allowRestore');
+            });
         });
 
         describe('Split capability (allowSplit)', () => {

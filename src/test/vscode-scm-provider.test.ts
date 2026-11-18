@@ -13,6 +13,7 @@ vi.mock('vscode', async () => {
 
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { NodeHostSystem } from '../core/host/node-host-system';
+import { ScmContextValue } from '../core/jj-context-keys';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
 import { Uri } from '../core/uri-utils';
 import { VsCodeScmProvider } from '../vscode/providers/vscode-scm-provider';
@@ -23,6 +24,7 @@ import { createMock, createMockLogOutputChannel } from './test-utils';
 describe('VsCodeScmProvider Unit Tests', () => {
     let testRepo: TestRepo;
     let repositoryManager: JjRepositoryManager;
+    let host: FakeHostEnvironment;
     let scmProvider: VsCodeScmProvider;
 
     beforeEach(async () => {
@@ -34,7 +36,7 @@ describe('VsCodeScmProvider Unit Tests', () => {
         const outputChannel = createMockLogOutputChannel({
             appendLine: () => {},
         });
-        const host = new FakeHostEnvironment(
+        host = new FakeHostEnvironment(
             new NodeHostSystem({
                 watcher: {
                     watch: async () => ({
@@ -176,6 +178,56 @@ describe('VsCodeScmProvider Unit Tests', () => {
         scmProvider.sourceControl.inputBox.value = 'unsaved draft during ancestor describe';
         await scmProvider.refresh({ reason: 'after describe:other-ancestor' });
         expect(scmProvider.inputBoxValue).toBe('unsaved draft during ancestor describe');
+    });
+
+    test('honors editableMutableDiffs setting and rebuilds ancestor resource states on config change without clobbering inputBox', async () => {
+        await buildGraph(testRepo, [
+            { label: 'parent', description: 'mutable parent', files: { 'ancestor.txt': 'v1\n' } },
+            { label: 'wc', description: 'working copy', parents: ['parent'], files: { 'wc.txt': 'w1\n' } },
+        ]);
+
+        await scmProvider.refresh({ forceSnapshot: true });
+
+        const getGroups = () =>
+            vi
+                .mocked(scmProvider.sourceControl.createResourceGroup)
+                .mock.results.filter(
+                    (r): r is { type: 'return'; value: vscode.SourceControlResourceGroup } => r.type === 'return',
+                )
+                .map((r) => r.value);
+
+        // Default (true): mutable ancestor starts editable (jj-edit)
+        await vi.waitFor(() => {
+            const ancestorGroup = getGroups().find((g) => g.id === 'ancestor-0');
+            expect(ancestorGroup?.resourceStates[0]?.resourceUri.scheme).toBe('jj-edit');
+        });
+
+        scmProvider.sourceControl.inputBox.value = 'unsaved wc draft';
+        // Toggle true -> false purely via onDidChangeConfiguration without calling refresh()
+        await host.config.update('jj-view.editableMutableDiffs', false);
+
+        await vi.waitFor(() => {
+            const ancestorGroup = getGroups().find((g) => g.id === 'ancestor-0');
+            expect(ancestorGroup?.resourceStates[0]?.resourceUri.scheme).toBe('jj-view');
+        });
+
+        const ancestorGroupReadOnly = getGroups().find((g) => g.id === 'ancestor-0');
+        const ancestorStateReadOnly = ancestorGroupReadOnly?.resourceStates[0];
+        expect(ancestorStateReadOnly?.resourceUri.scheme).toBe('jj-view');
+        expect(ancestorStateReadOnly?.contextValue).toContain('jj.resource.allowSquashIntoParent');
+
+        const wcGroup = getGroups().find((g) => g.id === ScmContextValue.WorkingCopyGroup);
+        expect(wcGroup?.resourceStates[0]?.resourceUri.scheme).toBe('file');
+        expect(scmProvider.sourceControl.inputBox.value).toBe('unsaved wc draft');
+
+        // Toggling false -> true rebuilds ancestor resources back to jj-edit
+        // without clobbering the user's unsaved SCM description draft
+        await host.config.update('jj-view.editableMutableDiffs', true);
+        await vi.waitFor(() => {
+            const ancestorGroup = getGroups().find((g) => g.id === 'ancestor-0');
+            expect(ancestorGroup?.resourceStates[0]?.resourceUri.scheme).toBe('jj-edit');
+        });
+        expect(scmProvider.sourceControl.inputBox.value).toBe('unsaved wc draft');
     });
 
     test('disposes all VS Code resources cleanly', () => {

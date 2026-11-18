@@ -295,4 +295,77 @@ describe('resolveScmResourceState', () => {
         expect(renamedAncestorState?.status).toBe('renamed');
         expect(renamedAncestorState?.leftUri?.path).toBe('/src/old-name.ts');
     });
+
+    it('honors editableMutableDiffs setting while preserving squashable actions and explicit jj-edit toggles', () => {
+        const ancestorChangeId = 'anc123';
+        const wcChangeId = 'wc123';
+        const ancestorChange: JjStatusEntry = { path: 'src/ancestor.ts', status: 'modified' };
+        const snapshot = createMock<ScmSnapshot>({
+            currentEntry: createMock<JjLogEntry>({ change_id: wcChangeId, bookmarks: [] }),
+            conflictedPaths: [],
+            workingCopyChanges: [{ path: 'src/wc.ts', status: 'modified' }],
+            ancestors: [
+                createMock<ScmAncestorEntry>({
+                    entry: createMock<JjLogEntry>({ change_id: ancestorChangeId, bookmarks: [] }),
+                    changes: [ancestorChange],
+                    isMutable: true,
+                    canSquash: true,
+                }),
+            ],
+        });
+        const viewRightUri = Uri.from({
+            scheme: 'jj-view',
+            path: '/src/ancestor.ts',
+            fragment: `mode=diff&root=${encodeURIComponent(workspaceRoot)}&base=${ancestorChangeId}&side=right`,
+        });
+
+        const readOnlyAncestor = resolveScmResourceState({
+            rightUri: viewRightUri,
+            snapshot,
+            workspaceRoot,
+            editableMutableDiffs: false,
+        });
+        expect(readOnlyAncestor).toBeDefined();
+        expect(readOnlyAncestor?.rightUri?.scheme).toBe('jj-view');
+        expect(readOnlyAncestor?.resourceUri.scheme).toBe('jj-view');
+        expect(readOnlyAncestor?.contextValue).toContain('jj.resource.allowSquashIntoParent');
+        expect(readOnlyAncestor?.contextValue).toContain('jj.resource.allowSplit');
+
+        const readOnlyExplicitImmutable = resolveScmResourceState({
+            rightUri: Uri.file('/repo/src/ancestor.ts'),
+            snapshot,
+            workspaceRoot,
+            explicitRevision: ancestorChangeId,
+            isWorkingCopyOverride: false,
+            isImmutable: false,
+            editableMutableDiffs: false,
+        });
+        expect(readOnlyExplicitImmutable?.rightUri?.scheme).toBe('jj-view');
+
+        // Explicitly toggled jj-edit rightUri remains editable even when default setting is false
+        const toggledEditUri = Uri.from({
+            scheme: 'jj-edit',
+            path: '/src/ancestor.ts',
+            fragment: `root=${encodeURIComponent(workspaceRoot)}&jj-revision=${ancestorChangeId}&revision=${ancestorChangeId}`,
+        });
+        const toggledEditable = resolveScmResourceState({
+            rightUri: toggledEditUri,
+            snapshot,
+            workspaceRoot,
+            editableMutableDiffs: false,
+        });
+        expect(toggledEditable?.rightUri?.scheme).toBe('jj-edit');
+
+        // Working copy always remains editable file://
+        const wcReadOnlyConfig = resolveScmResourceState({
+            rightUri: Uri.file('/repo/src/wc.ts'),
+            snapshot,
+            workspaceRoot,
+            explicitRevision: wcChangeId,
+            isWorkingCopyOverride: true,
+            isImmutable: false,
+            editableMutableDiffs: false,
+        });
+        expect(wcReadOnlyConfig?.rightUri?.scheme).toBe('file');
+    });
 });

@@ -22,6 +22,7 @@ interface Props {
     menuRegistry: MenuRegistry;
     rootContext: IContextKeyService;
     openDiffOnClick?: boolean;
+    editableMutableDiffs?: boolean;
     onOpenResource: (state: JjResourceState, options?: { preview?: boolean }) => void;
     onCommit: (message: string, workspaceRoot?: string) => void;
     onSetDescription: (message: string, workspaceRoot?: string) => void;
@@ -39,6 +40,7 @@ let {
     menuRegistry,
     rootContext,
     openDiffOnClick = true,
+    editableMutableDiffs = true,
     onOpenResource,
     onCommit,
     onSetDescription,
@@ -405,7 +407,7 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                                         {@const remainingAncestors = snap.ancestors.length - 1 - idx}
                                         {@const ancestorItems = ancestor.changes.map((c) =>
                                             createJjResourceState(c, ancestor.entry.change_id, root, {
-                                                editable: ancestor.isMutable,
+                                                editable: ancestor.isMutable && editableMutableDiffs,
                                                 squashable: ancestor.canSquash,
                                                 multipleAncestors: remainingAncestors > 0,
                                                 openDiffOnClick,
@@ -505,7 +507,7 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                     {@const remainingAncestors = snapshot.ancestors.length - 1 - idx}
                     {@const ancestorItems = ancestor.changes.map((c) =>
                         createJjResourceState(c, ancestor.entry.change_id, workspaceRoot, {
-                            editable: ancestor.isMutable,
+                            editable: ancestor.isMutable && editableMutableDiffs,
                             squashable: ancestor.canSquash,
                             multipleAncestors: remainingAncestors > 0,
                             openDiffOnClick,

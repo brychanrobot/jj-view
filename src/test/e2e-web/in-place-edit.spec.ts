@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as path from 'node:path';
 import { buildGraph } from '../test-repo';
-import { expect, save, test, waitForScmReady } from './standalone-fixture';
+import { ARTIFACT_DIR, expect, recordGifFlow, save, test, waitForScmReady } from './standalone-fixture';
 
 test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
     test('should allow editing working copy files and discarding changes via SCM', async ({
@@ -222,5 +223,137 @@ test.describe('Standalone Web In-Place Diff Editing & Conflicts', () => {
         await expect
             .poll(() => testRepo.getFileContent(ancestorChangeId, 'details-edit.txt'), { timeout: 15000 })
             .toContain('edited from commit details diff');
+    });
+
+    test('should open mutable ancestor diffs read-only when editableMutableDiffs is false and toggle between read-only and editable across themes', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        testRepo.writeFile('parent-file.txt', 'base line 1\n');
+        testRepo.describe('base commit');
+        testRepo.new();
+
+        testRepo.writeFile('parent-file.txt', 'base line 1\nparent line 2\n');
+        testRepo.describe('mutable parent');
+        const parentChangeId = testRepo.getChangeId('@');
+        testRepo.new();
+
+        testRepo.writeFile('wc-file.txt', 'wc line 1\n');
+        testRepo.describe('working copy');
+
+        const pageErrors: string[] = [];
+        page.on('pageerror', (err) => {
+            const isExpectedAgentApiUnavailable =
+                err.message.includes('agentapi failed') || err.message.includes('agentapi binary not found');
+            if (!isExpectedAgentApiUnavailable) {
+                pageErrors.push(err.message);
+            }
+        });
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        // Disable editableMutableDiffs in Settings modal
+        await page.locator('[data-testid="scm-settings-button"]').click();
+        const modal = page.locator('[data-testid="settings-modal"]');
+        await expect(modal).toBeVisible();
+        const editableToggle = page.locator('[data-testid="setting-control-editableMutableDiffs"]');
+        await expect(editableToggle).toBeChecked();
+        await editableToggle.click();
+        await expect(editableToggle).not.toBeChecked();
+        await page.locator('[data-testid="settings-close-btn"]').click();
+        await expect(modal).toHaveCount(0);
+
+        // Working copy (@) diff remains editable even when editableMutableDiffs is false
+        const wcItem = page
+            .locator('[data-testid="scm-group-working-copy"] [data-testid="scm-resource-item"]')
+            .filter({ hasText: 'wc-file.txt' });
+        await expect(wcItem).toBeVisible();
+        await wcItem.locator('.file-name').click();
+
+        const diffViewer = page.locator('[data-testid="pierre-diff-viewer"]');
+        await expect(diffViewer).toBeVisible({ timeout: 30000 });
+        await expect(diffViewer).toContainText('wc line 1', { timeout: 15000 });
+        await expect(diffViewer.getByRole('textbox')).toBeVisible({ timeout: 15000 });
+        await expect(page.locator('[data-testid="editor-title-action-jj-view.enableDiffEditing"]')).toHaveCount(0);
+
+        const darkReadOnlyPng = path.join(ARTIFACT_DIR, 'readonly-mutable-diffs-dark.png');
+        const lightReadOnlyPng = path.join(ARTIFACT_DIR, 'readonly-mutable-diffs-light.png');
+        const toggleGifPath = path.join(ARTIFACT_DIR, 'readonly-mutable-diffs-toggle.gif');
+
+        await recordGifFlow(
+            page,
+            async (captureFrame) => {
+                // Mutable non-WC ancestor diff opens read-only with Edit Revision File action button
+                const ancestorItem = page
+                    .locator('[data-testid="scm-group-ancestor-0"] [data-testid="scm-resource-item"]')
+                    .filter({ hasText: 'parent-file.txt' });
+                await expect(ancestorItem).toBeVisible();
+                await ancestorItem.locator('.file-name').click();
+
+                await expect(diffViewer).toContainText('parent line 2', { timeout: 15000 });
+                await expect(diffViewer.getByRole('textbox')).toHaveCount(0);
+
+                const enableEditBtn = page.locator('[data-testid="editor-title-action-jj-view.enableDiffEditing"]');
+                await expect(enableEditBtn).toBeVisible();
+                await page.screenshot({ path: darkReadOnlyPng });
+                await captureFrame();
+
+                // Toggle to editable mode (jj-edit) without creating duplicate tabs
+                await enableEditBtn.click();
+
+                const disableEditBtn = page.locator('[data-testid="editor-title-action-jj-view.disableDiffEditing"]');
+                await expect(disableEditBtn).toBeVisible({ timeout: 15000 });
+                await expect(enableEditBtn).toHaveCount(0);
+                await expect(
+                    page.locator('[data-testid="tab-bar-container"] .tab').filter({ hasText: 'parent-file.txt' }),
+                ).toHaveCount(1);
+
+                const editor = diffViewer.getByRole('textbox');
+                await expect(editor).toBeVisible({ timeout: 15000 });
+                const editableLine = editor.locator('[data-line]').last();
+                await expect(async () => {
+                    await editableLine.click();
+                    await expect(editor).toBeFocused({ timeout: 500 });
+                    await expect(editableLine).toHaveAttribute('data-editor-active-line', '', { timeout: 500 });
+                }).toPass({ timeout: 10000 });
+                await editor.pressSequentially('\ntoggled editable line', { delay: 15 });
+                await expect(editor).toContainText('toggled editable line', { timeout: 5000 });
+                await captureFrame();
+
+                // Switch to light theme via Settings modal to verify theme adaptation without disturbing dirty editor
+                await page.locator('[data-testid="scm-settings-button"]').click();
+                await expect(modal).toBeVisible();
+                await page.locator('[data-testid="setting-control-appearance.theme"]').selectOption('github-light');
+                await page.locator('[data-testid="settings-close-btn"]').click();
+                await expect(modal).toHaveCount(0);
+                await expect
+                    .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-theme')))
+                    .toBe('github-light');
+                await captureFrame();
+
+                // Click Switch Revision File to Read-Only: must flush dirty edits and reopen read-only
+                await disableEditBtn.click();
+
+                await expect
+                    .poll(() => testRepo.getFileContent(parentChangeId, 'parent-file.txt'), { timeout: 15000 })
+                    .toContain('toggled editable line');
+
+                await expect(enableEditBtn).toBeVisible({ timeout: 15000 });
+                await expect(disableEditBtn).toHaveCount(0);
+                await expect(diffViewer.getByRole('textbox')).toHaveCount(0);
+                await expect(diffViewer).toContainText('toggled editable line', { timeout: 15000 });
+                await expect(
+                    page.locator('[data-testid="tab-bar-container"] .tab').filter({ hasText: 'parent-file.txt' }),
+                ).toHaveCount(1);
+
+                await page.screenshot({ path: lightReadOnlyPng });
+                await captureFrame();
+            },
+            { outputPath: toggleGifPath },
+        );
+
+        expect(pageErrors).toEqual([]);
     });
 });

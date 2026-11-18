@@ -15,6 +15,7 @@ export interface ResolveScmResourceParams {
     explicitRevision?: string;
     isWorkingCopyOverride?: boolean;
     isImmutable?: boolean;
+    editableMutableDiffs?: boolean;
     fallbackEntry?: JjStatusEntry;
 }
 
@@ -43,6 +44,7 @@ export function resolveScmResourceState(params: ResolveScmResourceParams): JjRes
         explicitRevision,
         isWorkingCopyOverride,
         isImmutable,
+        editableMutableDiffs,
         fallbackEntry,
     } = params;
 
@@ -112,10 +114,9 @@ export function resolveScmResourceState(params: ResolveScmResourceParams): JjRes
         ) ??
             fallbackEntry ?? { path: cleanPath, status: 'modified' };
 
-        let editable = ancestor.isMutable || rightUri?.scheme === 'jj-edit';
-        if (isImmutable !== undefined) {
-            editable = !isImmutable;
-        }
+        const allowEditableMutableDiffs = editableMutableDiffs ?? true;
+        const isCommitMutable = isImmutable !== undefined ? !isImmutable : ancestor.isMutable;
+        const editable = (isCommitMutable && allowEditableMutableDiffs) || rightUri?.scheme === 'jj-edit';
 
         return createJjResourceState(change, ancestor.entry.change_id, workspaceRoot, {
             editable,
@@ -123,7 +124,7 @@ export function resolveScmResourceState(params: ResolveScmResourceParams): JjRes
             multipleAncestors: remainingAncestors > 0,
             openDiffOnClick: true,
             workingCopyChangeId: snapshot?.currentEntry?.change_id,
-            mutableCommit: editable,
+            mutableCommit: isCommitMutable,
         });
     }
 

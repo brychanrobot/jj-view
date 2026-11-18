@@ -249,6 +249,11 @@
                     "default": true,
                     "description": "Controls whether the diff editor should be opened when clicking a change. Otherwise the regular editor will be opened."
                 },
+                "jj-view.editableMutableDiffs": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Open diffs for mutable non-working-copy commits as editable by default. When disabled, diffs open read-only and can be toggled to editable."
+                },
                 "jj-view.autoRepositoryDetection": {
                     "type": [
                         "boolean",
@@ -413,6 +418,18 @@
                 "title": "Open File in Working Copy",
                 "category": "JJ View",
                 "icon": "$(go-to-file)"
+            },
+            {
+                "command": "jj-view.enableDiffEditing",
+                "title": "Edit Revision File",
+                "category": "JJ View",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "jj-view.disableDiffEditing",
+                "title": "Switch Revision File to Read-Only",
+                "category": "JJ View",
+                "icon": "$(lock)"
             },
             {
                 "command": "jj-view.openChanges",
@@ -775,6 +792,14 @@
         ],
         "menus": {
             "commandPalette": [
+                {
+                    "command": "jj-view.enableDiffEditing",
+                    "when": "resourceScheme == 'jj-view'"
+                },
+                {
+                    "command": "jj-view.disableDiffEditing",
+                    "when": "resourceScheme == 'jj-edit'"
+                },
                 {
                     "command": "jj-view.uploadStack",
                     "when": "!config.jj-view.alwaysUploadStack && jj.codeForgeProvider != 'gerrit' && jj.codeForgeUploadModel != 'revision'"
@@ -1277,6 +1302,16 @@
                     "when": "resourceFilename == 'SQUASH_MSG'"
                 },
                 {
+                    "command": "jj-view.enableDiffEditing",
+                    "group": "navigation",
+                    "when": "resourceScheme == 'jj-view'"
+                },
+                {
+                    "command": "jj-view.disableDiffEditing",
+                    "group": "navigation",
+                    "when": "resourceScheme == 'jj-edit'"
+                },
+                {
                     "command": "jj-view.openFile",
                     "group": "navigation",
                     "when": "resourceScheme == 'jj-view' || resourceScheme == 'jj-edit'"
@@ -1287,6 +1322,16 @@
                     "command": "jj-view.compareFileWith",
                     "group": "jj-view@1",
                     "when": "resourceScheme == 'file'"
+                },
+                {
+                    "command": "jj-view.enableDiffEditing",
+                    "group": "jj-view@1",
+                    "when": "resourceScheme == 'jj-view'"
+                },
+                {
+                    "command": "jj-view.disableDiffEditing",
+                    "group": "jj-view@1",
+                    "when": "resourceScheme == 'jj-edit'"
                 },
                 {
                     "command": "jj-view.openFile",

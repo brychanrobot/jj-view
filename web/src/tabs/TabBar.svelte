@@ -3,18 +3,105 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
+import type { Uri } from '../../../src/core/uri-utils';
+import type { IContextKeyService } from '../menu/context-key-service';
+import type { MenuRegistry } from '../menu/menu-registry';
+import type { ResolvedMenuItem } from '../menu/menu-types';
 import type { TabEntry, TabReorderPosition } from './tab-types';
 
 interface Props {
     tabs: TabEntry[];
     activeTabId?: string;
+    menuRegistry?: MenuRegistry;
+    rootContext?: IContextKeyService;
+    onAction?: (command: string, payload?: unknown) => void;
     onSelectTab: (tabId: string) => void;
     onCloseTab: (tabId: string) => void;
     onPinTab: (tabId: string) => void;
     onReorderTabs: (sourceTabId: string, targetTabId: string, position: TabReorderPosition) => void;
 }
 
-let { tabs, activeTabId, onSelectTab, onCloseTab, onPinTab, onReorderTabs }: Props = $props();
+let {
+    tabs,
+    activeTabId,
+    menuRegistry,
+    rootContext,
+    onAction,
+    onSelectTab,
+    onCloseTab,
+    onPinTab,
+    onReorderTabs,
+}: Props = $props();
+
+const activeTab = $derived(tabs.find((tab) => tab.id === activeTabId));
+const activeTabResourceUri = $derived(
+    activeTab?.view.type === 'diff'
+        ? (activeTab.view.rightUri ?? activeTab.view.leftUri)
+        : activeTab?.view.type === 'file'
+          ? activeTab.view.uri
+          : undefined,
+);
+const activeTabResourceFilename = $derived(activeTab ? activeTab.title.replace(/\s*\([^)]*\)$/, '').trim() : '');
+
+let contextVersion = $state(0);
+
+$effect(() => {
+    if (!rootContext) {
+        return;
+    }
+    const disposable = rootContext.onDidChangeContext(() => {
+        contextVersion++;
+    });
+    return () => disposable.dispose();
+});
+
+const editorTitleActions: ResolvedMenuItem[] = $derived.by(() => {
+    if (!menuRegistry || !rootContext || !activeTab || !activeTabResourceUri || contextVersion < 0) {
+        return [];
+    }
+    const scopedContext = rootContext.createScoped({
+        resourceScheme: activeTabResourceUri.scheme,
+        resourceFilename: activeTabResourceFilename,
+    });
+    return menuRegistry.getInlineActions('editor/title', scopedContext);
+});
+
+function serializeUriForContext(uri: Uri | undefined): Record<string, string> | undefined {
+    if (!uri) {
+        return undefined;
+    }
+    return {
+        scheme: uri.scheme,
+        path: uri.path,
+        fsPath: uri.fsPath,
+        authority: uri.authority,
+        query: uri.query,
+        fragment: uri.fragment,
+    };
+}
+
+function buildTabActionPayload(tab: TabEntry): Record<string, unknown> {
+    if (tab.view.type === 'diff') {
+        return {
+            leftUri: tab.view.leftUri,
+            rightUri: tab.view.rightUri,
+            resourceUri: tab.view.rightUri ?? tab.view.leftUri,
+            title: tab.title,
+            tabId: tab.id,
+        };
+    }
+    if (tab.view.type === 'file') {
+        return {
+            resourceUri: tab.view.uri,
+            title: tab.title,
+            tabId: tab.id,
+        };
+    }
+    return {
+        title: tab.title,
+        tabId: tab.id,
+    };
+}
 
 let draggedTabId = $state<string | null>(null);
 let dropTarget = $state<{ tabId: string; position: TabReorderPosition } | null>(null);
@@ -115,13 +202,9 @@ function handleKeyDown(e: KeyboardEvent, tabIndex: number): void {
 }
 </script>
 
-<div
-    class="tab-bar-container"
-    data-testid="tab-bar-container"
-    role="tablist"
-    aria-label="Open editors"
->
-    {#each tabs as tab, index (tab.id)}
+<div class="tab-bar-container" data-testid="tab-bar-container">
+    <div class="tab-list" role="tablist" aria-label="Open editors">
+        {#each tabs as tab, index (tab.id)}
         {@const isActive = tab.id === activeTabId}
         {@const isDropBefore = dropTarget?.tabId === tab.id && dropTarget?.position === 'before'}
         {@const isDropAfter = dropTarget?.tabId === tab.id && dropTarget?.position === 'after'}
@@ -146,16 +229,10 @@ function handleKeyDown(e: KeyboardEvent, tabIndex: number): void {
                 menuId: 'editor/title/context',
                 resourceScheme,
                 resourceFilename,
-                resourceUri: resourceUri
-                    ? {
-                          scheme: resourceUri.scheme,
-                          path: resourceUri.path,
-                          fsPath: resourceUri.fsPath,
-                          authority: resourceUri.authority,
-                          query: resourceUri.query,
-                          fragment: resourceUri.fragment,
-                      }
-                    : undefined,
+                resourceUri: serializeUriForContext(resourceUri),
+                leftUri: tab.view.type === 'diff' ? serializeUriForContext(tab.view.leftUri) : undefined,
+                rightUri: tab.view.type === 'diff' ? serializeUriForContext(tab.view.rightUri) : undefined,
+                title: tab.title,
                 tabId: tab.id,
                 preventDefaultContextMenuItems: true,
             })}
@@ -210,12 +287,34 @@ function handleKeyDown(e: KeyboardEvent, tabIndex: number): void {
             </button>
         </div>
     {/each}
+    </div>
+
+    {#if editorTitleActions.length > 0 && activeTab}
+        {@const activePayload = buildTabActionPayload(activeTab)}
+        <div class="editor-title-actions" role="toolbar" aria-label="Editor actions" data-testid="editor-title-actions">
+            {#each editorTitleActions as action (action.command)}
+                <button
+                    type="button"
+                    class="editor-action-btn"
+                    title={action.title}
+                    aria-label={action.title}
+                    data-testid={`editor-title-action-${action.command}`}
+                    onclick={() => onAction?.(action.command, activePayload)}
+                >
+                    {#if action.iconClass}
+                        <i class={action.iconClass} aria-hidden="true"></i>
+                    {/if}
+                </button>
+            {/each}
+        </div>
+    {/if}
 </div>
 
 <style>
 .tab-bar-container {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 4px;
     padding: 0 8px;
     height: 35px;
@@ -223,19 +322,61 @@ function handleKeyDown(e: KeyboardEvent, tabIndex: number): void {
     max-height: 35px;
     background-color: var(--vscode-editorGroupHeader-tabsBackground, #171717);
     border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, #1d1d1d);
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: hidden;
     box-sizing: border-box;
     user-select: none;
 }
 
-.tab-bar-container::-webkit-scrollbar {
+.tab-list {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.tab-list::-webkit-scrollbar {
     height: 3px;
 }
 
-.tab-bar-container::-webkit-scrollbar-thumb {
+.tab-list::-webkit-scrollbar-thumb {
     background-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
     border-radius: 2px;
+}
+
+.editor-title-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+    padding-left: 6px;
+}
+
+.editor-action-btn {
+    background: transparent;
+    color: var(--vscode-icon-foreground);
+    border: none;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.editor-action-btn:hover {
+    background-color: var(--vscode-toolbar-hoverBackground);
+    color: var(--vscode-foreground);
+}
+
+.editor-action-btn:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
 }
 
 .tab {

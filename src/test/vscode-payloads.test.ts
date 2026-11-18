@@ -46,6 +46,7 @@ import {
     createSquashHunkIntoParentPayload,
     createSquashSelectionIntoParentPayload,
 } from '../vscode/payloads/squash-selection.payload';
+import { createToggleDiffEditablePayload } from '../vscode/payloads/toggle-diff-editable.payload';
 import { createUploadPayload, createUploadStackPayload } from '../vscode/payloads/upload.payload';
 import {
     createWorkspaceOpenInCurrentWindowPayload,
@@ -621,6 +622,47 @@ describe('vscode payloads', () => {
             const payloadEmpty = createUploadStackPayload([]);
             expect(payloadEmpty.revision).toBeUndefined();
             expect(payloadEmpty.mode).toBe('stack');
+        });
+    });
+
+    describe('toggle diff editable payload', () => {
+        it('extracts leftUri, rightUri, resourceUri, and title for active diff tab and guards focused left pane', () => {
+            const leftUri = Uri.parse('jj-view:///file.txt#mode=diff&base=abc&side=left');
+            const rightUri = Uri.parse('jj-view:///file.txt#mode=diff&base=abc&side=right');
+            const tabGroup = vscode.window.tabGroups.activeTabGroup as { activeTab?: vscode.Tab };
+            const prevTab = tabGroup.activeTab;
+            const prevEditor = vscode.window.activeTextEditor;
+
+            try {
+                tabGroup.activeTab = createMock<vscode.Tab>({
+                    label: 'file.txt (abc)',
+                    input: new vscode.TabInputTextDiff(leftUri, rightUri),
+                });
+                vscode.window.activeTextEditor = undefined;
+
+                // Direct editor/title invocation passes modified URI in args[0]
+                const fromTitle = createToggleDiffEditablePayload([rightUri]);
+                expect(fromTitle.leftUri?.toString()).toBe(leftUri.toString());
+                expect(fromTitle.rightUri?.toString()).toBe(rightUri.toString());
+                expect(fromTitle.resourceUri?.toString()).toBe(rightUri.toString());
+                expect(fromTitle.title).toBe('file.txt (abc)');
+
+                // Command Palette invocation with no args defaults to active diff tab
+                const fromPalette = createToggleDiffEditablePayload([]);
+                expect(fromPalette.leftUri?.toString()).toBe(leftUri.toString());
+                expect(fromPalette.rightUri?.toString()).toBe(rightUri.toString());
+
+                // Command Palette when activeTextEditor is explicitly focused on the left pane keeps left resourceUri
+                vscode.window.activeTextEditor = createMock<vscode.TextEditor>({
+                    document: createMock<vscode.TextDocument>({ uri: leftUri }),
+                });
+                const fromLeftPane = createToggleDiffEditablePayload([]);
+                expect(fromLeftPane.leftUri).toBeUndefined();
+                expect(fromLeftPane.resourceUri?.toString()).toBe(leftUri.toString());
+            } finally {
+                tabGroup.activeTab = prevTab;
+                vscode.window.activeTextEditor = prevEditor;
+            }
         });
     });
 });

@@ -21,6 +21,7 @@ import { createSimplifyParentsPayload } from '../src/commands/payloads/simplify-
 import { createSplitFilesPayload } from '../src/commands/payloads/split-files.payload';
 import { createSquashRevisionIntoParentPayload } from '../src/commands/payloads/squash-revision.payload';
 import { createSquashSelectionIntoParentPayload } from '../src/commands/payloads/squash-selection.payload';
+import { createToggleDiffEditablePayload } from '../src/commands/payloads/toggle-diff-editable.payload';
 import { registerWebCommands } from '../src/commands/register-web-commands';
 import { WebHostEnvironment } from '../src/host/web-host-environment';
 import { DEFAULT_PACKAGE_JSON_CONTRIBUTES } from '../src/menu/default-menus';
@@ -566,6 +567,123 @@ describe('registerWebCommands', () => {
 
         const emptyPayload = createRestoreFileFromRevisionPayload([]);
         expect(emptyPayload).toEqual({ fileUri: undefined, revision: undefined });
+    });
+
+    it('creates toggleDiffEditable payload and executes toggle commands via web command registry with real TestRepo', async () => {
+        const testRepo = new TestRepo();
+        let hostEnvironment: WebHostEnvironment | undefined;
+        testRepo.init();
+        try {
+            const jj = new JjService(testRepo.path, NO_OP_LOGGER);
+            const ids = await buildGraph(testRepo, [
+                { label: 'parent', description: 'Mutable Parent', files: { 'item.txt': 'v1\n' } },
+                { label: 'wc', parents: ['parent'], description: 'WC', isCurrentWorkingCopy: true },
+            ]);
+
+            const leftUri = Uri.parse(
+                `jj-view:///item.txt#mode=diff&root=${encodeURIComponent(testRepo.path)}&base=${ids.parent.changeId}&side=left`,
+            );
+            const viewRightUri = Uri.parse(
+                `jj-view:///item.txt#mode=diff&root=${encodeURIComponent(testRepo.path)}&base=${ids.parent.changeId}&side=right`,
+            );
+
+            // Payload creator tests
+            const objPayload = createToggleDiffEditablePayload([
+                { leftUri, rightUri: viewRightUri, resourceUri: viewRightUri, title: 'item.txt' },
+            ]);
+            expect(objPayload.leftUri?.toString()).toBe(leftUri.toString());
+            expect(objPayload.rightUri?.toString()).toBe(viewRightUri.toString());
+            expect(objPayload.title).toBe('item.txt');
+
+            const openedDiffs: { leftUri: Uri; rightUri: Uri; title: string }[] = [];
+            const closedTabs: string[] = [];
+            const savedUris: string[] = [];
+
+            const mockRemoteHost = createMock<RemoteHostSystem>({
+                fs: createMock<HostFs>({ readTextFile: vi.fn(), writeTextFile: vi.fn() }),
+                platform: 'linux',
+            });
+            hostEnvironment = new WebHostEnvironment(mockRemoteHost, testRepo.path);
+            hostEnvironment.nav.setCallbacks({
+                onOpenDiff: async (l, r, t) => {
+                    openedDiffs.push({ leftUri: l, rightUri: r, title: t });
+                },
+                onCloseTab: async (uri) => {
+                    closedTabs.push(uri.toString());
+                },
+            });
+            let activeUri: Uri | undefined = viewRightUri;
+            hostEnvironment.documents.setDelegate({
+                getActiveDocumentUri: () => activeUri,
+                getOpenDiffTabs: () =>
+                    openedDiffs.length === 0
+                        ? [
+                              {
+                                  originalUri: leftUri,
+                                  modifiedUri: viewRightUri,
+                                  label: `item.txt (${ids.parent.changeId})`,
+                                  close: async () => {
+                                      closedTabs.push(viewRightUri.toString());
+                                  },
+                              },
+                          ]
+                        : [
+                              {
+                                  originalUri: leftUri,
+                                  modifiedUri: openedDiffs[0].rightUri,
+                                  label: openedDiffs[0].title,
+                                  close: async () => {
+                                      closedTabs.push(openedDiffs[0].rightUri.toString());
+                                  },
+                              },
+                          ],
+                saveIfDirty: async (uri) => {
+                    savedUris.push(uri.toString());
+                },
+            });
+
+            const repo = createMock<JjRepository>({
+                jj,
+                rootUri: Uri.file(testRepo.path),
+                refresh: vi.fn(async () => {}),
+            });
+            const logger = createMock<LoggerChannel>({ info: vi.fn(), warn: vi.fn(), error: vi.fn() });
+            const repositoryManager = createMock<JjRepositoryManager>({
+                repositories: [repo],
+                focusedRepository: repo,
+                outputChannel: logger,
+                getRepositoryForUri: vi.fn(() => repo),
+                setFocusedRepository: vi.fn(),
+            });
+
+            registerWebCommands({
+                hostEnvironment,
+                repositoryManager,
+                scmModel: createMock<ScmModel>(),
+                logger,
+            });
+
+            // Fallback payload uses active document URI
+            const fallbackPayload = createToggleDiffEditablePayload([], hostEnvironment);
+            expect(fallbackPayload.resourceUri?.toString()).toBe(viewRightUri.toString());
+
+            await hostEnvironment.commands.executeCommand('jj-view.enableDiffEditing', { resourceUri: viewRightUri });
+            expect(openedDiffs).toHaveLength(1);
+            expect(openedDiffs[0].rightUri.scheme).toBe('jj-edit');
+            expect(closedTabs).toEqual([viewRightUri.toString()]);
+
+            const editUri = openedDiffs[0].rightUri;
+            activeUri = editUri;
+            await hostEnvironment.commands.executeCommand('jj-view.disableDiffEditing');
+            expect(savedUris).toEqual([editUri.toString()]);
+            expect(openedDiffs).toHaveLength(2);
+            expect(openedDiffs[1].rightUri.scheme).toBe('jj-view');
+            expect(closedTabs).toEqual([viewRightUri.toString(), editUri.toString()]);
+        } finally {
+            hostEnvironment?.notifications.clearAll();
+            hostEnvironment?.dispose();
+            await testRepo.dispose();
+        }
     });
 
     describe('jj-view.pickChange web command and menu parity', () => {
