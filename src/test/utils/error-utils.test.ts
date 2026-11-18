@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { getErrorMessage, toError } from '../../utils/error-utils';
+import { getErrorMessage, isNodeErrorWithCode, toError } from '../../utils/error-utils';
 
 describe('error-utils', () => {
     describe('toError', () => {
@@ -36,6 +36,22 @@ describe('error-utils', () => {
             expect(getErrorMessage(1234)).toBe('1234');
             expect(getErrorMessage(null)).toBe('null');
             expect(getErrorMessage(undefined)).toBe('undefined');
+        });
+    });
+
+    describe('isNodeErrorWithCode', () => {
+        it('returns true for Error instances and plain objects with matching string code', () => {
+            expect(isNodeErrorWithCode(Object.assign(new Error('missing'), { code: 'ENOENT' }), 'ENOENT')).toBe(true);
+            expect(isNodeErrorWithCode({ code: 'EACCES' }, 'EACCES')).toBe(true);
+        });
+
+        it('returns false for mismatching codes, non-string codes, and non-objects', () => {
+            expect(isNodeErrorWithCode(Object.assign(new Error('denied'), { code: 'EACCES' }), 'ENOENT')).toBe(false);
+            expect(isNodeErrorWithCode(new Error('plain'), 'ENOENT')).toBe(false);
+            expect(isNodeErrorWithCode({ code: 404 }, '404')).toBe(false);
+            expect(isNodeErrorWithCode(null, 'ENOENT')).toBe(false);
+            expect(isNodeErrorWithCode(undefined, 'ENOENT')).toBe(false);
+            expect(isNodeErrorWithCode('ENOENT', 'ENOENT')).toBe(false);
         });
     });
 });

@@ -9,6 +9,7 @@ import * as fsPromises from 'node:fs/promises';
 import * as os from 'node:os';
 import { type BackendType, subscribe } from '@parcel/watcher';
 import path from 'pathe';
+import { isNodeErrorWithCode } from '../../utils/error-utils';
 import { setRealpathSyncResolver } from '../uri-utils';
 import {
     type FileStat,
@@ -30,11 +31,9 @@ import {
     type WatchOptions,
 } from './host-system';
 
-function isNodeErrorWithCode(err: unknown, code: string): boolean {
-    return typeof err === 'object' && err !== null && 'code' in err && err.code === code;
-}
-
 export class NodeHostProcess implements HostProcess {
+    constructor(private readonly fs: HostFs = new NodeHostFs()) {}
+
     async execFile(file: string, args: readonly string[], options?: ProcessExecOptions): Promise<ProcessResult> {
         return new Promise<ProcessResult>((resolve, reject) => {
             const cpOptions: cp.ExecFileOptions = {
@@ -71,30 +70,35 @@ export class NodeHostProcess implements HostProcess {
     }
 
     async execFileInScratchDir(request: ScratchExecRequest): Promise<ScratchExecResult> {
-        const scratchDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), request.scratchPrefix));
-        for (const subdir of request.subdirs) {
-            await fsPromises.mkdir(path.join(scratchDir, subdir), { recursive: true });
-        }
         const helperScriptPath = request.helperScript ? await this.getHelperScriptPath(request.helperScript) : '';
-        const args = request.args.map((arg) =>
-            arg.replaceAll(SCRATCH_DIR_TOKEN, scratchDir).replaceAll(HELPER_SCRIPT_TOKEN, helperScriptPath),
-        );
+        const scratchDir = await this.fs.mkdtemp(path.join(this.fs.tempDir, request.scratchPrefix));
 
-        let result: ProcessResult;
         try {
-            result = await this.execFile(request.file, args, request.options);
-        } catch (err) {
-            if (!(err instanceof ProcessExitError)) {
-                await fsPromises.rm(scratchDir, { recursive: true, force: true }).catch(() => {});
-                throw err;
+            for (const subdir of request.subdirs) {
+                await this.fs.mkdir(path.join(scratchDir, subdir), { recursive: true });
             }
-            result = { stdout: err.stdout, stderr: err.stderr, exitCode: err.exitCode };
-        }
+            const args = request.args.map((arg) =>
+                arg.replaceAll(SCRATCH_DIR_TOKEN, scratchDir).replaceAll(HELPER_SCRIPT_TOKEN, helperScriptPath),
+            );
 
-        const markerPresent = request.completionMarker
-            ? fsSync.existsSync(path.join(scratchDir, request.completionMarker))
-            : false;
-        return { ...result, scratchDir, markerPresent };
+            let result: ProcessResult;
+            try {
+                result = await this.execFile(request.file, args, request.options);
+            } catch (err) {
+                if (!(err instanceof ProcessExitError)) {
+                    throw err;
+                }
+                result = { stdout: err.stdout, stderr: err.stderr, exitCode: err.exitCode };
+            }
+
+            const markerPresent = request.completionMarker
+                ? await this.fs.exists(path.join(scratchDir, request.completionMarker))
+                : false;
+            return { ...result, scratchDir, markerPresent };
+        } catch (err) {
+            await this.fs.rm(scratchDir, { recursive: true, force: true }).catch(() => {});
+            throw err;
+        }
     }
 
     async getHelperScriptPath(scriptName: HelperScriptName): Promise<string> {
@@ -118,7 +122,7 @@ export class NodeHostProcess implements HostProcess {
 }
 
 export class NodeHostFs implements HostFs {
-    public readonly tempDir: string = os.tmpdir();
+    constructor(public readonly tempDir: string = os.tmpdir()) {}
 
     async readTextFile(filePath: string): Promise<string> {
         return fsPromises.readFile(filePath, 'utf8');
@@ -277,8 +281,8 @@ export class NodeHostSystem implements HostSystem {
         fs?: HostFs;
         watcher?: HostWatcher;
     }) {
-        this.process = options?.process ?? new NodeHostProcess();
         this.fs = options?.fs ?? new NodeHostFs();
+        this.process = options?.process ?? new NodeHostProcess(this.fs);
         this.watcher = options?.watcher ?? new NodeHostWatcher();
         const rawPlatform = process.platform;
         this.platform = rawPlatform === 'win32' || rawPlatform === 'darwin' ? rawPlatform : 'linux';

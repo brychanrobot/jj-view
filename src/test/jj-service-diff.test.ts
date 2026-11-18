@@ -9,7 +9,9 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { NodeHostFs, NodeHostSystem } from '../core/host/node-host-system';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
+import { ScopedTempDir } from './scoped-helpers';
 import { buildGraph, TestRepo } from './test-repo';
 
 describe('JjService Diff Tests', () => {
@@ -22,7 +24,10 @@ describe('JjService Diff Tests', () => {
         jjService = new JjService(repo.path, NO_OP_LOGGER);
     });
 
-    afterEach(() => {});
+    afterEach(async () => {
+        await jjService.clearCache();
+        await repo.dispose();
+    });
 
     test('getChangesBetween correctly calculates net changes across complex diamond merge graph', async () => {
         const ids = await buildGraph(repo, [
@@ -576,19 +581,35 @@ describe('JjService Diff Tests', () => {
     });
 
     test('getDiffForRevision throws and does not cache when revision is invalid or diff extraction fails', async () => {
-        const getScratchDirs = async (): Promise<Set<string>> =>
-            new Set((await fs.readdir(os.tmpdir())).filter((name) => name.startsWith('jj-bulk-diff-')));
-        const before = await getScratchDirs();
+        using scratchRoot = new ScopedTempDir(path.join(os.tmpdir(), 'jj-diff-scratch-'));
+        const mkdtempCalls: string[] = [];
+        class IsolatedTempFs extends NodeHostFs {
+            constructor() {
+                super(scratchRoot.path);
+            }
 
-        await expect(jjService.getDiffForRevision('non-existent-rev-12345')).rejects.toThrow();
+            override async mkdtemp(prefix: string): Promise<string> {
+                const created = await super.mkdtemp(prefix);
+                mkdtempCalls.push(created);
+                return created;
+            }
+        }
+        const isolatedService = new JjService(repo.path, NO_OP_LOGGER, {
+            system: new NodeHostSystem({ fs: new IsolatedTempFs() }),
+        });
+
+        await expect(isolatedService.getDiffForRevision('non-existent-rev-12345')).rejects.toThrow();
 
         // Ensure invalid cache entry was not stored
-        const invalidCache = await jjService.getDiffForRevision('non-existent-rev-12345').catch(() => null);
+        const invalidCache = await isolatedService.getDiffForRevision('non-existent-rev-12345').catch(() => null);
         expect(invalidCache).toBeNull();
 
-        // A failed warm-up (no .complete marker) must not leak its scratch directory
-        const after = await getScratchDirs();
-        const leaked = Array.from(after).filter((dir) => !before.has(dir));
+        // Verify scratch directories were created inside the isolated temp root and cleaned up without leaking
+        expect(mkdtempCalls.length).toBeGreaterThanOrEqual(1);
+        for (const dir of mkdtempCalls) {
+            expect(path.dirname(dir)).toBeSameFsPath(scratchRoot.path);
+        }
+        const leaked = (await fs.readdir(scratchRoot.path)).filter((name) => name.startsWith('jj-bulk-diff-'));
         expect(leaked).toEqual([]);
     });
 
