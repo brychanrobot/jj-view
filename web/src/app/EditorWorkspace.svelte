@@ -3,6 +3,7 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
+import type { HostPlatform } from '../../../src/core/host/host-system';
 import type { ScmSnapshot } from '../../../src/core/scm-model';
 import type { JjResourceState } from '../../../src/core/scm-resource-state';
 import { isWorkingCopyRevision } from '../../../src/core/uri-utils';
@@ -29,6 +30,7 @@ interface ChatContextSelectionProvider {
 interface EditorWorkspaceProps {
     activeTab: TabEntry | undefined;
     activeTheme: string;
+    platform?: HostPlatform | string;
     currentSnapshot: ScmSnapshot | undefined;
     activeDiffThreads: CommentThreadHandle[];
     activeMultiDiffThreads: ReadonlyMap<string, readonly CommentThreadHandle[]>;
@@ -58,6 +60,7 @@ interface EditorWorkspaceProps {
 let {
     activeTab,
     activeTheme,
+    platform,
     currentSnapshot,
     activeDiffThreads,
     activeMultiDiffThreads,
@@ -119,6 +122,7 @@ export function resolveActiveChatContextSelection(): EditorChatContextSelection 
                     bind:this={activeDiffViewerRef}
                     filename={activeTab.title}
                     resourceUri={activeTab.view.rightUri ?? activeTab.view.resourceState?.resourceUri}
+                    {platform}
                     theme={activeTheme}
                     initialDirty={activeTab.isDirty ?? false}
                     originalContent={activeTab.view.originalContent ?? ''}
@@ -184,6 +188,7 @@ export function resolveActiveChatContextSelection(): EditorChatContextSelection 
                 bind:this={activeMultiDiffViewerRef}
                 title={activeTab.title}
                 files={activeTab.view.files}
+                {platform}
                 theme={activeTheme}
                 commentThreads={activeMultiDiffThreads}
                 onReplyToThread={onReplyToThread}
@@ -197,6 +202,7 @@ export function resolveActiveChatContextSelection(): EditorChatContextSelection 
                 bind:this={activeFileViewerRef}
                 filename={activeTab.title}
                 resourceUri={activeTab.view.uri}
+                {platform}
                 content={activeTab.view.content ?? ''}
                 theme={activeTheme}
                 initialDirty={activeTab.isDirty ?? false}

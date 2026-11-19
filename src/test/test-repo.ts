@@ -10,6 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { match, P } from 'ts-pattern';
 import which from 'which';
+import { formatRootFileFileset } from '../core/jj-service';
 import { isNodeErrorWithCode } from '../utils/error-utils';
 import { recordCommandTrace } from './perf-trace';
 
@@ -487,8 +488,12 @@ export class TestRepo {
     }
 
     getFileContent(revision: string, relativePath: string): string {
-        return this.exec(['file', 'show', '--ignore-working-copy', '-r', revision, relativePath], { trim: false })
-            .stdout;
+        return this.exec(
+            ['file', 'show', '--ignore-working-copy', '-r', revision, '--', formatRootFileFileset(relativePath)],
+            {
+                trim: false,
+            },
+        ).stdout;
     }
 
     getChangeId(revision: string): string {

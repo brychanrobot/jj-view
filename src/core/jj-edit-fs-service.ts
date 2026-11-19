@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import type { Disposable, Event } from './host/events';
+import type { HostPlatform } from './host/host-system';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
+import { pathNormalize } from './path-utils';
 import { type FileStatLike, getFsPathFromUri, getUriParams, Uri } from './uri-utils';
 import { VirtualFsUriTracker } from './virtual-fs-uri-tracker';
 
@@ -19,13 +20,13 @@ export interface JjEditFsPendingWrite {
     reject: (err: unknown) => void;
 }
 
-export function parseEditUri(uri: Uri): { revision: string; filePath: string } {
+export function parseEditUri(uri: Uri, platform?: HostPlatform | string): { revision: string; filePath: string } {
     const params = getUriParams(uri);
     const revision = params.get('revision');
     if (!revision) {
         throw new Error('Missing revision in jj-edit URI');
     }
-    const filePath = getFsPathFromUri(uri);
+    const filePath = getFsPathFromUri(uri, platform);
     return { revision, filePath };
 }
 
@@ -96,10 +97,15 @@ export class JjEditFsService implements Disposable {
         };
     }
 
-    private getPendingOrActiveContent(repoKey: string, revision: string, filePath: string): string | undefined {
-        const normalizedPath = path.normalize(filePath);
+    private getPendingOrActiveContent(
+        repoKey: string,
+        revision: string,
+        filePath: string,
+        platform?: HostPlatform | string,
+    ): string | undefined {
+        const normalizedPath = pathNormalize(filePath, platform);
         const isMatch = (w: JjEditFsPendingWrite) =>
-            w.revision === revision && path.normalize(w.filePath) === normalizedPath;
+            w.revision === revision && pathNormalize(w.filePath, platform) === normalizedPath;
 
         const pending = this._pendingWrites.get(repoKey)?.findLast(isMatch);
         if (pending) {
@@ -114,8 +120,9 @@ export class JjEditFsService implements Disposable {
         if (this._isDisposed) {
             throw new Error('JjEditFsService is disposed');
         }
-        const { revision, filePath } = parseEditUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
+        const platform = repo?.jj.system.platform;
+        const { revision, filePath } = parseEditUri(uri, platform);
         if (!repo) {
             this._repositoryManager.outputChannel.info(
                 `[JjEditFsService] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${filePath})`,
@@ -125,7 +132,7 @@ export class JjEditFsService implements Disposable {
         this._uriTracker.recordAccess(uri);
 
         const repoKey = repo.rootUri.fsPath;
-        const inMemoryContent = this.getPendingOrActiveContent(repoKey, revision, filePath);
+        const inMemoryContent = this.getPendingOrActiveContent(repoKey, revision, filePath, platform);
         if (inMemoryContent !== undefined) {
             return new TextEncoder().encode(inMemoryContent);
         }
@@ -147,8 +154,9 @@ export class JjEditFsService implements Disposable {
         if (this._isDisposed) {
             throw new Error('JjEditFsService is disposed');
         }
-        const { revision, filePath } = parseEditUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
+        const platform = repo?.jj.system.platform;
+        const { revision, filePath } = parseEditUri(uri, platform);
         if (!repo) {
             this._repositoryManager.outputChannel.info(
                 `[JjEditFsService] No Jujutsu repository resolved for write: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${filePath})`,

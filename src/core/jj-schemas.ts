@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { z } from 'zod';
+import type { HostPlatform } from './host/host-system';
+import { normalizeRepoSeparators } from './path-utils';
 
 export const JjBookmarkSchema = z.object({
     /** The name of the Jujutsu bookmark. */
@@ -31,62 +33,14 @@ export const CommitParentSchema = z.object({
 export type CommitParent = z.infer<typeof CommitParentSchema>;
 
 /**
- * Normalizes backslashes in relative file paths to POSIX forward slashes.
+ * Normalizes backslashes in relative file paths to forward slashes strictly on Windows hosts.
  */
-export function normalizePath(val: unknown): unknown {
+export function normalizePath(val: unknown, platform?: HostPlatform | string): unknown {
     if (typeof val === 'string') {
-        return val.replace(/\\/g, '/');
+        return normalizeRepoSeparators(val, platform);
     }
     return val;
 }
-
-export const NormalizedPathSchema = z.preprocess(normalizePath, z.string());
-
-export const JjFileChangeSchema = z.object({
-    /** The relative path of the file modified. */
-    path: NormalizedPathSchema,
-    /** The old path if the file was renamed or copied. */
-    oldPath: NormalizedPathSchema.optional(),
-    /** The operation type performed on the file. */
-    status: z.enum(['modified', 'added', 'renamed', 'copied', 'deleted']),
-    /** Whether the file is currently conflicted. */
-    conflicted: z.boolean().optional(),
-    /** The number of conflicting sides (e.g. 2 for standard conflict, 3+ for multi-way merge). */
-    conflictSides: z.number().optional(),
-});
-export type JjFileChange = z.infer<typeof JjFileChangeSchema>;
-
-export const JjFileChangeWithStatsSchema = JjFileChangeSchema.extend({
-    /** The number of added lines. */
-    additions: z.number().optional(),
-    /** The number of deleted lines. */
-    deletions: z.number().optional(),
-});
-export type JjFileChangeWithStats = z.infer<typeof JjFileChangeWithStatsSchema>;
-
-/** Legacy alias for JjFileChangeWithStats */
-export const JjStatusEntrySchema = JjFileChangeWithStatsSchema;
-export type JjStatusEntry = JjFileChangeWithStats;
-
-export const DiffStatEntrySchema = z.object({
-    path: NormalizedPathSchema,
-    additions: z.number().default(0),
-    deletions: z.number().default(0),
-});
-export type DiffStatEntry = z.infer<typeof DiffStatEntrySchema>;
-
-export const ConflictedFileEntrySchema = z.object({
-    path: NormalizedPathSchema,
-    conflictSides: z.number().optional(),
-});
-export type ConflictedFileEntry = z.infer<typeof ConflictedFileEntrySchema>;
-
-export const ChangesAndStatsOutputSchema = z.object({
-    changes: z.array(JjFileChangeSchema).default([]),
-    stats: z.array(DiffStatEntrySchema).default([]),
-    conflicts: z.array(ConflictedFileEntrySchema).default([]),
-});
-export type ChangesAndStatsOutput = z.infer<typeof ChangesAndStatsOutputSchema>;
 
 /**
  * Metadata retrieved from a code forge about a specific Change/PR.
@@ -146,62 +100,141 @@ export const CodeForgeChangeInfoSchema = z.object({
 });
 export type CodeForgeChangeInfo = z.infer<typeof CodeForgeChangeInfoSchema>;
 
-export const JjLogEntrySchema = z.object({
-    /** The unique SHA-1 identifier for the commit. */
-    commit_id: z.string(),
-    /** The stable change ID (retains value across history rewrites). */
-    change_id: z.string(),
-    /** The shortest unique prefix of the change ID. */
-    change_id_shortest: z.string().optional(),
-    /** The description (commit message). */
-    description: z.string(),
-    /** Details of the revision author. */
-    author: z.object({
-        /** The author's name. */
-        name: z.string(),
-        /** The author's email address. */
-        email: z.string(),
-        /** The creation timestamp. */
-        timestamp: z.string(),
-    }),
-    /** Details of the committer. */
-    committer: z.object({
-        /** The committer's name. */
-        name: z.string(),
-        /** The committer's email address. */
-        email: z.string(),
-        /** The commit timestamp. */
-        timestamp: z.string(),
-    }),
-    /** The parents of the commit revision. */
-    parents: z.array(CommitParentSchema),
-    /** Nearest ancestors that are visible in the graph. */
-    nearest_visible_ancestors: z.array(z.string()).optional(),
-    /** Bookmarks pointing to this revision. */
-    bookmarks: z.array(JjBookmarkSchema).default([]),
-    /** Tags pointing to this revision. */
-    tags: z.array(z.string()).optional(),
-    /** Names of the working copies using this revision. */
-    working_copies: z.array(z.string()).optional(),
-    /** Whether this revision is the current working copy. */
-    is_current_working_copy: z.boolean().optional(),
-    /** Whether this commit revision is immutable. */
-    is_immutable: z.boolean().optional(),
-    /** Whether the revision contains no changes (empty). */
-    is_empty: z.boolean().optional(),
-    /** Whether the change ID is divergent (points to multiple commits). */
-    is_divergent: z.boolean().optional(),
-    /** Offset modifier for divergent change IDs. */
-    change_id_offset: z.number().optional(),
-    /** Whether this revision has merge conflicts. */
-    conflict: z.boolean().optional(),
-    /** Whether this revision is hidden in the jujutsu log. */
-    is_hidden: z.boolean().optional(),
-    /** Modified files within this commit revision. */
-    changes: z.array(JjStatusEntrySchema).optional(),
-    /** Associated Code Forge change metadata. */
-    codeForgeChange: CodeForgeChangeInfoSchema.optional(),
-    /** Whether the local changes need to be uploaded to the code forge. */
-    codeForgeNeedsUpload: z.boolean().optional(),
-});
+/**
+ * Creates Zod schemas whose path fields normalize `\` -> `/` only for the specified host platform.
+ */
+export function createJjOutputSchemas(platform?: HostPlatform | string) {
+    const normalizedPath = z.preprocess((val) => normalizePath(val, platform), z.string());
+
+    const fileChange = z.object({
+        /** The relative path of the file modified. */
+        path: normalizedPath,
+        /** The old path if the file was renamed or copied. */
+        oldPath: normalizedPath.optional(),
+        /** The operation type performed on the file. */
+        status: z.enum(['modified', 'added', 'renamed', 'copied', 'deleted']),
+        /** Whether the file is currently conflicted. */
+        conflicted: z.boolean().optional(),
+        /** The number of conflicting sides (e.g. 2 for standard conflict, 3+ for multi-way merge). */
+        conflictSides: z.number().optional(),
+    });
+
+    const fileChangeWithStats = fileChange.extend({
+        /** The number of added lines. */
+        additions: z.number().optional(),
+        /** The number of deleted lines. */
+        deletions: z.number().optional(),
+    });
+
+    const diffStatEntry = z.object({
+        path: normalizedPath,
+        additions: z.number().default(0),
+        deletions: z.number().default(0),
+    });
+
+    const conflictedFileEntry = z.object({
+        path: normalizedPath,
+        conflictSides: z.number().optional(),
+    });
+
+    const changesAndStatsOutput = z.object({
+        changes: z.array(fileChange).default([]),
+        stats: z.array(diffStatEntry).default([]),
+        conflicts: z.array(conflictedFileEntry).default([]),
+    });
+
+    const logEntry = z.object({
+        /** The unique SHA-1 identifier for the commit. */
+        commit_id: z.string(),
+        /** The stable change ID (retains value across history rewrites). */
+        change_id: z.string(),
+        /** The shortest unique prefix of the change ID. */
+        change_id_shortest: z.string().optional(),
+        /** The description (commit message). */
+        description: z.string(),
+        /** Details of the revision author. */
+        author: z.object({
+            /** The author's name. */
+            name: z.string(),
+            /** The author's email address. */
+            email: z.string(),
+            /** The creation timestamp. */
+            timestamp: z.string(),
+        }),
+        /** Details of the committer. */
+        committer: z.object({
+            /** The committer's name. */
+            name: z.string(),
+            /** The committer's email address. */
+            email: z.string(),
+            /** The commit timestamp. */
+            timestamp: z.string(),
+        }),
+        /** The parents of the commit revision. */
+        parents: z.array(CommitParentSchema),
+        /** Nearest ancestors that are visible in the graph. */
+        nearest_visible_ancestors: z.array(z.string()).optional(),
+        /** Bookmarks pointing to this revision. */
+        bookmarks: z.array(JjBookmarkSchema).default([]),
+        /** Tags pointing to this revision. */
+        tags: z.array(z.string()).optional(),
+        /** Names of the working copies using this revision. */
+        working_copies: z.array(z.string()).optional(),
+        /** Whether this revision is the current working copy. */
+        is_current_working_copy: z.boolean().optional(),
+        /** Whether this commit revision is immutable. */
+        is_immutable: z.boolean().optional(),
+        /** Whether the revision contains no changes (empty). */
+        is_empty: z.boolean().optional(),
+        /** Whether the change ID is divergent (points to multiple commits). */
+        is_divergent: z.boolean().optional(),
+        /** Offset modifier for divergent change IDs. */
+        change_id_offset: z.number().optional(),
+        /** Whether this revision has merge conflicts. */
+        conflict: z.boolean().optional(),
+        /** Whether this revision is hidden in the jujutsu log. */
+        is_hidden: z.boolean().optional(),
+        /** Modified files within this commit revision. */
+        changes: z.array(fileChangeWithStats).optional(),
+        /** Associated Code Forge change metadata. */
+        codeForgeChange: CodeForgeChangeInfoSchema.optional(),
+        /** Whether the local changes need to be uploaded to the code forge. */
+        codeForgeNeedsUpload: z.boolean().optional(),
+    });
+
+    return {
+        normalizedPath,
+        fileChange,
+        fileChangeWithStats,
+        diffStatEntry,
+        conflictedFileEntry,
+        changesAndStatsOutput,
+        logEntry,
+    };
+}
+
+const defaultOutputSchemas = createJjOutputSchemas();
+
+export const NormalizedPathSchema = defaultOutputSchemas.normalizedPath;
+
+export const JjFileChangeSchema = defaultOutputSchemas.fileChange;
+export type JjFileChange = z.infer<typeof JjFileChangeSchema>;
+
+export const JjFileChangeWithStatsSchema = defaultOutputSchemas.fileChangeWithStats;
+export type JjFileChangeWithStats = z.infer<typeof JjFileChangeWithStatsSchema>;
+
+/** Legacy alias for JjFileChangeWithStats */
+export const JjStatusEntrySchema = JjFileChangeWithStatsSchema;
+export type JjStatusEntry = JjFileChangeWithStats;
+
+export const DiffStatEntrySchema = defaultOutputSchemas.diffStatEntry;
+export type DiffStatEntry = z.infer<typeof DiffStatEntrySchema>;
+
+export const ConflictedFileEntrySchema = defaultOutputSchemas.conflictedFileEntry;
+export type ConflictedFileEntry = z.infer<typeof ConflictedFileEntrySchema>;
+
+export const ChangesAndStatsOutputSchema = defaultOutputSchemas.changesAndStatsOutput;
+export type ChangesAndStatsOutput = z.infer<typeof ChangesAndStatsOutputSchema>;
+
+export const JjLogEntrySchema = defaultOutputSchemas.logEntry;
 export type JjLogEntry = z.infer<typeof JjLogEntrySchema>;

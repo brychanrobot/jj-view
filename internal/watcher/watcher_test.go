@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -151,5 +152,30 @@ func TestWatcherHub(t *testing.T) {
 		t.Fatalf("unexpected events after unwatch: %+v", events)
 	case <-time.After(200 * time.Millisecond):
 		// Success
+	}
+}
+
+func TestIgnoreMatcherPosixBackslashes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX literal backslash test")
+	}
+
+	matcher := newIgnoreMatcher([]string{
+		"ignored\\file.txt",
+		"sub/nested\\dir/**",
+	})
+
+	root := "/repo"
+	if !matcher.isIgnored("/repo/ignored\\file.txt", root) {
+		t.Error("expected /repo/ignored\\file.txt to match ignored\\file.txt")
+	}
+	if matcher.isIgnored("/repo/ignored/file.txt", root) {
+		t.Error("did not expect /repo/ignored/file.txt to match ignored\\file.txt on POSIX")
+	}
+	if !matcher.isIgnored("/repo/sub/nested\\dir/child.ts", root) {
+		t.Error("expected /repo/sub/nested\\dir/child.ts to match sub/nested\\dir/**")
+	}
+	if matcher.isIgnored("/repo/sub/nested/dir/child.ts", root) {
+		t.Error("did not expect /repo/sub/nested/dir/child.ts to match sub/nested\\dir/** on POSIX")
 	}
 }

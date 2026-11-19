@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import {
     formatRemoteFileUrl,
     type RemoteLineRange,
@@ -13,14 +12,8 @@ import {
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
 import type { JjService } from '../jj-service';
-import {
-    decodeJjViewQuery,
-    getFsPathFromUri,
-    getRevisionFromUri,
-    getUriParams,
-    toForwardSlash,
-    Uri,
-} from '../uri-utils';
+import { normalizeRepoSeparators, pathBasename, pathJoin, trimSeparators } from '../path-utils';
+import { decodeJjViewQuery, getFsPathFromUri, getRevisionFromUri, getUriParams, Uri } from '../uri-utils';
 
 export interface RemoteFileUrlPayload {
     /** File or diff/revision URI (`file://`, `jj-view://`, or `jj-edit://`). */
@@ -222,15 +215,22 @@ async function resolveTargetFromUri(
     fileStatus?: string,
 ): Promise<ResolvedFileTarget | undefined> {
     const { jj } = ctx.repo;
+    const platform = jj.system.platform;
 
     if (uri.scheme === 'file') {
-        const relativePath = await resolveValidatedRepoRelativePath(ctx, uri.fsPath, path.basename(uri.fsPath));
+        const relativePath = await resolveValidatedRepoRelativePath(
+            ctx,
+            uri.fsPath,
+            pathBasename(uri.fsPath, platform),
+        );
         if (!relativePath) {
             return undefined;
         }
 
         const repoRoot = await jj.getRepoRoot();
-        const stat = await ctx.host.system?.fs.stat(path.join(repoRoot, relativePath)).catch(() => undefined);
+        const stat = await ctx.host.system?.fs
+            .stat(pathJoin([repoRoot, relativePath], platform))
+            .catch(() => undefined);
         if (stat?.isDirectory()) {
             void ctx.host.ui.showWarning('Select a file rather than a folder to link on the remote.');
             return undefined;
@@ -248,8 +248,8 @@ async function resolveTargetFromUri(
         return undefined;
     }
 
-    const fsPath = getFsPathFromUri(uri);
-    const relativePath = await resolveValidatedRepoRelativePath(ctx, fsPath, path.basename(uri.path));
+    const fsPath = getFsPathFromUri(uri, platform);
+    const relativePath = await resolveValidatedRepoRelativePath(ctx, fsPath, pathBasename(uri.path, platform));
     if (!relativePath) {
         return undefined;
     }
@@ -343,14 +343,15 @@ async function resolveFileTarget(
     payload?: RemoteFileUrlPayload,
 ): Promise<ResolvedFileTarget | undefined> {
     if (payload?.filePath) {
+        const platform = ctx.repo.jj.system.platform;
         const normalizedPath = payload.isRepoRelative
-            ? toForwardSlash(payload.filePath).replace(/^\/+|\/+$/g, '')
-            : await resolveValidatedRepoRelativePath(ctx, payload.filePath, path.basename(payload.filePath));
+            ? trimSeparators(normalizeRepoSeparators(payload.filePath, platform), platform)
+            : await resolveValidatedRepoRelativePath(ctx, payload.filePath, pathBasename(payload.filePath, platform));
 
         if (!normalizedPath) {
             if (payload.isRepoRelative) {
                 void ctx.host.ui.showWarning(
-                    `File '${path.basename(payload.filePath)}' is outside the Jujutsu repository.`,
+                    `File '${pathBasename(payload.filePath, platform)}' is outside the Jujutsu repository.`,
                 );
             }
             return undefined;
@@ -465,6 +466,7 @@ export async function resolveRemoteFileUrl(
         commitSha,
         relativePath: fileTarget.relativePath,
         lineRange,
+        platform: jj.system.platform,
     });
     return { url, relativePath: fileTarget.relativePath };
 }

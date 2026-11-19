@@ -2,10 +2,17 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import path from 'pathe';
 import type { HostOpenOptions } from '../../../src/core/host/host-environment';
-import type { FuzzyFileMatch } from '../../../src/core/host/host-system';
+import type { FuzzyFileMatch, HostPlatform } from '../../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
+import {
+    normalizeRepoSeparators,
+    pathIsAbsolute,
+    pathJoin,
+    pathNormalize,
+    pathRelative,
+    stripLeadingSeparators,
+} from '../../../src/core/path-utils';
 import type { ScmSnapshot } from '../../../src/core/scm-model';
 import { Uri } from '../../../src/core/uri-utils';
 import type { WebHostEnvironment } from '../host/web-host-environment';
@@ -36,8 +43,8 @@ export interface QuickOpenOptions {
     loadFileFromUri: (uri: Uri, options?: HostOpenOptions) => Promise<void>;
 }
 
-function normalizeQuickOpenPath(rawPath: string): string {
-    return path.normalize(rawPath).replace(/^([A-Z]:)/, (drive) => drive.toLowerCase());
+function normalizeQuickOpenPath(rawPath: string, platform?: HostPlatform | string): string {
+    return pathNormalize(rawPath, platform).replace(/^([A-Z]:)/, (drive) => drive.toLowerCase());
 }
 
 export function makeQuickOpenItem(
@@ -45,8 +52,9 @@ export function makeQuickOpenItem(
     relPath: string,
     detail: string | undefined,
     priorityBoost: number,
+    platform?: HostPlatform | string,
 ): QuickOpenFileItem {
-    const normRel = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const normRel = stripLeadingSeparators(normalizeRepoSeparators(relPath, platform), platform);
     const lastSlash = normRel.lastIndexOf('/');
     const fileName = lastSlash >= 0 ? normRel.slice(lastSlash + 1) : normRel;
     const dirName = lastSlash > 0 ? normRel.slice(0, lastSlash) : undefined;
@@ -68,25 +76,26 @@ export function collectPrioritizedQuickOpenFiles(
     currentSnapshot: ScmSnapshot | undefined,
     orderedTabs: TabEntry[],
     activeTab: TabEntry | undefined,
+    platform?: HostPlatform | string,
 ): QuickOpenFileItem[] {
     const items: QuickOpenFileItem[] = [];
     const byFullPath = new Map<string, QuickOpenFileItem>();
-    const normalizedSearchRoot = normalizeQuickOpenPath(searchRoot);
+    const normalizedSearchRoot = normalizeQuickOpenPath(searchRoot, platform);
 
     const toRelative = (fullPath: string): string | null => {
-        const rel = path.relative(normalizedSearchRoot, normalizeQuickOpenPath(fullPath));
-        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+        const rel = pathRelative(normalizedSearchRoot, normalizeQuickOpenPath(fullPath, platform), platform);
+        if (!rel || rel.startsWith('..') || pathIsAbsolute(rel, platform)) {
             return null;
         }
-        return rel.replace(/\\/g, '/');
+        return normalizeRepoSeparators(rel, platform);
     };
 
     const modifiedStatusByFullPath = new Map<string, string>();
-    const effectiveRepoRoot = normalizeQuickOpenPath(repoRoot || searchRoot);
+    const effectiveRepoRoot = normalizeQuickOpenPath(repoRoot || searchRoot, platform);
     const snap = currentSnapshot;
     if (snap?.conflictedPaths) {
         for (const p of snap.conflictedPaths) {
-            const full = normalizeQuickOpenPath(path.join(effectiveRepoRoot, p));
+            const full = normalizeQuickOpenPath(pathJoin([effectiveRepoRoot, p], platform), platform);
             modifiedStatusByFullPath.set(full, 'Conflicted');
         }
     }
@@ -95,7 +104,7 @@ export function collectPrioritizedQuickOpenFiles(
             if (c.status === 'deleted') {
                 continue;
             }
-            const full = normalizeQuickOpenPath(path.join(effectiveRepoRoot, c.path));
+            const full = normalizeQuickOpenPath(pathJoin([effectiveRepoRoot, c.path], platform), platform);
             if (!modifiedStatusByFullPath.has(full)) {
                 modifiedStatusByFullPath.set(full, c.status === 'added' ? 'Added' : 'Modified');
             }
@@ -107,12 +116,15 @@ export function collectPrioritizedQuickOpenFiles(
     for (const t of tabsOrder) {
         let fullPath: string | undefined;
         if ((t.view.type === 'file' || t.view.type === 'merge') && t.view.uri.scheme === 'file') {
-            fullPath = normalizeQuickOpenPath(t.view.uri.fsPath);
+            fullPath = normalizeQuickOpenPath(t.view.uri.fsPath, platform);
         } else if (t.view.type === 'diff') {
             if (t.view.rightUri?.scheme === 'file') {
-                fullPath = normalizeQuickOpenPath(t.view.rightUri.fsPath);
+                fullPath = normalizeQuickOpenPath(t.view.rightUri.fsPath, platform);
             } else if (t.view.resourceState?.relativePath) {
-                fullPath = normalizeQuickOpenPath(path.join(effectiveRepoRoot, t.view.resourceState.relativePath));
+                fullPath = normalizeQuickOpenPath(
+                    pathJoin([effectiveRepoRoot, t.view.resourceState.relativePath], platform),
+                    platform,
+                );
             }
         }
         if (!fullPath || byFullPath.has(fullPath)) {
@@ -124,7 +136,7 @@ export function collectPrioritizedQuickOpenFiles(
         }
         const modBadge = modifiedStatusByFullPath.get(fullPath);
         const detail = modBadge ? `Open • ${modBadge}` : 'Open';
-        const entry = makeQuickOpenItem(fullPath, rel, detail, 6000);
+        const entry = makeQuickOpenItem(fullPath, rel, detail, 6000, platform);
         byFullPath.set(fullPath, entry);
         items.push(entry);
     }
@@ -138,7 +150,7 @@ export function collectPrioritizedQuickOpenFiles(
         if (!rel) {
             continue;
         }
-        const entry = makeQuickOpenItem(fullPath, rel, statusLabel, 4000);
+        const entry = makeQuickOpenItem(fullPath, rel, statusLabel, 4000, platform);
         byFullPath.set(fullPath, entry);
         items.push(entry);
     }
@@ -150,22 +162,23 @@ export function mergeQuickOpenItems(
     query: string,
     prioritized: readonly QuickOpenFileItem[],
     workspaceMatches: readonly FuzzyFileMatch[],
+    platform?: HostPlatform | string,
 ): QuickOpenFileItem[] {
     const trimmed = query.trim();
     if (!trimmed) {
         const seen = new Set<string>();
         const merged: QuickOpenFileItem[] = [];
         for (const p of prioritized) {
-            seen.add(normalizeQuickOpenPath(p.fullPath));
+            seen.add(normalizeQuickOpenPath(p.fullPath, platform));
             merged.push(p);
         }
         for (const m of workspaceMatches) {
-            const normMatchPath = normalizeQuickOpenPath(m.path);
+            const normMatchPath = normalizeQuickOpenPath(m.path, platform);
             if (seen.has(normMatchPath)) {
                 continue;
             }
             seen.add(normMatchPath);
-            merged.push(makeQuickOpenItem(m.path, m.relPath, undefined, 0));
+            merged.push(makeQuickOpenItem(m.path, m.relPath, undefined, 0, platform));
         }
         return merged;
     }
@@ -173,14 +186,14 @@ export function mergeQuickOpenItems(
     const scoredMap = new Map<string, { item: QuickOpenFileItem; score: number }>();
 
     for (const p of prioritized) {
-        const s = scoreFuzzyPath(p.filterText, trimmed);
+        const s = scoreFuzzyPath(p.filterText, trimmed, platform);
         if (s !== null) {
-            scoredMap.set(normalizeQuickOpenPath(p.fullPath), { item: p, score: s + p.priorityBoost });
+            scoredMap.set(normalizeQuickOpenPath(p.fullPath, platform), { item: p, score: s + p.priorityBoost });
         }
     }
 
     for (const m of workspaceMatches) {
-        const normMatchPath = normalizeQuickOpenPath(m.path);
+        const normMatchPath = normalizeQuickOpenPath(m.path, platform);
         const existing = scoredMap.get(normMatchPath);
         if (existing) {
             const boosted = m.score + existing.item.priorityBoost;
@@ -190,7 +203,7 @@ export function mergeQuickOpenItems(
             continue;
         }
         scoredMap.set(normMatchPath, {
-            item: makeQuickOpenItem(m.path, m.relPath, undefined, 0),
+            item: makeQuickOpenItem(m.path, m.relPath, undefined, 0, platform),
             score: m.score,
         });
     }
@@ -221,11 +234,12 @@ export async function openQuickOpen(options: QuickOpenOptions): Promise<void> {
         loadFileFromUri,
     } = options;
 
+    const platform = host?.platform ?? webHostEnv?.system?.platform;
     const snap = currentSnapshot ?? activeScmSnapshot;
     const searchRoot = workspaceRoot || webHostEnv?.workspace.workspaceFolders[0]?.uri.fsPath || host?.repoRoot || '';
     const searchRootUri = searchRoot ? Uri.file(searchRoot) : undefined;
     const initialPrioritized = searchRoot
-        ? collectPrioritizedQuickOpenFiles(searchRoot, workspaceRoot, snap, tabs, activeTab)
+        ? collectPrioritizedQuickOpenFiles(searchRoot, workspaceRoot, snap, tabs, activeTab, platform)
         : [];
 
     if (searchRoot && host && searchRoot !== host.repoRoot) {
@@ -259,9 +273,9 @@ export async function openQuickOpen(options: QuickOpenOptions): Promise<void> {
                 return;
             }
             const livePrioritized = searchRoot
-                ? collectPrioritizedQuickOpenFiles(searchRoot, workspaceRoot, snap, tabs, activeTab)
+                ? collectPrioritizedQuickOpenFiles(searchRoot, workspaceRoot, snap, tabs, activeTab, platform)
                 : initialPrioritized;
-            const merged = mergeQuickOpenItems(query, livePrioritized, matches);
+            const merged = mergeQuickOpenItems(query, livePrioritized, matches, platform);
             activeQuickInput.updateQuickPickItems(merged);
         } catch (err) {
             if (!controller.signal.aborted) {

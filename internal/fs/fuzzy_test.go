@@ -729,3 +729,56 @@ func BenchmarkFuzzyFindFiles_ChromiumBase(b *testing.B) {
 		})
 	}
 }
+
+func TestFuzzyFindFiles_PosixBackslashFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX literal backslash test")
+	}
+	tempDir := t.TempDir()
+	files := []string{
+		filepath.Join(tempDir, "foo\\bar.txt"),
+		filepath.Join(tempDir, "sub", "a\\b.txt"),
+	}
+	for _, f := range files {
+		if err := os.MkdirAll(filepath.Dir(f), 0755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(f, []byte("ok"), 0644); err != nil {
+			t.Fatalf("write failed: %v", err)
+		}
+	}
+
+	sm, err := NewSandboxManager(tempDir)
+	if err != nil {
+		t.Fatalf("NewSandboxManager failed: %v", err)
+	}
+
+	cases := []struct {
+		query   string
+		wantRel string
+	}{
+		{query: "foo\\bar", wantRel: "foo\\bar.txt"},
+		{query: "a\\b", wantRel: "sub/a\\b.txt"},
+		{query: "bar", wantRel: "foo\\bar.txt"},
+	}
+	for _, tc := range cases {
+		res, err := sm.FuzzyFindFiles(FuzzyFindOptions{
+			BaseDir:    tempDir,
+			Query:      tc.query,
+			MaxResults: 20,
+		})
+		if err != nil {
+			t.Fatalf("FuzzyFindFiles(%q) failed: %v", tc.query, err)
+		}
+		matched := false
+		for _, m := range res {
+			if m.RelPath == tc.wantRel {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Fatalf("FuzzyFindFiles(%q) expected %q in results, got %+v", tc.query, tc.wantRel, res)
+		}
+	}
+}

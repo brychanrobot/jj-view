@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { promptForRevision, showJjError } from '../host/ui-helpers';
+import { pathBasename } from '../path-utils';
 import { createRevisionUri, type Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
@@ -31,11 +31,13 @@ export async function compareFileWithRevisionCommand(
             return;
         }
 
+        const platform = ctx.repo.jj.system.platform;
+        const fileName = pathBasename(fileUri.fsPath, platform);
         let revision = payload?.revision;
         if (!revision) {
             revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
-                placeHolder: `Select an ancestor to compare ${path.basename(fileUri.fsPath)} with`,
-                emptyPrompt: `Compare ${path.basename(fileUri.fsPath)} with revision`,
+                placeHolder: `Select an ancestor to compare ${fileName} with`,
+                emptyPrompt: `Compare ${fileName} with revision`,
                 revisionQuery: RevisionQuery.ancestorsExcluding('@'),
                 repoRoot: ctx.repo.rootUri,
                 nav: ctx.host.nav,
@@ -47,9 +49,9 @@ export async function compareFileWithRevisionCommand(
         }
 
         const { jj } = ctx.repo;
-        const leftUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision);
+        const leftUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision, platform);
 
-        const title = `${path.basename(fileUri.fsPath)} (${revision} ↔ Working Copy)`;
+        const title = `${fileName} (${revision} ↔ Working Copy)`;
         await ctx.host.nav.openDiff(leftUri, fileUri, title);
     } catch (err: unknown) {
         await showJjError(ctx.host.ui, err, 'Failed to compare file', ctx.repo.jj, ctx.log);

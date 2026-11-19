@@ -3,6 +3,8 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
+import type { HostPlatform } from '../../../src/core/host/host-system';
+import { pathBasename } from '../../../src/core/path-utils';
 import type { ScmSnapshot } from '../../../src/core/scm-model';
 import { createJjResourceState, type JjResourceState } from '../../../src/core/scm-resource-state';
 import { Uri } from '../../../src/core/uri-utils';
@@ -17,6 +19,7 @@ import { formatRepositoryDisplayNames, hasOnlyEmptyWorkingCopy, type ScmReposito
 interface Props {
     snapshot: ScmSnapshot | undefined;
     workspaceRoot: string;
+    platform?: HostPlatform | string;
     repositories?: readonly ScmRepositoryEntry[];
     focusedWorkspaceRoot?: string;
     menuRegistry: MenuRegistry;
@@ -35,6 +38,7 @@ interface Props {
 let {
     snapshot,
     workspaceRoot,
+    platform,
     repositories,
     focusedWorkspaceRoot,
     menuRegistry,
@@ -76,7 +80,12 @@ $effect(() => {
     }
 });
 
-const repoDisplayNames = $derived(formatRepositoryDisplayNames((repositories ?? []).map((r) => r.workspaceRoot)));
+const repoDisplayNames = $derived(
+    formatRepositoryDisplayNames(
+        (repositories ?? []).map((r) => r.workspaceRoot),
+        platform,
+    ),
+);
 
 function buildConflictItems(snap: ScmSnapshot | undefined, root: string): JjResourceState[] {
     const changeId = snap?.currentEntry?.change_id || '@';
@@ -88,6 +97,7 @@ function buildConflictItems(snap: ScmSnapshot | undefined, root: string): JjReso
                 inConflictGroup: true,
                 workingCopyChangeId: changeId,
                 mutableCommit,
+                platform,
             }),
         ) ?? []
     );
@@ -107,6 +117,7 @@ function buildWorkingCopyItems(snap: ScmSnapshot | undefined, root: string): JjR
                 hasChild: snap?.hasChild,
                 workingCopyChangeId: changeId,
                 mutableCommit,
+                platform,
             }),
         );
 }
@@ -233,7 +244,7 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                 {@const repoConflicts = buildConflictItems(snap, root)}
                 {@const repoWorkingCopy = buildWorkingCopyItems(snap, root)}
                 {@const totalChanges = repoConflicts.length + repoWorkingCopy.length}
-                {@const display = repoDisplayNames.get(root) ?? { name: root.split(/[/\\]/).pop() || root }}
+                {@const display = repoDisplayNames.get(root) ?? { name: pathBasename(root, platform) || root }}
                 {@const displayLabel = display.qualifier ? `${display.qualifier}/${display.name}` : display.name}
                 {@const isFocused = root === activeFocusedRoot}
                 {@const expanded = isRepoExpanded(entry)}
@@ -413,6 +424,7 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                                                 openDiffOnClick,
                                                 workingCopyChangeId: repoChangeId,
                                                 mutableCommit: ancestor.isMutable,
+                                                platform,
                                             }),
                                         )}
                                         <ScmResourceGroup
@@ -513,6 +525,7 @@ function getRepoTitleActions(entry: ScmRepositoryEntry): ResolvedMenuItem[] {
                             openDiffOnClick,
                             workingCopyChangeId: currentChangeId,
                             mutableCommit: ancestor.isMutable,
+                            platform,
                         }),
                     )}
                     <ScmResourceGroup

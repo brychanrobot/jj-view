@@ -5,6 +5,7 @@
 import type { CommandContext } from '../host/command-context';
 import type { HostDiffTab } from '../host/host-environment';
 import { showJjError } from '../host/ui-helpers';
+import { normalizeRepoSeparators } from '../path-utils';
 import {
     createRepoFileUri,
     createRevisionUri,
@@ -138,13 +139,14 @@ export async function enableDiffEditingCommand(
 
         const params = getUriParams(targetUri);
         const root = params.get('root') || params.get('repoRoot') || ctx.repo.jj.workspaceRoot;
-        const relPath = getRepoRelativePath(targetUri, root);
+        const platform = ctx.repo.jj.system.platform;
+        const relPath = getRepoRelativePath(targetUri, root, platform);
         const cleanPath = relPath.startsWith('/') ? relPath.slice(1) : relPath;
         const targetRevision = revision.includes('/') ? revision : entry.change_id || revision;
 
         const changes = await ctx.repo.jj.getChanges(targetRevision);
         const isDeletedInRevision = changes.some(
-            (change) => change.status === 'deleted' && change.path.replace(/\\/g, '/') === cleanPath,
+            (change) => change.status === 'deleted' && normalizeRepoSeparators(change.path, platform) === cleanPath,
         );
         if (isDeletedInRevision) {
             void ctx.host.ui.showInformation('Cannot edit a deleted file.');
@@ -156,7 +158,10 @@ export async function enableDiffEditingCommand(
         resourceParams.set('jj-revision', targetRevision);
         resourceParams.set('revision', entry.is_current_working_copy ? '@' : targetRevision);
 
-        const editUri = createRepoFileUri(root, cleanPath, 'jj-edit', resourceParams.toString());
+        const editUri = createRepoFileUri(root, cleanPath, 'jj-edit', {
+            fragment: resourceParams.toString(),
+            platform,
+        });
 
         if (leftUri) {
             const diffTitle = title || `${cleanPath} (${targetRevision})`;
@@ -199,22 +204,21 @@ export async function disableDiffEditingCommand(
 
         const params = getUriParams(targetUri);
         const root = params.get('root') || params.get('repoRoot') || ctx.repo.jj.workspaceRoot;
-        const relPath = getRepoRelativePath(targetUri, root);
+        const platform = ctx.repo.jj.system.platform;
+        const relPath = getRepoRelativePath(targetUri, root, platform);
         const cleanPath = relPath.startsWith('/') ? relPath.slice(1) : relPath;
 
         await ctx.host.documents.saveIfDirty(targetUri);
 
         if (leftUri) {
-            const viewUri = createRepoFileUri(
-                root,
-                cleanPath,
-                'jj-view',
-                encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
-            );
+            const viewUri = createRepoFileUri(root, cleanPath, 'jj-view', {
+                fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
+                platform,
+            });
             const diffTitle = title || `${cleanPath} (${revision})`;
             await ctx.host.nav.openDiff(leftUri, viewUri, diffTitle, { preview: false });
         } else {
-            const viewUri = createRevisionUri(root, cleanPath, revision);
+            const viewUri = createRevisionUri(root, cleanPath, revision, platform);
             await ctx.host.nav.openFile(viewUri, { preview: false });
         }
 

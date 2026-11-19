@@ -2,9 +2,9 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { promptForRevision, showJjError } from '../host/ui-helpers';
+import { pathBasename } from '../path-utils';
 import { createRevisionUri, type Uri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
@@ -31,10 +31,11 @@ export async function viewFileAtRevisionCommand(
             return;
         }
 
+        const platform = ctx.repo.jj.system.platform;
         let revision = payload?.revision;
         if (!revision) {
             revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
-                placeHolder: `Select a revision to view ${path.basename(fileUri.fsPath)} at`,
+                placeHolder: `Select a revision to view ${pathBasename(fileUri.fsPath, platform)} at`,
                 revisionQuery: RevisionQuery.visible(),
                 repoRoot: ctx.repo.rootUri,
                 nav: ctx.host.nav,
@@ -46,7 +47,7 @@ export async function viewFileAtRevisionCommand(
         }
 
         const { jj } = ctx.repo;
-        const revisionUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision);
+        const revisionUri = createRevisionUri(jj.workspaceRoot, fileUri.fsPath, revision, platform);
 
         await ctx.host.nav.openFile(revisionUri);
     } catch (err: unknown) {

@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import { type Event, EventEmitter } from './host/events';
 import type { JjService } from './jj-service';
+import { pathNormalize } from './path-utils';
 import { getUriParams, type Uri } from './uri-utils';
 
 export class JjMergeService {
@@ -28,7 +28,7 @@ export class JjMergeService {
             return '';
         }
 
-        const fsPath = path.normalize(rawPath);
+        const fsPath = pathNormalize(rawPath, this.jjService.system?.platform);
 
         try {
             // Check cache first
@@ -80,7 +80,7 @@ export class JjMergeService {
         const query = getUriParams(uri);
         const rawPath = query.get('path');
         if (rawPath) {
-            this.clearCache(path.normalize(rawPath));
+            this.clearCache(pathNormalize(rawPath, this.jjService.system?.platform));
         }
         this._onDidChange.fire(uri);
     }
@@ -91,7 +91,7 @@ export class JjMergeService {
             this.inFlight.clear();
             return;
         }
-        const normalized = path.normalize(fsPath);
+        const normalized = pathNormalize(fsPath, this.jjService.system?.platform);
         this.cache.delete(normalized);
         this.inFlight.delete(normalized);
     }

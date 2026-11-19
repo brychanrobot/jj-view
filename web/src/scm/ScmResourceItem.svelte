@@ -46,11 +46,11 @@ const displayPath = $derived.by(() => {
     }
     const fullPath = resourceState.resourceUri.path || '';
     if (workspaceRoot && fullPath.startsWith(workspaceRoot)) {
-        return fullPath.slice(workspaceRoot.length).replace(/^[/\\]+/, '');
+        return fullPath.slice(workspaceRoot.length).replace(/^\/+/, '');
     }
     return fullPath;
 });
-const segments = $derived(displayPath.split(/[/\\]/));
+const segments = $derived(displayPath.split('/'));
 const fileName = $derived(segments[segments.length - 1] || displayPath);
 const dirName = $derived(segments.slice(0, -1).filter(Boolean).join('/'));
 

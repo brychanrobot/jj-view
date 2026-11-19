@@ -231,10 +231,12 @@ describe('remote-url-utils', () => {
     });
 
     describe('encodeRemoteFilePath & line helpers', () => {
-        it('normalizes backslashes and encodes segments while preserving slashes', () => {
-            expect(encodeRemoteFilePath('src\\my folder\\file#1?v=2%.ts')).toBe(
+        it('normalizes backslashes on win32 and preserves literal backslashes on POSIX', () => {
+            expect(encodeRemoteFilePath('src\\my folder\\file#1?v=2%.ts', 'win32')).toBe(
                 'src/my%20folder/file%231%3Fv%3D2%25.ts',
             );
+            expect(encodeRemoteFilePath('foo\\bar.txt', 'linux')).toBe('foo%5Cbar.txt');
+            expect(encodeRemoteFilePath('sub/a\\b.txt', 'darwin')).toBe('sub/a%5Cb.txt');
             expect(encodeRemoteFilePath('/leading/and/trailing/')).toBe('leading/and/trailing');
         });
 
@@ -265,8 +267,18 @@ describe('remote-url-utils', () => {
                     commitSha: sha,
                     relativePath: 'src\\my file.ts',
                     lineRange: { startLine: 12 },
+                    platform: 'win32',
                 }),
             ).toBe(`https://github.com/org/repo/blob/${sha}/src/my%20file.ts#L12`);
+            expect(
+                formatRemoteFileUrl({
+                    target,
+                    commitSha: sha,
+                    relativePath: 'foo\\bar.txt',
+                    lineRange: { startLine: 2 },
+                    platform: 'linux',
+                }),
+            ).toBe(`https://github.com/org/repo/blob/${sha}/foo%5Cbar.txt#L2`);
             expect(
                 formatRemoteFileUrl({
                     target,

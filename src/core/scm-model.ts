@@ -142,7 +142,7 @@ export class ScmModel implements Disposable {
     }
 
     public getOriginalResourceUri(uri: Uri): Uri | undefined {
-        const relativePath = getRepoRelativePath(uri, this.jj.workspaceRoot);
+        const relativePath = getRepoRelativePath(uri, this.jj.workspaceRoot, this.jj.system.platform);
         const statusEntry = this._workingCopyStatuses.get(relativePath);
         if (!statusEntry || statusEntry.status === 'added') {
             return undefined;
@@ -151,12 +151,10 @@ export class ScmModel implements Disposable {
         const revision = getRevisionFromUri(uri) || '@';
         const leftPath = statusEntry.oldPath || statusEntry.path;
 
-        return createRepoFileUri(
-            this.jj.workspaceRoot,
-            leftPath,
-            'jj-view',
-            encodeJjViewQuery({ mode: 'diff', root: this.jj.workspaceRoot, base: revision, side: 'left' }),
-        );
+        return createRepoFileUri(this.jj.workspaceRoot, leftPath, 'jj-view', {
+            fragment: encodeJjViewQuery({ mode: 'diff', root: this.jj.workspaceRoot, base: revision, side: 'left' }),
+            platform: this.jj.system.platform,
+        });
     }
 
     public async updateSnapshot(event: { reason: string }): Promise<void> {

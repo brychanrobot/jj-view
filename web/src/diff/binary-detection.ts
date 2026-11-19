@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { HostPlatform } from '../../../src/core/host/host-system';
+import { normalizeSeparatorsForHost } from '../../../src/core/path-utils';
+
 const BINARY_EXTENSIONS = new Set([
     '.png',
     '.jpg',
@@ -54,9 +57,9 @@ const IMAGE_MIME_TYPES: Readonly<Record<string, string>> = {
     '.bmp': 'image/bmp',
 };
 
-export function getFileExtension(filename: string): string {
-    const cleanName = filename.replace(/\s*\([^)]*\)$/, '').trim();
-    const lastSlash = Math.max(cleanName.lastIndexOf('/'), cleanName.lastIndexOf('\\'));
+export function getFileExtension(filename: string, platform?: HostPlatform | string): string {
+    const cleanName = normalizeSeparatorsForHost(filename.replace(/\s*\([^)]*\)$/, '').trim(), platform);
+    const lastSlash = cleanName.lastIndexOf('/');
     const dotIdx = cleanName.lastIndexOf('.');
     if (dotIdx === -1 || dotIdx < lastSlash) {
         return '';
@@ -64,28 +67,28 @@ export function getFileExtension(filename: string): string {
     return cleanName.slice(dotIdx).toLowerCase();
 }
 
-export function isBinaryByExtension(filename: string): boolean {
-    const ext = getFileExtension(filename);
+export function isBinaryByExtension(filename: string, platform?: HostPlatform | string): boolean {
+    const ext = getFileExtension(filename, platform);
     if (!ext) {
         return false;
     }
     return BINARY_EXTENSIONS.has(ext);
 }
 
-export function getImageMimeType(filename: string): string | undefined {
-    const ext = getFileExtension(filename);
+export function getImageMimeType(filename: string, platform?: HostPlatform | string): string | undefined {
+    const ext = getFileExtension(filename, platform);
     if (!ext) {
         return undefined;
     }
     return IMAGE_MIME_TYPES[ext];
 }
 
-export function isImageByExtension(filename: string): boolean {
-    return Boolean(getImageMimeType(filename));
+export function isImageByExtension(filename: string, platform?: HostPlatform | string): boolean {
+    return Boolean(getImageMimeType(filename, platform));
 }
 
-export function isSvgByExtension(filename: string): boolean {
-    return getFileExtension(filename) === '.svg';
+export function isSvgByExtension(filename: string, platform?: HostPlatform | string): boolean {
+    return getFileExtension(filename, platform) === '.svg';
 }
 
 export function uint8ArrayToDataUrl(bytes: Uint8Array, mimeType: string): string {
@@ -102,7 +105,11 @@ export function uint8ArrayToDataUrl(bytes: Uint8Array, mimeType: string): string
     return `data:${mimeType};base64,${base64}`;
 }
 
-export function toImageDataUrl(content: string | undefined, filename: string): string {
+export function toImageDataUrl(
+    content: string | undefined,
+    filename: string,
+    platform?: HostPlatform | string,
+): string {
     if (!content) {
         return '';
     }
@@ -114,10 +121,10 @@ export function toImageDataUrl(content: string | undefined, filename: string): s
     ) {
         return content;
     }
-    if (isSvgByExtension(filename)) {
+    if (isSvgByExtension(filename, platform)) {
         return uint8ArrayToDataUrl(new TextEncoder().encode(content), 'image/svg+xml');
     }
-    const mimeType = getImageMimeType(filename) ?? 'image/png';
+    const mimeType = getImageMimeType(filename, platform) ?? 'image/png';
     const bytes = new Uint8Array(content.length);
     for (let i = 0; i < content.length; i++) {
         bytes[i] = content.charCodeAt(i) & 0xff;
@@ -173,8 +180,8 @@ export function isBinaryBuffer(buffer: Uint8Array, maxBytesToCheck = 8192): bool
     return false;
 }
 
-export function isBinaryFile(filename: string, content?: string): boolean {
-    if (isBinaryByExtension(filename)) {
+export function isBinaryFile(filename: string, content?: string, platform?: HostPlatform | string): boolean {
+    if (isBinaryByExtension(filename, platform)) {
         return true;
     }
     if (content !== undefined) {

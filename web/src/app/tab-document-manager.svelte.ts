@@ -6,10 +6,12 @@ import { untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
 import { CommitDetailsController } from '../../../src/core/controllers/commit-details-controller';
 import type { HostOpenOptions } from '../../../src/core/host/host-environment';
+import type { HostPlatform } from '../../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
 import type { JjEditFsService } from '../../../src/core/jj-edit-fs-service';
 import type { JjStatusEntry } from '../../../src/core/jj-types';
 import type { JjViewFsService } from '../../../src/core/jj-view-fs-service';
+import { pathBasename, stripLeadingSeparators } from '../../../src/core/path-utils';
 import type { ScmModel, ScmSnapshot } from '../../../src/core/scm-model';
 import { createJjResourceState, type JjResourceState } from '../../../src/core/scm-resource-state';
 import { getRepoRelativePath, getRevisionFromUri, isWorkingCopyRevision, type Uri } from '../../../src/core/uri-utils';
@@ -31,6 +33,7 @@ export interface TabDocumentManagerDeps {
     resolveScmModelForUri: (uri?: Uri) => ScmModel | undefined;
     getCurrentSnapshot: () => ScmSnapshot | undefined;
     getWorkspaceRoot: () => string;
+    getPlatform?: () => HostPlatform | string | undefined;
     openFileDiffForChange: (
         file: JjStatusEntry,
         changeId: string,
@@ -613,10 +616,11 @@ export class TabDocumentManager {
     }
 
     async loadFileFromUri(uri: Uri, options?: HostOpenOptions): Promise<void> {
+        const platform = this.deps.getPlatform?.();
         const wsRoot = this.deps.resolveScmModelForUri(uri)?.repo.rootUri.fsPath ?? this.deps.getWorkspaceRoot();
-        const relPath = getRepoRelativePath(uri, wsRoot);
-        const cleanPath = relPath.startsWith('/') ? relPath.slice(1) : relPath;
-        const fileName = cleanPath.split('/').filter(Boolean).pop() || cleanPath || 'file';
+        const relPath = getRepoRelativePath(uri, wsRoot, platform);
+        const cleanPath = stripLeadingSeparators(relPath, platform);
+        const fileName = pathBasename(cleanPath, platform) || cleanPath || 'file';
 
         let matchingState: JjResourceState | undefined;
         const uriRevision = uri.scheme === 'file' ? '@' : (getRevisionFromUri(uri) ?? '@');
@@ -631,6 +635,7 @@ export class TabDocumentManager {
                     openDiffOnClick: true,
                     hasChild: snap?.hasChild ?? false,
                     workingCopyChangeId: snap?.currentEntry?.change_id,
+                    platform,
                 });
             }
         } else if (uri.scheme === 'jj-edit') {
@@ -638,6 +643,7 @@ export class TabDocumentManager {
                 editable: true,
                 openDiffOnClick: true,
                 workingCopyChangeId: snap?.currentEntry?.change_id,
+                platform,
             });
         }
 
@@ -804,13 +810,14 @@ export class TabDocumentManager {
 
     async openMergeEditorForResource(state: JjResourceState, options?: HostOpenOptions): Promise<void> {
         const uri = state.resourceUri;
+        const platform = this.deps.getPlatform?.();
         const targetScm = this.deps.resolveScmModelForUri(uri);
         const wsRoot = targetScm?.repo.rootUri.fsPath ?? this.deps.getWorkspaceRoot();
-        const rawRel = state.relativePath || getRepoRelativePath(uri, wsRoot);
-        const cleanPath = rawRel.startsWith('/') ? rawRel.slice(1) : rawRel;
+        const rawRel = state.relativePath || getRepoRelativePath(uri, wsRoot, platform);
+        const cleanPath = stripLeadingSeparators(rawRel, platform);
         const targetSnap = targetScm?.snapshot ?? this.deps.getCurrentSnapshot();
         const conflictPath = targetSnap?.conflictedPaths.find((p: string) => p === cleanPath) || cleanPath;
-        const fileName = conflictPath.split('/').filter(Boolean).pop() || conflictPath || 'Merge';
+        const fileName = pathBasename(conflictPath, platform) || conflictPath || 'Merge';
         const mergeTitle = `${fileName} (Merge)`;
 
         this.openOrActivateTab(

@@ -3,11 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import type { CodeForgeCommentThread } from '../../../src/core/code-forge-provider';
 import type { CommentsManager } from '../../../src/core/comments-manager';
 import type { Disposable } from '../../../src/core/host/events';
+import type { HostPlatform } from '../../../src/core/host/host-system';
 import type { CodeForgeChangeInfo } from '../../../src/core/jj-types';
+import {
+    normalizeRepoSeparators,
+    pathIsAbsolute,
+    pathRelative,
+    stripLeadingSeparators,
+} from '../../../src/core/path-utils';
 
 /**
  * A stable, reactive handle for one comment thread.
@@ -28,13 +34,18 @@ export class CommentThreadHandle {
     }
 }
 
-/** Repo-relative, forward-slash path for a thread, or undefined for change-level threads. */
-export function normalizeThreadPath(filePath: string | undefined, repoPath: string | undefined): string | undefined {
+/** Canonical repo-relative path for a thread, or undefined for change-level threads. */
+export function normalizeThreadPath(
+    filePath: string | undefined,
+    repoPath: string | undefined,
+    platform?: HostPlatform | string,
+): string | undefined {
     if (!filePath) {
         return undefined;
     }
-    const relative = path.isAbsolute(filePath) && repoPath ? path.relative(repoPath, filePath) : filePath;
-    return relative.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+    const relative =
+        pathIsAbsolute(filePath, platform) && repoPath ? pathRelative(repoPath, filePath, platform) : filePath;
+    return stripLeadingSeparators(normalizeRepoSeparators(relative, platform).replace(/^\.\//, ''), platform);
 }
 
 /**
@@ -49,9 +60,16 @@ export class CommentsStore implements Disposable {
     private readonly handlesById = new Map<string, CommentThreadHandle>();
     private readonly subscription: Disposable;
 
-    constructor(readonly manager: CommentsManager) {
+    constructor(
+        readonly manager: CommentsManager,
+        private readonly getPlatform?: () => HostPlatform | string | undefined,
+    ) {
         this.subscription = manager.onDidChangeThreads((threads) => this.apply(threads));
         this.apply(manager.threads);
+    }
+
+    get platform(): HostPlatform | string | undefined {
+        return this.getPlatform?.();
     }
 
     get unresolvedCount(): number {
@@ -60,11 +78,12 @@ export class CommentsStore implements Disposable {
 
     /** Handles for threads anchored to `relativePath` (repo-relative). */
     handlesForFile(relativePath: string): CommentThreadHandle[] {
-        const wanted = normalizeThreadPath(relativePath, undefined);
+        const platform = this.platform;
+        const wanted = normalizeThreadPath(relativePath, undefined, platform);
         if (!wanted) {
             return [];
         }
-        return this.handles.filter((h) => normalizeThreadPath(h.thread.filePath, this.repoPath) === wanted);
+        return this.handles.filter((h) => normalizeThreadPath(h.thread.filePath, this.repoPath, platform) === wanted);
     }
 
     private apply(threads: readonly CodeForgeCommentThread[]): void {

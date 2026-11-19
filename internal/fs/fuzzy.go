@@ -436,7 +436,10 @@ func parseQueryTokens(query string) []queryToken {
 	}
 	tokens := make([]queryToken, 0, len(fields))
 	for _, f := range fields {
-		norm := strings.ReplaceAll(f, "\\", "/")
+		norm := f
+		if runtime.GOOS == "windows" {
+			norm = strings.ReplaceAll(norm, "\\", "/")
+		}
 		norm = strings.TrimPrefix(norm, "./")
 		norm = strings.TrimPrefix(norm, "/")
 		norm = strings.TrimSuffix(norm, "/")

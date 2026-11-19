@@ -2,11 +2,11 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { showJjError } from '../host/ui-helpers';
 import type { JjStatusEntry } from '../jj-types';
-import { getFsPathFromUri, getRevisionFromUri, toForwardSlash, Uri } from '../uri-utils';
+import { normalizeRepoSeparators, pathIsAbsolute, pathNormalize, pathResolve } from '../path-utils';
+import { getFsPathFromUri, getRevisionFromUri, isInsideRelativePath, Uri } from '../uri-utils';
 import { resolveWorkspaceRelativePath } from './command-utils';
 
 export interface SplitFilesPayload {
@@ -17,26 +17,20 @@ export interface SplitFilesPayload {
 
 async function normalizeWorkspaceFilePath(ctx: CommandContext, inputPath: string): Promise<string> {
     const workspaceRoot = ctx.repo.jj.workspaceRoot;
+    const platform = ctx.repo.jj.system.platform;
     let rel: string;
-    if (path.isAbsolute(inputPath)) {
-        const resolved = await resolveWorkspaceRelativePath(workspaceRoot, inputPath, ctx.host.system?.fs);
+    if (pathIsAbsolute(inputPath, platform)) {
+        const resolved = await resolveWorkspaceRelativePath(workspaceRoot, inputPath, ctx.host.system?.fs, platform);
         if (resolved === undefined) {
             throw new Error(`Selected file is outside the repository workspace: ${inputPath}`);
         }
         rel = resolved;
     } else {
-        rel = path.normalize(inputPath);
+        rel = pathNormalize(inputPath, platform);
     }
 
-    const normalized = toForwardSlash(rel);
-    if (
-        normalized === '' ||
-        normalized === '.' ||
-        normalized === '..' ||
-        normalized.startsWith('../') ||
-        path.isAbsolute(normalized) ||
-        /^[a-zA-Z]:(?:$|[/\\])/.test(normalized)
-    ) {
+    const normalized = normalizeRepoSeparators(rel, platform);
+    if (normalized === '' || normalized === '.' || !isInsideRelativePath(normalized, platform)) {
         throw new Error(`Invalid file path for split: ${inputPath}`);
     }
     return normalized;
@@ -50,9 +44,10 @@ async function flushDirtySplitDocuments(
         revisionAliases: ReadonlySet<string>;
     },
 ): Promise<boolean> {
+    const platform = ctx.repo.jj.system.platform;
     if (options.isWorkingCopy) {
         for (const relPath of options.targetPaths) {
-            await ctx.host.documents.saveIfDirty(Uri.file(path.resolve(ctx.repo.jj.workspaceRoot, relPath)));
+            await ctx.host.documents.saveIfDirty(Uri.file(pathResolve([ctx.repo.jj.workspaceRoot, relPath], platform)));
         }
     }
 
@@ -62,7 +57,9 @@ async function flushDirtySplitDocuments(
     }
 
     const targetAbsPaths = new Set(
-        options.targetPaths.map((relPath) => path.normalize(path.resolve(ctx.repo.jj.workspaceRoot, relPath))),
+        options.targetPaths.map((relPath) =>
+            pathNormalize(pathResolve([ctx.repo.jj.workspaceRoot, relPath], platform), platform),
+        ),
     );
     let flushedJjEdit = false;
     for (const openUri of openUris) {
@@ -73,7 +70,7 @@ async function flushDirtySplitDocuments(
         if (openRev && !options.revisionAliases.has(openRev)) {
             continue;
         }
-        const openFsPath = path.normalize(getFsPathFromUri(openUri));
+        const openFsPath = pathNormalize(getFsPathFromUri(openUri, platform), platform);
         if (!targetAbsPaths.has(openFsPath)) {
             continue;
         }
@@ -144,9 +141,10 @@ async function splitFiles(
         let targetRevision = isWorkingCopy ? '@' : entry.commit_id;
 
         const changes = await ctx.repo.jj.getChanges(targetRevision);
+        const platform = ctx.repo.jj.system.platform;
         const changesByPath = new Map<string, JjStatusEntry>();
         for (const change of changes) {
-            changesByPath.set(toForwardSlash(path.normalize(change.path)), change);
+            changesByPath.set(normalizeRepoSeparators(pathNormalize(change.path, platform), platform), change);
         }
 
         const inputPathSet = new Set(normalizedInputPaths);
@@ -157,7 +155,7 @@ async function splitFiles(
             const change = changesByPath.get(relPath);
             // Extract renames atomically so the old path deletion is not stranded in the original commit.
             if (change?.status === 'renamed' && change.oldPath) {
-                const oldRelPath = toForwardSlash(path.normalize(change.oldPath));
+                const oldRelPath = normalizeRepoSeparators(pathNormalize(change.oldPath, platform), platform);
                 targetPathSet.add(oldRelPath);
                 if (!inputPathSet.has(oldRelPath)) {
                     extraPaths.push(oldRelPath);

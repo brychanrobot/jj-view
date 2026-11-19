@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { HostPlatform } from '../../../src/core/host/host-system';
+import { isWindowsStylePath, normalizeSeparatorsForHost, trimSeparators } from '../../../src/core/path-utils';
 import type { ScmSnapshot } from '../../../src/core/scm-model';
 
 export interface ScmRepositoryEntry {
@@ -47,15 +49,17 @@ export function hasOnlyEmptyWorkingCopy(snapshot: ScmSnapshot | undefined): bool
  * Uses the directory basename when unique across all repositories, and includes
  * parent directory segments as a qualifier when multiple repositories share a basename.
  */
-export function formatRepositoryDisplayNames(roots: readonly string[]): Map<string, RepositoryDisplayName> {
+export function formatRepositoryDisplayNames(
+    roots: readonly string[],
+    platform?: HostPlatform | string,
+): Map<string, RepositoryDisplayName> {
     const result = new Map<string, RepositoryDisplayName>();
     const splitByRoot = new Map<string, string[]>();
 
     for (const root of roots) {
-        const segments = root
-            .replace(/[/\\]+$/, '')
-            .split(/[/\\]/)
-            .filter(Boolean);
+        const effectivePlatform = platform ?? (isWindowsStylePath(root) ? 'win32' : undefined);
+        const normalized = trimSeparators(normalizeSeparatorsForHost(root, effectivePlatform), effectivePlatform);
+        const segments = normalized.split('/').filter(Boolean);
         splitByRoot.set(root, segments.length > 0 ? segments : [root]);
     }
 

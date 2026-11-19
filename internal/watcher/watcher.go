@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +63,10 @@ type ignoreMatcher struct {
 }
 
 func normalizeIgnorePattern(pattern string) string {
-	cleanPat := strings.ReplaceAll(filepath.ToSlash(pattern), "\\", "/")
+	cleanPat := filepath.ToSlash(pattern)
+	if runtime.GOOS == "windows" {
+		cleanPat = strings.ReplaceAll(cleanPat, "\\", "/")
+	}
 	cleanPat = strings.TrimPrefix(cleanPat, "./")
 	cleanPat = strings.TrimPrefix(cleanPat, "/")
 	cleanPat = strings.TrimSuffix(cleanPat, "/")

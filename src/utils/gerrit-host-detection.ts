@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { join } from 'pathe';
 import type { GitRemote } from '../core/code-forge-provider';
 import type { HostEnvironment } from '../core/host/host-environment';
 import type { HostSystem } from '../core/host/host-system';
+import { pathJoin } from '../core/path-utils';
 import { getGitConfig } from './git-repo-utils';
 import type { LoggerChannel } from './output-channel';
 
@@ -95,7 +95,7 @@ async function getHostFromGitReview(
     if (!system) {
         return undefined;
     }
-    const gitreviewPath = join(repoRoot, '.gitreview');
+    const gitreviewPath = pathJoin([repoRoot, '.gitreview'], system.platform);
     outputChannel?.debug(`[GerritDetector] Checking .gitreview file at: ${gitreviewPath}`);
     const [content] = await system.fs.readTextFiles([gitreviewPath]).catch((e: unknown) => {
         outputChannel?.error(`[GerritDetector] Failed to read .gitreview: ${e}`);

@@ -2,7 +2,6 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import path from 'pathe';
 import type { z } from 'zod';
 import { AsyncCache } from '../utils/async-cache';
 import { getErrorMessage } from '../utils/error-utils';
@@ -12,6 +11,7 @@ import { type LoggerChannel, NO_OP_LOGGER } from '../utils/output-channel';
 import type { UploadedRevisionFile } from './code-forge-provider';
 import {
     HELPER_SCRIPT_TOKEN,
+    type HostPlatform,
     type HostSystem,
     type ProcessExecOptions,
     ProcessExitError,
@@ -24,14 +24,12 @@ import {
 import { NodeHostSystem } from './host/node-host-system';
 import type { IJjTrackedProcess, JjProcessTracker } from './jj-process-tracker';
 import {
-    ChangesAndStatsOutputSchema,
     type ConflictedFileEntry,
+    createJjOutputSchemas,
     type DiffStatEntry,
     JjBookmarkSchema,
     type JjFileChange,
-    JjFileChangeSchema,
     type JjFileChangeWithStats,
-    JjLogEntrySchema,
     JjWorkspaceSchema,
 } from './jj-schemas';
 import {
@@ -46,11 +44,18 @@ import type { JjBookmark, JjLogEntry, JjStatusEntry, JjWorkspace } from './jj-ty
 import type { SelectionRange } from './patch-helper';
 import * as PatchHelper from './patch-helper';
 import {
-    isInsideRelativePath,
-    normalizeDriveLetter,
-    resolvePathAgainstRealRootAsync,
-    toForwardSlash,
-} from './uri-utils';
+    isWindowsStylePath,
+    normalizeRepoSeparators,
+    pathDirname,
+    pathIsAbsolute,
+    pathJoin,
+    pathNormalize,
+    pathRelative,
+    pathResolve,
+    trimSeparators,
+    unquoteGitPath,
+} from './path-utils';
+import { isInsideRelativePath, normalizeDriveLetter, resolvePathAgainstRealRootAsync } from './uri-utils';
 
 export { NO_OP_LOGGER };
 
@@ -61,7 +66,11 @@ export interface GitCommitDetails {
 
 const HEX_COMMIT_PATTERN = /^[0-9a-fA-F]{4,64}$/;
 
-function parseGitRawFiles(tokens: string[], startIndex: number): Record<string, UploadedRevisionFile> {
+function parseGitRawFiles(
+    tokens: string[],
+    startIndex: number,
+    platform?: HostPlatform | string,
+): Record<string, UploadedRevisionFile> {
     const files: Record<string, UploadedRevisionFile> = {};
     let idx = startIndex;
     while (idx < tokens.length) {
@@ -83,9 +92,9 @@ function parseGitRawFiles(tokens: string[], startIndex: number): Record<string, 
             const oldPath = tokens[idx + 1];
             const newPath = tokens[idx + 2];
             if (oldPath !== undefined && newPath !== undefined) {
-                files[toForwardSlash(newPath)] = {
+                files[normalizeRepoSeparators(newPath, platform)] = {
                     status: statusLetter,
-                    oldPath: toForwardSlash(oldPath),
+                    oldPath: normalizeRepoSeparators(oldPath, platform),
                     newSha,
                 };
             }
@@ -95,7 +104,7 @@ function parseGitRawFiles(tokens: string[], startIndex: number): Record<string, 
 
         const filePath = tokens[idx + 1];
         if (filePath !== undefined) {
-            files[toForwardSlash(filePath)] = {
+            files[normalizeRepoSeparators(filePath, platform)] = {
                 status: statusLetter,
                 newSha,
             };
@@ -160,32 +169,7 @@ export interface JjRunOptions {
     label?: string;
 }
 
-function unquoteGitPath(rawPath: string): string {
-    if (!rawPath.startsWith('"') || !rawPath.endsWith('"')) {
-        return rawPath;
-    }
-    try {
-        const parsed = JSON.parse(rawPath);
-        if (typeof parsed === 'string') {
-            return parsed;
-        }
-    } catch {
-        // Fallback for Git's C-style octal escape sequences (e.g. \303\251)
-        const unescapedBinary = rawPath
-            .slice(1, -1)
-            .replace(/\\([0-7]{3})/g, (_, oct: string) => String.fromCharCode(parseInt(oct, 8)))
-            .replace(/\\"/g, '"')
-            .replace(/\\\\/g, '\\');
-        return Buffer.from(unescapedBinary, 'latin1').toString('utf8');
-    }
-    return rawPath;
-}
-
-/**
- * Formats a workspace-relative file path as an exact JJ `root-file:"..."` fileset literal
- * so fileset metacharacters (`:`, `*`, `~`, parentheses) and leading dashes are treated as literal path characters.
- */
-export function formatRootFileFileset(relPath: string): string {
+function escapeFilesetString(relPath: string): string {
     let escaped = '';
     for (const ch of relPath) {
         const code = ch.charCodeAt(0);
@@ -207,13 +191,31 @@ export function formatRootFileFileset(relPath: string): string {
             escaped += ch;
         }
     }
-    return `root-file:"${escaped}"`;
+    return escaped;
+}
+
+/**
+ * Formats a workspace-relative path prefix (file or directory) as a JJ `root:"..."` fileset literal
+ * so backslashes, quotes, and fileset metacharacters are treated as literal path characters.
+ */
+export function formatRootFileset(relPath: string): string {
+    return `root:"${escapeFilesetString(relPath)}"`;
+}
+
+/**
+ * Formats a workspace-relative file path as an exact JJ `root-file:"..."` fileset literal
+ * so fileset metacharacters (`:`, `*`, `~`, parentheses) and leading dashes are treated as literal path characters.
+ */
+export function formatRootFileFileset(relPath: string): string {
+    return `root-file:"${escapeFilesetString(relPath)}"`;
 }
 
 export class JjService {
     public binaryPath: string;
     public processTracker?: JjProcessTracker;
     public readonly system: HostSystem;
+    private readonly _pathPlatform: HostPlatform | string;
+    private readonly _schemas: ReturnType<typeof createJjOutputSchemas>;
     private readonly _getConfig?: JjServiceConfigProvider;
     private _writeOperationCount = 0;
     private _lastWriteTime = 0;
@@ -245,6 +247,9 @@ export class JjService {
         this._getConfig = options?.getConfig;
         this.processTracker = options?.processTracker;
         this.system = options?.system ?? new NodeHostSystem();
+        this._pathPlatform =
+            this.system.platform === 'win32' || isWindowsStylePath(this.workspaceRoot) ? 'win32' : this.system.platform;
+        this._schemas = createJjOutputSchemas(this._pathPlatform);
         this._diffCache = new AsyncCache<string, { tempDir: string; expires: number }>({
             onEvict: (entry) => this.system.fs.rm(entry.tempDir, { recursive: true, force: true }).catch(() => {}),
         });
@@ -294,12 +299,13 @@ export class JjService {
      */
     async getRepoStorePath(): Promise<string> {
         const workspaceRoot = await this.getRepoRoot();
-        const repoPath = path.join(workspaceRoot, '.jj', 'repo');
+        const platform = this._pathPlatform;
+        const repoPath = pathJoin([workspaceRoot, '.jj', 'repo'], platform);
         try {
             const stats = await this.system.fs.lstat(repoPath);
             if (stats.isFile()) {
                 const content = await this.system.fs.readTextFile(repoPath);
-                return path.resolve(path.dirname(repoPath), content.trim());
+                return pathResolve([pathDirname(repoPath, platform), content.trim()], platform);
             }
             return await this.system.fs.realpath(repoPath);
         } catch {
@@ -312,10 +318,11 @@ export class JjService {
      */
     async getMainWorkspaceRoot(): Promise<string> {
         const storePath = await this.getRepoStorePath();
+        const platform = this._pathPlatform;
         // The store is typically <main-root>/.jj/repo.
         // Parent 1: <main-root>/.jj
         // Parent 2: <main-root>
-        return path.dirname(path.dirname(storePath));
+        return pathDirname(pathDirname(storePath, platform), platform);
     }
 
     private _gitRoot?: string | null;
@@ -438,72 +445,93 @@ export class JjService {
     }
 
     private async workspaceRelativeToRepoRelative(workspaceRelPath: string): Promise<string> {
-        const { repoReal, workspaceReal } = await this.getRealRoots();
-        const normRepoReal = normalizeDriveLetter(path.normalize(repoReal));
-        const normWorkspaceReal = normalizeDriveLetter(path.normalize(workspaceReal));
-        if (normRepoReal === normWorkspaceReal) {
-            return path.normalize(workspaceRelPath);
+        const platform = this._pathPlatform;
+        const repoRoot = await this.getRepoRoot();
+        const normRepoRoot = normalizeDriveLetter(pathNormalize(repoRoot, platform));
+        const normWorkspaceRoot = normalizeDriveLetter(pathNormalize(this.workspaceRoot, platform));
+        if (normRepoRoot === normWorkspaceRoot) {
+            return pathNormalize(workspaceRelPath, platform);
         }
-        const repoToWorkspace = path.relative(normRepoReal, normWorkspaceReal);
-        return path.normalize(path.join(repoToWorkspace, workspaceRelPath));
+        const { repoReal, workspaceReal } = await this.getRealRoots();
+        const normRepoReal = normalizeDriveLetter(pathNormalize(repoReal, platform));
+        const normWorkspaceReal = normalizeDriveLetter(pathNormalize(workspaceReal, platform));
+        if (normRepoReal === normWorkspaceReal) {
+            return pathNormalize(workspaceRelPath, platform);
+        }
+        const repoToWorkspace = pathRelative(normRepoReal, normWorkspaceReal, platform);
+        return pathNormalize(pathJoin([repoToWorkspace, workspaceRelPath], platform), platform);
     }
 
     private async resolveRelativeToRealRoot(filePath: string, realRoot: string): Promise<string> {
-        const resolution = await resolvePathAgainstRealRootAsync(filePath, realRoot, this.system.fs);
+        const platform = this._pathPlatform;
+        const resolution = await resolvePathAgainstRealRootAsync(filePath, realRoot, this.system.fs, platform);
         if (resolution?.inside) {
             return resolution.relativePath;
         }
         const fileReal = resolution?.resolvedPath ?? filePath;
-        return path.normalize(
-            path.relative(normalizeDriveLetter(path.normalize(realRoot)), normalizeDriveLetter(fileReal)),
+        return pathNormalize(
+            pathRelative(
+                normalizeDriveLetter(pathNormalize(realRoot, platform)),
+                normalizeDriveLetter(fileReal),
+                platform,
+            ),
+            platform,
         );
     }
 
     private async toRelative(filePath: string): Promise<string> {
-        if (!path.isAbsolute(filePath)) {
+        const platform = this._pathPlatform;
+        if (!pathIsAbsolute(filePath, platform)) {
             return filePath;
         }
-        const directRel = path.relative(normalizeDriveLetter(this.workspaceRoot), normalizeDriveLetter(filePath));
-        if (isInsideRelativePath(directRel)) {
-            return path.normalize(directRel);
+        const directRel = pathRelative(
+            normalizeDriveLetter(this.workspaceRoot),
+            normalizeDriveLetter(filePath),
+            platform,
+        );
+        if (isInsideRelativePath(directRel, platform)) {
+            return pathNormalize(directRel, platform);
         }
         const workspaceReal = await this.getWorkspaceReal();
         return this.resolveRelativeToRealRoot(filePath, workspaceReal);
     }
 
     private async toRepoRelative(filePath: string): Promise<string> {
-        if (!path.isAbsolute(filePath)) {
+        const platform = this._pathPlatform;
+        if (!pathIsAbsolute(filePath, platform)) {
             return this.workspaceRelativeToRepoRelative(filePath);
         }
 
-        const directWorkspaceRel = path.relative(
+        const directWorkspaceRel = pathRelative(
             normalizeDriveLetter(this.workspaceRoot),
             normalizeDriveLetter(filePath),
+            platform,
         );
-        if (isInsideRelativePath(directWorkspaceRel)) {
+        if (isInsideRelativePath(directWorkspaceRel, platform)) {
             return this.workspaceRelativeToRepoRelative(directWorkspaceRel);
         }
 
         const { repoReal } = await this.getRealRoots();
-        const normRepoReal = normalizeDriveLetter(path.normalize(repoReal));
-        const rel = path.relative(normRepoReal, normalizeDriveLetter(filePath));
-        if (isInsideRelativePath(rel)) {
-            return path.normalize(rel);
+        const normRepoReal = normalizeDriveLetter(pathNormalize(repoReal, platform));
+        const rel = pathRelative(normRepoReal, normalizeDriveLetter(filePath), platform);
+        if (isInsideRelativePath(rel, platform)) {
+            return pathNormalize(rel, platform);
         }
 
         return this.resolveRelativeToRealRoot(filePath, repoReal);
     }
 
     /**
-     * Resolves a file path (absolute or workspace-relative) to a forward-slash path relative to
-     * the repository root, or `undefined` if the path lies outside the repository.
+     * Resolves a file path (absolute or workspace-relative) to a canonical repo-relative path,
+     * or `undefined` if the path lies outside the repository.
      */
     async resolveRepoRelativePath(filePath: string): Promise<string | undefined> {
+        const platform = this._pathPlatform;
         const rel = await this.toRepoRelative(filePath);
-        if (!isInsideRelativePath(rel)) {
+        if (!isInsideRelativePath(rel, platform)) {
             return undefined;
         }
-        const normalized = toForwardSlash(rel).replace(/^\/+|\/+$/g, '');
+        const normalized = normalizeRepoSeparators(trimSeparators(rel, platform), platform);
         if (!normalized || normalized === '.') {
             return '';
         }
@@ -512,15 +540,10 @@ export class JjService {
 
     private getToolConfigArgs(toolName: string, scriptPath: string, argsTemplate: string[]): string[] {
         const isWin = this.system.platform === 'win32';
-        const normalizedScriptPath = path.normalize(scriptPath);
+        const normalizedScriptPath = pathNormalize(scriptPath, this.system.platform);
 
-        // Ensure all arguments in the template are quoted for the JSON array
-        const quotedArgs = argsTemplate.map((arg) => {
-            if (arg.startsWith('"') && arg.endsWith('"')) {
-                return arg;
-            }
-            return `"${arg}"`;
-        });
+        // JSON.stringify produces valid TOML double-quoted strings, preserving backslashes on POSIX
+        const quotedArgs = argsTemplate.map((arg) => JSON.stringify(arg));
 
         if (isWin) {
             // On Windows, we must use cmd /c to execute .bat files correctly from jj
@@ -532,7 +555,7 @@ export class JjService {
             ];
         } else {
             return [
-                `--config=merge-tools.${toolName}.program="${normalizedScriptPath}"`,
+                `--config=merge-tools.${toolName}.program=${JSON.stringify(normalizedScriptPath)}`,
                 `--config=merge-tools.${toolName}.merge-args=[${quotedArgs.join(', ')}]`,
                 `--config=merge-tools.${toolName}.edit-args=[${quotedArgs.join(', ')}]`,
             ];
@@ -828,7 +851,7 @@ export class JjService {
         const searchSet =
             includeNearestVisibleAncestors && !revision ? this.getConfiguredLogRevset() : Promise.resolve(revision);
         const output = await this.run('log', args, { useCachedSnapshot: true, label: 'getLog' });
-        const entries = this._parseJsonLines(output, JjLogEntrySchema, 'getLog');
+        const entries = this._parseJsonLines(output, this._schemas.logEntry, 'getLog');
 
         if (includeNearestVisibleAncestors) {
             const visibleIds = new Set<string>(entries.map((e) => e.change_id));
@@ -932,11 +955,22 @@ export class JjService {
         return output.trim().split('\n').filter(Boolean);
     }
 
-    async restore(paths: string[], options: { from?: string; into?: string; changesIn?: string } = {}): Promise<void> {
+    private async toRepoFilesets(paths: readonly string[], mode: 'exact' | 'prefix' = 'prefix'): Promise<string[]> {
+        const repoPaths = await Promise.all(
+            paths.map(async (p) => normalizeRepoSeparators(await this.toRepoRelative(p), this._pathPlatform)),
+        );
+        const formatter = mode === 'exact' ? formatRootFileFileset : formatRootFileset;
+        return Array.from(new Set(repoPaths)).map((rel) => formatter(rel));
+    }
+
+    async restore(
+        paths: string[],
+        options: { from?: string; into?: string; changesIn?: string; exact?: boolean } = {},
+    ): Promise<void> {
         if (paths.length === 0) {
             return;
         }
-        const relativePaths = await Promise.all(paths.map((p) => this.toRelative(p)));
+        const filesets = await this.toRepoFilesets(paths, options.exact ? 'exact' : 'prefix');
         const cmdArgs: string[] = [];
         if (options.changesIn) {
             cmdArgs.push('--changes-in', options.changesIn);
@@ -948,7 +982,7 @@ export class JjService {
                 cmdArgs.push('--into', options.into);
             }
         }
-        cmdArgs.push('--', ...relativePaths);
+        cmdArgs.push('--', ...filesets);
         await this.run('restore', cmdArgs, { isMutation: true, label: 'restore' });
     }
 
@@ -968,10 +1002,7 @@ export class JjService {
         if (revision.length === 0) {
             throw new Error('Revision must not be empty.');
         }
-        const relPaths = await Promise.all(options.paths.map((p) => this.toRepoRelative(p)));
-        const filesets = Array.from(new Set(relPaths.map((p) => toForwardSlash(p)))).map((rel) =>
-            formatRootFileFileset(rel),
-        );
+        const filesets = await this.toRepoFilesets(options.paths, 'exact');
         const placementFlag = options.placement === 'before' ? '-B' : '-A';
         const args = ['-r', revision, placementFlag, revision, '-m', options.message ?? '', '--', ...filesets];
         await this.run('split', args, { isMutation: true, label: 'split' });
@@ -982,12 +1013,14 @@ export class JjService {
      * Uses `jj resolve` with a custom capture tool to extract the properly separated content.
      */
     async getConflictParts(filePath: string): Promise<{ base: string; left: string; right: string }> {
-        const relativePath = await this.toRelative(filePath);
-        const tempDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-conflict-'));
+        const repoRelPath = normalizeRepoSeparators(await this.toRepoRelative(filePath), this._pathPlatform);
+        const tempDir = await this.system.fs.mkdtemp(
+            pathJoin([this.system.fs.tempDir, 'jj-conflict-'], this.system.platform),
+        );
 
         try {
             // Normalize path separators to forward slashes for safe injection into JS script string
-            const tempDirNormalized = path.normalize(tempDir);
+            const tempDirNormalized = pathNormalize(tempDir, this.system.platform);
             const basePath = `${tempDirNormalized}/base`;
             const leftPath = `${tempDirNormalized}/left`;
             const rightPath = `${tempDirNormalized}/right`;
@@ -1004,21 +1037,25 @@ export class JjService {
                     tempDirNormalized,
                 ]);
 
-                await this.run('resolve', ['--tool', toolName, ...toolConfig, relativePath], {
-                    useCachedSnapshot: true,
-                    label: `getConflictParts ${relativePath}`,
-                });
+                await this.run(
+                    'resolve',
+                    ['--tool', toolName, ...toolConfig, '--', formatRootFileFileset(repoRelPath)],
+                    {
+                        useCachedSnapshot: true,
+                        label: `getConflictParts ${repoRelPath}`,
+                    },
+                );
             } catch (err) {
                 resolveError = err;
             }
 
             // Verify that conflict-capture actually ran and wrote the .complete marker
-            const marker = path.join(tempDir, '.complete');
+            const marker = pathJoin([tempDir, '.complete'], this.system.platform);
             const isCompleted = await this.system.fs.exists(marker);
             if (!isCompleted) {
                 throw (
                     resolveError ??
-                    new Error(`Failed to capture conflict parts for ${relativePath}: tool did not complete.`)
+                    new Error(`Failed to capture conflict parts for ${repoRelPath}: tool did not complete.`)
                 );
             }
 
@@ -1079,8 +1116,8 @@ export class JjService {
             const cache = await this.getDiffForRevision(revision);
             warmDuration += performance.now() - warmStart;
 
-            const leftPath = path.join(cache.tempDir, 'left', relativePath);
-            const rightPath = path.join(cache.tempDir, 'right', relativePath);
+            const leftPath = pathJoin([cache.tempDir, 'left', relativePath], this._pathPlatform);
+            const rightPath = pathJoin([cache.tempDir, 'right', relativePath], this._pathPlatform);
 
             // Read left and right in one host call; null means the side is absent from the diff.
             const readStart = performance.now();
@@ -1175,8 +1212,8 @@ export class JjService {
             const cache = await this.getDiffForRevision(revision);
             warmDuration += performance.now() - warmStart;
 
-            const leftPath = path.join(cache.tempDir, 'left', relativePath);
-            const rightPath = path.join(cache.tempDir, 'right', relativePath);
+            const leftPath = pathJoin([cache.tempDir, 'left', relativePath], this._pathPlatform);
+            const rightPath = pathJoin([cache.tempDir, 'right', relativePath], this._pathPlatform);
 
             const readStart = performance.now();
             const [leftBytes, rightBytes] = await Promise.all([
@@ -1333,17 +1370,20 @@ export class JjService {
         }
 
         return this.runMutation(async () => {
-            const tempDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-batch-edit-'));
+            const hostPlatform = this.system.platform;
+            const tempDir = await this.system.fs.mkdtemp(
+                pathJoin([this.system.fs.tempDir, 'jj-batch-edit-'], hostPlatform),
+            );
             try {
                 const writePromises = Array.from(files.entries()).map(async ([filePath, content], idx) => {
-                    const [repoRelPath, workspaceRelPath] = await Promise.all([
-                        this.toRepoRelative(filePath),
-                        this.toRelative(filePath),
-                    ]);
+                    const repoRelPath = normalizeRepoSeparators(
+                        await this.toRepoRelative(filePath),
+                        this._pathPlatform,
+                    );
                     const safeName = repoRelPath.replace(/[\\/]/g, '_');
-                    const tmpPath = path.join(tempDir, `src_${idx}_${safeName}`);
+                    const tmpPath = pathJoin([tempDir, `src_${idx}_${safeName}`], hostPlatform);
                     await this.system.fs.writeTextFile(tmpPath, content);
-                    return { repoRelPath, workspaceRelPath, tmpPath };
+                    return { repoRelPath, tmpPath };
                 });
 
                 const fileList = await Promise.all(writePromises);
@@ -1353,14 +1393,22 @@ export class JjService {
 
                 const argsTemplate = ['$left', '$right'];
                 for (const f of fileList) {
-                    argsTemplate.push(path.normalize(f.tmpPath));
-                    argsTemplate.push(path.normalize(f.repoRelPath));
+                    argsTemplate.push(pathNormalize(f.tmpPath, hostPlatform));
+                    argsTemplate.push(f.repoRelPath);
                 }
                 const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, argsTemplate);
 
                 await this.runInternal(
                     'diffedit',
-                    ['-r', revision, '--tool', toolName, ...toolConfig, ...fileList.map((f) => f.workspaceRelPath)],
+                    [
+                        '-r',
+                        revision,
+                        '--tool',
+                        toolName,
+                        ...toolConfig,
+                        '--',
+                        ...fileList.map((f) => formatRootFileFileset(f.repoRelPath)),
+                    ],
                     { isMutation: true, label: 'setFilesContent' },
                 );
             } finally {
@@ -1406,7 +1454,7 @@ export class JjService {
             throw new Error('Cannot squash revision into or onto itself.');
         }
         const args: string[] = [];
-        const relativePaths = await Promise.all(paths.map((p) => this.toRelative(p)));
+        const filesets = paths.length > 0 ? await this.toRepoFilesets(paths, 'prefix') : [];
 
         if (ontoRevision) {
             // Squash onto target (creating a new commit on top of ontoRevision)
@@ -1430,8 +1478,8 @@ export class JjService {
         if (message) {
             args.push('-m', message);
         }
-        if (relativePaths.length > 0) {
-            args.push(...relativePaths);
+        if (filesets.length > 0) {
+            args.push('--', ...filesets);
         }
         await this.run('squash', args, { isMutation: true, label: 'squashRevision' });
     }
@@ -1579,16 +1627,14 @@ export class JjService {
             return [];
         }
 
-        // Use a template to ensure clean, machine-readable output.
-        // Paths are passed as positional arguments (filesets).
-        // Since paths is just an array of workspace-relative strings, they act as implicit fileset matches.
-        // E.g., jj file list path/to/a path/to/b
-        const args = ['list', '-T', 'path.display() ++ "\\n"', ...nonEmptyPaths];
+        // Format as root:"..." filesets so literal backslashes and metacharacters match tracked files cleanly.
+        const filesets = await this.toRepoFilesets(nonEmptyPaths, 'prefix');
+        const args = ['list', '-T', 'path.display() ++ "\\n"', '--', ...filesets];
         try {
             const output = await this.run('file', args, { useCachedSnapshot: true, label: 'checkTrackedPaths' });
             return output
                 .split('\n')
-                .map((line) => line.trim())
+                .map((line) => normalizeRepoSeparators(line.trim(), this._pathPlatform))
                 .filter((line) => line.length > 0);
         } catch {
             return nonEmptyPaths;
@@ -1599,7 +1645,7 @@ export class JjService {
      * Returns whether `repoRelativePath` exists in the tree at `revision`.
      */
     async hasFileAtRevision(repoRelativePath: string, revision: string): Promise<boolean> {
-        const trimmedPath = repoRelativePath.trim();
+        const trimmedPath = normalizeRepoSeparators(repoRelativePath.trim(), this._pathPlatform);
         const trimmedRev = revision.trim();
         if (!trimmedPath || !trimmedRev) {
             return false;
@@ -1607,7 +1653,7 @@ export class JjService {
         try {
             const output = await this.run(
                 'file',
-                ['list', '-r', trimmedRev, '-T', 'path.display() ++ "\\n"', formatRootFileFileset(trimmedPath)],
+                ['list', '-r', trimmedRev, '-T', 'path.display() ++ "\\n"', '--', formatRootFileFileset(trimmedPath)],
                 { useCachedSnapshot: true, label: 'hasFileAtRevision' },
             );
             return output.trim().length > 0;
@@ -1684,31 +1730,34 @@ export class JjService {
         revision: string = '@',
         conflictStyle: 'git' | 'default' = 'default',
     ): Promise<string> {
+        const platform = this._pathPlatform;
+        const repoRelPath = normalizeRepoSeparators(await this.toRepoRelative(filePath), platform);
+
         // Check cache first (only for default conflict style for now)
         if (conflictStyle === 'default') {
             try {
                 const cache = await this.getDiffForRevision(revision);
-                const relativePath = await this.toRepoRelative(filePath);
-                const rightPath = path.join(cache.tempDir, 'right', relativePath);
+                const rightPath = pathJoin([cache.tempDir, 'right', repoRelPath], platform);
                 return await this.system.fs.readTextFile(rightPath);
             } catch {
                 // Fall through if not in cache (e.g. file not changed in this revision)
             }
         }
 
-        const relativePath = await this.toRelative(filePath);
-        const args = ['show', relativePath, '-r', revision];
+        const args = ['show', '-r', revision];
         if (conflictStyle === 'git') {
             args.push('--config=ui.conflict-marker-style=git');
         }
+        args.push('--', formatRootFileFileset(repoRelPath));
         return this.run('file', args, { trim: false, useCachedSnapshot: true, label: 'getFileContent' });
     }
 
     async getFileBinaryContent(filePath: string, revision: string = '@'): Promise<Uint8Array> {
-        const relativePath = await this.toRepoRelative(filePath);
+        const platform = this._pathPlatform;
+        const relativePath = normalizeRepoSeparators(await this.toRepoRelative(filePath), platform);
         try {
             const cache = await this.getDiffForRevision(revision);
-            const rightPath = path.join(cache.tempDir, 'right', relativePath);
+            const rightPath = pathJoin([cache.tempDir, 'right', relativePath], platform);
             return await this.system.fs.readBinaryFile(rightPath);
         } catch {
             // Fall through if not in cache (e.g. file not changed in this revision)
@@ -1717,7 +1766,7 @@ export class JjService {
         const workspaceRelPath = await this.toRelative(filePath);
         if (revision === '@') {
             try {
-                const fullPath = path.resolve(this.workspaceRoot, workspaceRelPath);
+                const fullPath = pathResolve([this.workspaceRoot, workspaceRelPath], platform);
                 return await this.system.fs.readBinaryFile(fullPath);
             } catch {
                 // Fall through if disk file is missing/unreadable
@@ -1744,7 +1793,7 @@ export class JjService {
                 toolName,
                 ...toolConfig,
                 '--',
-                workspaceRelPath,
+                formatRootFileFileset(relativePath),
             ],
             {
                 scratchPrefix: 'jj-file-bin-',
@@ -1754,12 +1803,12 @@ export class JjService {
             },
             {
                 useCachedSnapshot: true,
-                label: `getFileBinaryContent ${revision} ${workspaceRelPath}`,
+                label: `getFileBinaryContent ${revision} ${relativePath}`,
             },
         );
 
         try {
-            const rightPath = path.join(result.scratchDir, 'right', relativePath);
+            const rightPath = pathJoin([result.scratchDir, 'right', relativePath], platform);
             return await this.system.fs.readBinaryFile(rightPath);
         } finally {
             await this.system.fs.rm(result.scratchDir, { recursive: true, force: true }).catch(() => {});
@@ -1780,7 +1829,7 @@ export class JjService {
                 .split('\n')
                 .map((line) => line.trim())
                 .filter((line) => line.length > 0)
-                .map((line) => line.split(/\s+/)[0]);
+                .map((line) => normalizeRepoSeparators(line.split(/\s+/)[0], this._pathPlatform));
         } catch {
             // No conflicts at this revision
             return [];
@@ -1806,9 +1855,9 @@ export class JjService {
         });
     }
 
-    async cat(path: string, revision: string = '@-'): Promise<string> {
-        const relativePath = await this.toRelative(path);
-        return this.run('file', ['show', '-r', revision, relativePath], {
+    async cat(filePath: string, revision: string = '@-'): Promise<string> {
+        const repoRelPath = normalizeRepoSeparators(await this.toRepoRelative(filePath), this._pathPlatform);
+        return this.run('file', ['show', '-r', revision, '--', formatRootFileFileset(repoRelPath)], {
             trim: false,
             useCachedSnapshot: true,
             label: 'cat',
@@ -1835,12 +1884,13 @@ export class JjService {
      */
     async getOperationHeads(): Promise<string[]> {
         const storePath = await this.getRepoStorePath();
+        const platform = this._pathPlatform;
         try {
-            const heads = await this.system.fs.readdir(path.join(storePath, 'op_heads', 'heads'));
+            const heads = await this.system.fs.readdir(pathJoin([storePath, 'op_heads', 'heads'], platform));
             return heads.sort();
         } catch {
             const checkoutBytes = await this.system.fs.readBinaryFile(
-                path.join(this.workspaceRoot, '.jj', 'working_copy', 'checkout'),
+                pathJoin([this.workspaceRoot, '.jj', 'working_copy', 'checkout'], platform),
             );
             const hex = Array.from(checkoutBytes, (b) => b.toString(16).padStart(2, '0')).join('');
             return [hex];
@@ -1889,7 +1939,7 @@ export class JjService {
             useCachedSnapshot: true,
             label: 'getChanges',
         });
-        const entries = this._parseJsonLines(output, ChangesAndStatsOutputSchema, 'getChanges');
+        const entries = this._parseJsonLines(output, this._schemas.changesAndStatsOutput, 'getChanges');
         if (entries.length === 0) {
             return [];
         }
@@ -1941,7 +1991,7 @@ export class JjService {
             label: 'getChangesBetween',
         });
 
-        return this._parseJsonLines(output, JjFileChangeSchema, 'getChangesBetween');
+        return this._parseJsonLines(output, this._schemas.fileChange, 'getChangesBetween');
     }
 
     private _parseJsonLines<T>(output: string, schema: z.ZodType<T>, label: string): T[] {
@@ -1991,8 +2041,10 @@ export class JjService {
     }
 
     async getDiff(revision: string, file: string): Promise<string> {
-        const relativePath = await this.toRelative(file);
-        return this.run('diff', ['--git', '-r', revision, relativePath], { useCachedSnapshot: true });
+        const repoRelPath = normalizeRepoSeparators(await this.toRepoRelative(file), this._pathPlatform);
+        return this.run('diff', ['--git', '-r', revision, '--', formatRootFileFileset(repoRelPath)], {
+            useCachedSnapshot: true,
+        });
     }
 
     async upload(revision: string | undefined, command: string, ...args: string[]): Promise<string> {
@@ -2055,12 +2107,12 @@ export class JjService {
         filePath: string,
         wantedContent: string,
     ): Promise<void> {
-        const [repoRelPath, workspaceRelPath] = await Promise.all([
-            this.toRepoRelative(filePath),
-            this.toRelative(filePath),
-        ]);
-        const tmpDir = await this.system.fs.mkdtemp(path.join(this.system.fs.tempDir, 'jj-partial-squash-'));
-        const tmpFile = path.join(tmpDir, 'wanted_content');
+        const hostPlatform = this.system.platform;
+        const repoRelPath = normalizeRepoSeparators(await this.toRepoRelative(filePath), this._pathPlatform);
+        const tmpDir = await this.system.fs.mkdtemp(
+            pathJoin([this.system.fs.tempDir, 'jj-partial-squash-'], hostPlatform),
+        );
+        const tmpFile = pathJoin([tmpDir, 'wanted_content'], hostPlatform);
 
         try {
             await this.system.fs.writeTextFile(tmpFile, wantedContent);
@@ -2069,12 +2121,22 @@ export class JjService {
             const toolConfig = this.getToolConfigArgs(toolName, normalizedScriptPath, [
                 '$left',
                 '$right',
-                path.normalize(tmpFile),
-                path.normalize(repoRelPath),
+                pathNormalize(tmpFile, hostPlatform),
+                repoRelPath,
             ]);
 
             // squash --from X --into Y --tool ...
-            const args = ['--from', fromRev, '--into', intoRev, '--tool', toolName, ...toolConfig, workspaceRelPath];
+            const args = [
+                '--from',
+                fromRev,
+                '--into',
+                intoRev,
+                '--tool',
+                toolName,
+                ...toolConfig,
+                '--',
+                formatRootFileFileset(repoRelPath),
+            ];
 
             await this.run('squash', args, { isMutation: true });
         } finally {
@@ -2090,9 +2152,8 @@ export class JjService {
             args.push('--from', fromRevision);
         }
         if (paths && paths.length > 0) {
-            // Check if paths are relative or absolute, assume toRelative handles it
-            const relativePaths = await Promise.all(paths.map((p) => this.toRelative(p)));
-            args.push(...relativePaths);
+            const filesets = await this.toRepoFilesets(paths, 'prefix');
+            args.push('--', ...filesets);
         }
 
         return this.run('absorb', args, { isMutation: true, label: 'absorb' });
@@ -2244,13 +2305,16 @@ export class JjService {
         }
 
         try {
+            const filesets = missingPaths.map((p) =>
+                formatRootFileFileset(normalizeRepoSeparators(p, this._pathPlatform)),
+            );
             const stdout = await this.run(
                 'diff',
-                ['--git', '--context=0', '--from', fromCommitId, '--to', toCommitId, '--', ...missingPaths],
+                ['--git', '--context=0', '--from', fromCommitId, '--to', toCommitId, '--', ...filesets],
                 { useCachedSnapshot: true, label: 'getCommitDiffHunks' },
             );
 
-            const parsedByFile = parseMultiFileDiffHunks(stdout);
+            const parsedByFile = parseMultiFileDiffHunks(stdout, this._pathPlatform);
             for (const filePath of missingPaths) {
                 const hunks = parsedByFile.get(filePath) ?? [];
                 this._setDiffHunksCache(`commit:${fromCommitId}:${toCommitId}:${filePath}`, hunks);
@@ -2399,7 +2463,7 @@ export class JjService {
 
             const tokens = res.stdout.split('\0');
             const description = (tokens[0] ?? '').replace(/\r?\n$/, '');
-            const files = parseGitRawFiles(tokens, 1);
+            const files = parseGitRawFiles(tokens, 1, this._pathPlatform);
             const details: GitCommitDetails = { description, files };
             this._gitCommitDetailsCache.set(commitId, details);
             return details;
@@ -2454,7 +2518,7 @@ export class JjService {
                 },
             );
 
-            const files = parseGitRawFiles(res.stdout.split('\0'), 0);
+            const files = parseGitRawFiles(res.stdout.split('\0'), 0, this._pathPlatform);
             this._gitRangeFilesCache.set(cacheKey, files);
             return files;
         } catch (err) {

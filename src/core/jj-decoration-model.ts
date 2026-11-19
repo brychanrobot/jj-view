@@ -3,18 +3,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import { type Disposable, type Event, EventEmitter } from './host/events';
-import type { HostFs } from './host/host-system';
+import type { HostFs, HostPlatform } from './host/host-system';
 import type { JjService } from './jj-service';
 import type { JjStatusEntry } from './jj-types';
+import {
+    isFilesystemRootPath,
+    isWindowsPlatform,
+    normalizeRepoSeparators,
+    pathJoin,
+    pathNormalize,
+    stripLeadingSeparators,
+    toFsComparisonKey,
+    trimSeparators,
+} from './path-utils';
 import {
     getRepoRelativePath,
     getUriParams,
     isInsideRelativePath,
     normalizeDriveLetter,
     resolvePathAgainstRealRootAsync,
-    toForwardSlash,
     Uri,
 } from './uri-utils';
 
@@ -49,9 +57,9 @@ function isPathInTrackedSet(targetPath: string, trackedSet: ReadonlySet<string>)
     return false;
 }
 
-function isIgnoredJjPath(relativePath: string): boolean {
-    const forward = toForwardSlash(relativePath);
-    return forward === '.jj' || forward.startsWith('.jj/');
+function isIgnoredJjPath(relativePath: string, platform?: HostPlatform | string): boolean {
+    const normalized = normalizeRepoSeparators(relativePath, platform);
+    return normalized === '.jj' || normalized.startsWith('.jj/');
 }
 
 export class JjDecorationModel implements Disposable {
@@ -168,7 +176,8 @@ export class JjDecorationModel implements Disposable {
     }
 
     private getScmStatusEntryByRelativePath(relativePath: string): JjStatusEntry | undefined {
-        const clean = toForwardSlash(relativePath).replace(/^\/+|\/+$/g, '');
+        const platform = this.getPlatform();
+        const clean = trimSeparators(normalizeRepoSeparators(relativePath, platform), platform);
         if (!clean) {
             return undefined;
         }
@@ -206,17 +215,22 @@ export class JjDecorationModel implements Disposable {
         return undefined;
     }
 
+    private getPlatform(): HostPlatform | string | undefined {
+        return this.jjService?.system?.platform;
+    }
+
     private isWinPlatform(): boolean {
-        return (
-            (this.jjService?.system?.platform ?? (typeof process !== 'undefined' ? process.platform : undefined)) ===
-            'win32'
-        );
+        return isWindowsPlatform(this.getPlatform());
     }
 
     private extractRelativeFromRoot(fsPath: string, rootPath: string, isWin: boolean): string | undefined {
-        const normFsPath = toForwardSlash(path.normalize(fsPath));
-        const rawNormRoot = toForwardSlash(path.normalize(rootPath));
-        const normRoot = rawNormRoot.length > 1 ? rawNormRoot.replace(/\/+$/, '') : rawNormRoot;
+        const platform = isWin ? 'win32' : this.getPlatform();
+        const normFsPath = pathNormalize(fsPath, platform);
+        const rawNormRoot = pathNormalize(rootPath, platform);
+        const normRoot =
+            !isFilesystemRootPath(rawNormRoot, platform) && rawNormRoot.endsWith('/')
+                ? rawNormRoot.slice(0, -1)
+                : rawNormRoot;
 
         const fsPathMatch = isWin ? normalizeDriveLetter(normFsPath).toLowerCase() : normFsPath;
         const rootMatch = isWin ? normalizeDriveLetter(normRoot).toLowerCase() : normRoot;
@@ -224,13 +238,11 @@ export class JjDecorationModel implements Disposable {
         if (fsPathMatch === rootMatch) {
             return '';
         }
-        const isDriveOrFsRoot = rootMatch === '/' || /^[a-z]:\/$/.test(rootMatch);
-        const rootPrefix = isDriveOrFsRoot ? rootMatch : `${rootMatch}/`;
+        const rootPrefix = rootMatch.endsWith('/') ? rootMatch : `${rootMatch}/`;
         if (!fsPathMatch.startsWith(rootPrefix)) {
             return undefined;
         }
-        const normPrefixLen = isDriveOrFsRoot ? normRoot.length : normRoot.length + 1;
-        return normFsPath.slice(normPrefixLen).replace(/\/+$/, '');
+        return trimSeparators(normFsPath.slice(rootPrefix.length), platform);
     }
 
     private getCachedOrSyncWorkspaceReal(): string | undefined {
@@ -253,22 +265,31 @@ export class JjDecorationModel implements Disposable {
         if (!this.workspaceRoot) {
             return undefined;
         }
+        const platform = this.getPlatform();
+        const isWin = this.isWinPlatform();
         if (uri.scheme === 'jj-edit' || uri.scheme === 'jj-view') {
             const params = getUriParams(uri);
             const embeddedRoot = params.get('root') || params.get('repoRoot');
             if (embeddedRoot) {
-                const normEmbedded = toForwardSlash(normalizeDriveLetter(embeddedRoot)).replace(/\/+$/, '');
-                const normWorkspace = toForwardSlash(normalizeDriveLetter(this.workspaceRoot)).replace(/\/+$/, '');
-                if (normEmbedded !== normWorkspace) {
+                const normEmbedded = pathNormalize(embeddedRoot, platform);
+                const normWorkspace = pathNormalize(this.workspaceRoot, platform);
+                const cleanEmbedded =
+                    !isFilesystemRootPath(normEmbedded, platform) && normEmbedded.endsWith('/')
+                        ? normEmbedded.slice(0, -1)
+                        : normEmbedded;
+                const cleanWorkspace =
+                    !isFilesystemRootPath(normWorkspace, platform) && normWorkspace.endsWith('/')
+                        ? normWorkspace.slice(0, -1)
+                        : normWorkspace;
+                if (toFsComparisonKey(cleanEmbedded, platform) !== toFsComparisonKey(cleanWorkspace, platform)) {
                     return undefined;
                 }
             }
-            const rel = getRepoRelativePath(uri, this.workspaceRoot);
-            const clean = rel.startsWith('/') ? rel.substring(1) : rel;
-            return isInsideRelativePath(clean) ? clean : undefined;
+            const rel = getRepoRelativePath(uri, this.workspaceRoot, platform);
+            const clean = stripLeadingSeparators(rel, platform);
+            return isInsideRelativePath(clean, platform) ? clean : undefined;
         }
 
-        const isWin = this.isWinPlatform();
         const directRel = this.extractRelativeFromRoot(uri.fsPath, this.workspaceRoot, isWin);
         if (directRel !== undefined) {
             return directRel;
@@ -286,7 +307,7 @@ export class JjDecorationModel implements Disposable {
         uri: Uri,
         relativePath: string,
     ): JjDecoration | Promise<JjDecoration | undefined> | undefined {
-        if (isIgnoredJjPath(relativePath)) {
+        if (isIgnoredJjPath(relativePath, this.getPlatform())) {
             return this.createIgnoredDecoration();
         }
 
@@ -322,21 +343,23 @@ export class JjDecorationModel implements Disposable {
     }
 
     private async fetchTrackedSet(paths: readonly string[]): Promise<Set<string>> {
+        const platform = this.getPlatform();
         const trackedSet = new Set<string>();
         const chunkSize = 100;
         for (let i = 0; i < paths.length; i += chunkSize) {
             const chunk = paths.slice(i, i + chunkSize);
             const trackedArray = await this.jjService.checkTrackedPaths([...chunk]);
             for (const trackedPath of trackedArray) {
-                trackedSet.add(toForwardSlash(trackedPath));
+                trackedSet.add(normalizeRepoSeparators(trackedPath, platform));
             }
         }
         return trackedSet;
     }
 
     private async resolveJjWorkspaceReal(): Promise<string> {
+        const platform = this.getPlatform();
         const jjRoot = this.jjService.workspaceRoot || this.workspaceRoot;
-        const sameRoot = toForwardSlash(path.normalize(jjRoot)) === toForwardSlash(path.normalize(this.workspaceRoot));
+        const sameRoot = pathNormalize(jjRoot, platform) === pathNormalize(this.workspaceRoot, platform);
         if (typeof this.jjService.getWorkspaceReal === 'function') {
             const real = await this.jjService.getWorkspaceReal();
             if (sameRoot && real !== this.workspaceRoot) {
@@ -363,23 +386,33 @@ export class JjDecorationModel implements Disposable {
         misses: ReadonlyArray<{ lexicalPath: string; normalizedLexicalPath: string; uri: Uri }>,
         fs: HostFs,
     ): Promise<Map<string, string>> {
+        const platform = this.getPlatform();
         const workspaceReal = await this.resolveJjWorkspaceReal();
         const resolvedTargets = new Map<string, string>();
 
         await Promise.all(
             misses.map(async (miss) => {
                 try {
-                    const fsPathToResolve = miss.uri.fsPath || path.join(this.workspaceRoot, miss.lexicalPath);
-                    const resolution = await resolvePathAgainstRealRootAsync(fsPathToResolve, workspaceReal, fs);
+                    const fsPathToResolve =
+                        miss.uri.fsPath || pathJoin([this.workspaceRoot, miss.lexicalPath], platform);
+                    const resolution = await resolvePathAgainstRealRootAsync(
+                        fsPathToResolve,
+                        workspaceReal,
+                        fs,
+                        platform,
+                    );
                     if (!resolution?.inside) {
                         return;
                     }
-                    const resolvedRel = toForwardSlash(resolution.relativePath).replace(/^\/+|\/+$/g, '');
+                    const resolvedRel = trimSeparators(
+                        normalizeRepoSeparators(resolution.relativePath, platform),
+                        platform,
+                    );
                     const normalizedResolved = resolvedRel === '.' ? '' : resolvedRel;
                     if (
                         !normalizedResolved ||
                         normalizedResolved === miss.normalizedLexicalPath ||
-                        isIgnoredJjPath(normalizedResolved)
+                        isIgnoredJjPath(normalizedResolved, platform)
                     ) {
                         return;
                     }
@@ -403,6 +436,7 @@ export class JjDecorationModel implements Disposable {
     private async checkPathsWithSymlinkFallback(
         items: ReadonlyArray<{ lexicalPath: string; uri: Uri }>,
     ): Promise<Map<string, TrackedPathResult>> {
+        const platform = this.getPlatform();
         const lexicalPaths = items.map((item) => item.lexicalPath);
         const lexicalTrackedSet = await this.fetchTrackedSet(lexicalPaths);
 
@@ -410,7 +444,7 @@ export class JjDecorationModel implements Disposable {
         const misses: Array<{ lexicalPath: string; normalizedLexicalPath: string; uri: Uri }> = [];
 
         for (const item of items) {
-            const normalizedLexicalPath = toForwardSlash(item.lexicalPath);
+            const normalizedLexicalPath = normalizeRepoSeparators(item.lexicalPath, platform);
             if (isPathInTrackedSet(normalizedLexicalPath, lexicalTrackedSet)) {
                 results.set(item.lexicalPath, { isTracked: true });
             } else {
@@ -591,7 +625,8 @@ export class JjDecorationModel implements Disposable {
         if (key.startsWith('file:')) {
             return this.getWorkspaceRelativePath(Uri.parse(key)) || undefined;
         }
-        const clean = toForwardSlash(key).replace(/^\/+|\/+$/g, '');
+        const platform = this.getPlatform();
+        const clean = trimSeparators(normalizeRepoSeparators(key, platform), platform);
         return clean || undefined;
     }
 
@@ -608,12 +643,13 @@ export class JjDecorationModel implements Disposable {
             }
         };
 
+        const platform = this.jjService?.system?.platform;
         const relativeKeyToUri = (key: string): Uri => {
             if (key.startsWith('file:') || key.startsWith('jj-edit:') || key.startsWith('jj-view:')) {
                 return Uri.parse(key);
             }
-            const relKey = key.replace(/^[/\\]+/, '');
-            return Uri.file(path.join(this.workspaceRoot, relKey));
+            const relKey = stripLeadingSeparators(key, platform);
+            return Uri.file(pathJoin([this.workspaceRoot, relKey], platform));
         };
 
         const recordChangedKey = (key: string): void => {

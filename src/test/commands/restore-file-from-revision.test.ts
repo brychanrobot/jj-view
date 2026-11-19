@@ -8,13 +8,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-    formatRootFileFileset,
     resolveWorkspaceRelativePath,
     restoreFileFromRevisionCommand,
 } from '../../core/commands/restore-file-from-revision';
 import type { HostFs } from '../../core/host/host-system';
 import type { JjRepository } from '../../core/jj-repository';
-import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
+import { formatRootFileFileset, JjService, NO_OP_LOGGER } from '../../core/jj-service';
 import { Uri } from '../../core/uri-utils';
 import { FakeCommandContext } from '../fake-host-environment';
 import { ScopedSymlink, ScopedTempDir } from '../scoped-helpers';
@@ -510,7 +509,9 @@ describe('restoreFileFromRevisionCommand', () => {
         await expect(resolveWorkspaceRelativePath('D:\\repo', 'z:\\', stubFs)).resolves.toBeUndefined();
         expect(realpathCalls).not.toContain('/');
         await expect(resolveWorkspaceRelativePath('D:\\repo', 'C:\\')).resolves.toBeUndefined();
-        await expect(resolveWorkspaceRelativePath('/repo', '/repo/a:b.txt')).resolves.toBe('a:b.txt');
+        await expect(resolveWorkspaceRelativePath('/repo', '/repo/a:b.txt', undefined, 'linux')).resolves.toBe(
+            'a:b.txt',
+        );
     });
 
     it.skipIf(process.platform === 'win32')(

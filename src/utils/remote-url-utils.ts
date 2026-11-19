@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { HostPlatform } from '../core/host/host-system';
+import { normalizeRepoSeparators, trimSeparators } from '../core/path-utils';
+
 export interface RemoteHostSettings {
     gerritHost?: string;
     gerritProject?: string;
@@ -346,10 +349,11 @@ export function resolveRemoteTarget(options: {
 }
 
 /**
- * Normalizes backslashes to forward slashes and percent-encodes each path segment cleanly.
+ * Normalizes Windows backslashes when targeting Windows hosts and percent-encodes
+ * each path segment cleanly while preserving literal backslashes in POSIX file names.
  */
-export function encodeRemoteFilePath(relativePath: string): string {
-    const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+export function encodeRemoteFilePath(relativePath: string, platform?: HostPlatform | string): string {
+    const normalized = trimSeparators(normalizeRepoSeparators(relativePath, platform), platform);
     if (!normalized) {
         return '';
     }
@@ -415,9 +419,10 @@ export function formatRemoteFileUrl(options: {
     commitSha: string;
     relativePath: string;
     lineRange?: RemoteLineRange;
+    platform?: HostPlatform | string;
 }): string {
     const { target } = options;
-    const encodedPath = encodeRemoteFilePath(options.relativePath);
+    const encodedPath = encodeRemoteFilePath(options.relativePath, options.platform);
     const encodedSha = encodeURIComponent(options.commitSha.trim());
     const range = normalizeOneBasedRange(options.lineRange);
     const pathSuffix = encodedPath ? `/${encodedPath}` : '';

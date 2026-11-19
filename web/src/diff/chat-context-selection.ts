@@ -4,6 +4,7 @@
  */
 
 import type { SelectedLineRange } from '@pierre/diffs';
+import type { HostPlatform } from '../../../src/core/host/host-system';
 import { getFsPathFromUri, getRevisionFromUri, type Uri } from '../../../src/core/uri-utils';
 import type { MultiDiffFileEntry } from '../tabs/tab-types';
 
@@ -270,6 +271,7 @@ export interface ResolveDiffOrFileSelectionOptions {
     editorInstance?: PierreEditorLike | null;
     selectedRanges?: { startLine: number; endLine: number }[];
     selectedLineSide?: 'deletions' | 'additions';
+    platform?: HostPlatform | string;
 }
 
 /**
@@ -282,7 +284,7 @@ export function resolveDiffOrFileSelection(
     options: ResolveDiffOrFileSelectionOptions,
 ): EditorChatContextSelection | undefined {
     const cleanName = cleanViewerFilename(options.filename);
-    const fsPath = options.resourceUri ? getFsPathFromUri(options.resourceUri) : undefined;
+    const fsPath = options.resourceUri ? getFsPathFromUri(options.resourceUri, options.platform) : undefined;
     const revision = extractViewerRevision(options.filename, options.resourceUri, options.isWorkingCopy);
 
     // 1. Check Pierre Editor selection when editing is active
@@ -379,6 +381,7 @@ export interface ResolveMultiDiffSelectionOptions {
     files: readonly MultiDiffFileEntry[];
     containerEl: HTMLElement | null;
     codeView?: PierreCodeViewLike | null;
+    platform?: HostPlatform | string;
 }
 
 /**
@@ -416,7 +419,7 @@ export function resolveMultiDiffSelection(
         const cleanName = cleanViewerFilename(targetEntry.filename);
         const targetUri =
             domSel.side === 'deletions' ? targetEntry.leftUri : (targetEntry.rightUri ?? targetEntry.leftUri);
-        const fsPath = targetUri ? getFsPathFromUri(targetUri) : undefined;
+        const fsPath = targetUri ? getFsPathFromUri(targetUri, options.platform) : undefined;
         const revision = extractViewerRevision(targetEntry.filename, targetUri, targetEntry.isWorkingCopy);
 
         let startLine = domSel.startLine;
@@ -479,7 +482,7 @@ export function resolveMultiDiffSelection(
             filename: cleanViewerFilename(entry.filename),
             resourceUri: targetUri,
             fileStatus: entry.fileStatus,
-            fsPath: targetUri ? getFsPathFromUri(targetUri) : undefined,
+            fsPath: targetUri ? getFsPathFromUri(targetUri, options.platform) : undefined,
             revision: extractViewerRevision(entry.filename, targetUri, entry.isWorkingCopy),
             startLine: startIdx + 1,
             endLine: endIdx + 1,

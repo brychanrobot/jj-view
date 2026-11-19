@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import { getErrorMessage, toError } from '../../utils/error-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { extractUriFromArgs } from '../commands/command-utils';
 import type { JjRepository } from '../jj-repository';
 import type { JjRepositoryManager } from '../jj-repository-manager';
 import { JjService } from '../jj-service';
+import { pathJoin } from '../path-utils';
 import { parseCommitDetailsUri, Uri } from '../uri-utils';
 import type { HostEnvironment, HostNavigation, HostUi } from './host-environment';
 
@@ -232,7 +232,7 @@ export async function showJjError(
     if (isLockError && jj) {
         try {
             const repoRoot = await jj.getRepoRoot();
-            lockPath = path.join(repoRoot, '.git', 'index.lock');
+            lockPath = pathJoin([repoRoot, '.git', 'index.lock'], jj.system.platform);
             fullMessage = `${prefix}: Git index is locked. Another process may have crashed. Delete .git/index.lock to resolve.`;
             if (!actions.includes(DELETE_LOCK)) {
                 actions = [DELETE_LOCK, ...actions];
