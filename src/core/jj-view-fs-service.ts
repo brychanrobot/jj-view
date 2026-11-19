@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import { AsyncCache } from '../utils/async-cache';
 import type { Disposable, Event } from './host/events';
 import type { JjRepository } from './jj-repository';
@@ -12,8 +11,8 @@ import {
     decodeJjViewQuery,
     type FileStatLike,
     getFsPathFromUri,
+    getRepoRelativePath,
     type JjViewQuery,
-    toForwardSlash,
     type Uri,
 } from './uri-utils';
 import { VirtualFsUriTracker } from './virtual-fs-uri-tracker';
@@ -97,7 +96,7 @@ export class JjViewFsService implements Disposable {
                 return await this._readRevisionContent(repo, filePath, query.revision);
             }
             if (query.mode === 'uploaded') {
-                return await this._readUploadedContent(repo, filePath, query);
+                return await this._readUploadedContent(repo, uri, filePath, query);
             }
             return await this._readDiffContent(repo, filePath, query.base, query.side);
         } catch (err: unknown) {
@@ -124,12 +123,12 @@ export class JjViewFsService implements Disposable {
 
     private async _readUploadedContent(
         repo: JjRepository,
+        uri: Uri,
         filePath: string,
         query: Extract<JjViewQuery, { mode: 'uploaded' }>,
     ): Promise<Uint8Array> {
         try {
-            const rawRel = path.isAbsolute(filePath) ? path.relative(repo.jj.workspaceRoot, filePath) : filePath;
-            const relPath = toForwardSlash(rawRel).replace(/^\/+/, '');
+            const relPath = getRepoRelativePath(uri, repo.jj.workspaceRoot).replace(/^\/+/, '');
 
             let deferredBlobContent: string | undefined;
             if (query.blobSha && !BINARY_UPLOADED_EXT_PATTERN.test(relPath)) {

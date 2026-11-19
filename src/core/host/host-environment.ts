@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { JjStatusEntry } from '../jj-types';
 import type { Uri } from '../uri-utils';
 import type { Event } from './events';
 import type { HostSystem } from './host-system';
@@ -63,13 +64,17 @@ export interface HostOpenOptions {
     preview?: boolean;
 }
 
+export interface MultiDiffResource {
+    leftUri: Uri;
+    rightUri: Uri;
+    label: string;
+    oldLabel?: string;
+    status?: JjStatusEntry['status'];
+}
+
 export interface HostNavigation {
     openDiff(leftUri: Uri, rightUri: Uri, title: string, options?: HostOpenOptions): Promise<void>;
-    openMultiDiff(
-        title: string,
-        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
-        options?: HostOpenOptions,
-    ): Promise<void>;
+    openMultiDiff(title: string, resources: MultiDiffResource[], options?: HostOpenOptions): Promise<void>;
     openMergeEditor(resourceUri: Uri): Promise<void>;
     openCommitDetails(
         repoRoot: Uri,

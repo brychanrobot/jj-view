@@ -19,7 +19,7 @@ import type { JjStatusEntry } from '../../src/core/jj-types';
 import type { JjViewFsService } from '../../src/core/jj-view-fs-service';
 import type { ScmModel, ScmSnapshot } from '../../src/core/scm-model';
 import { createJjResourceState, type JjResourceState } from '../../src/core/scm-resource-state';
-import { getUriParams, Uri } from '../../src/core/uri-utils';
+import { getRepoRelativePath, getUriParams, Uri } from '../../src/core/uri-utils';
 import type { WebviewTransport } from '../../src/core/webview/transport/types';
 import { toError } from '../../src/utils/error-utils';
 import { OutputChannel } from '../../src/utils/output-channel';
@@ -366,11 +366,8 @@ function uriRelativePath(uri: Uri | undefined): string | undefined {
     if (!uri) {
         return undefined;
     }
-    if (uri.scheme === 'file') {
-        const root = commentsStore?.repoPath ?? workspaceRoot;
-        return normalizeThreadPath(path.relative(root, uri.fsPath), undefined);
-    }
-    return normalizeThreadPath(uri.path, undefined);
+    const root = commentsStore?.repoPath ?? workspaceRoot;
+    return normalizeThreadPath(getRepoRelativePath(uri, root), undefined);
 }
 
 /** Repo-relative path of the file a diff/file tab shows, for matching comment threads. */
@@ -902,18 +899,19 @@ onMount(() => {
                 await tabDocManager.loadFileFromUri(uri, options);
             },
             onOpenMergeEditor: async (resourceUri) => {
-                const normPath = resourceUri.path;
-                const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
-                const conflictPath =
-                    currentSnapshot?.conflictedPaths.find((p) => p === cleanPath || normPath.endsWith(p)) || cleanPath;
+                const targetScm = resolveScmModelForUri(resourceUri);
+                const targetRoot = targetScm?.repo.rootUri.fsPath ?? workspaceRoot;
+                const targetSnapshot = targetScm?.snapshot ?? currentSnapshot;
+                const cleanPath = getRepoRelativePath(resourceUri, targetRoot).replace(/^\/+/, '');
+                const conflictPath = targetSnapshot?.conflictedPaths.find((p) => p === cleanPath) || cleanPath;
                 const state = createJjResourceState(
                     { path: conflictPath, status: 'modified', conflicted: true },
                     '@',
-                    workspaceRoot,
+                    targetRoot,
                     {
                         openDiffOnClick: true,
                         inConflictGroup: true,
-                        workingCopyChangeId: currentSnapshot?.currentEntry?.change_id,
+                        workingCopyChangeId: targetSnapshot?.currentEntry?.change_id,
                     },
                 );
                 await tabDocManager.openMergeEditorForResource(state, { preview: false });
@@ -944,11 +942,19 @@ onMount(() => {
                             tabDocManager.resolveUriContent(r.leftUri),
                             tabDocManager.resolveUriContent(r.rightUri),
                         ]);
-                        const rawFilename = r.label || r.rightUri?.fsPath || r.leftUri?.fsPath || 'file';
+                        const fallbackUri = r.rightUri ?? r.leftUri;
+                        const fallbackRoot =
+                            (fallbackUri ? resolveScmModelForUri(fallbackUri)?.repo.rootUri.fsPath : undefined) ??
+                            workspaceRoot;
+                        const rawFilename =
+                            r.label || (fallbackUri ? getRepoRelativePath(fallbackUri, fallbackRoot) : '') || 'file';
                         const filename = rawFilename.replace(/^[/\\]+/, '');
+                        const cleanOldFilename = r.oldLabel?.replace(/^[/\\]+/, '');
                         const isWorkingCopy = r.rightUri?.scheme === 'file' || r.rightUri?.scheme === 'jj-edit';
                         return {
                             filename,
+                            ...(cleanOldFilename ? { oldFilename: cleanOldFilename } : {}),
+                            ...(r.status ? { fileStatus: r.status } : {}),
                             originalContent: orig,
                             modifiedContent: mod,
                             leftUri: r.leftUri,

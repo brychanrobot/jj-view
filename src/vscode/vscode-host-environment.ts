@@ -31,6 +31,7 @@ import type {
     HostWorkspace,
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
+    MultiDiffResource,
 } from '../core/host/host-environment';
 import type { HostSystem } from '../core/host/host-system';
 import { NodeHostSystem } from '../core/host/node-host-system';
@@ -369,11 +370,7 @@ export class VsCodeHostNavigation implements HostNavigation {
         });
     }
 
-    async openMultiDiff(
-        title: string,
-        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
-        _options?: HostOpenOptions,
-    ): Promise<void> {
+    async openMultiDiff(title: string, resources: MultiDiffResource[], _options?: HostOpenOptions): Promise<void> {
         // vscode.changes expects 3-tuples of [labelUri, leftUri, rightUri] where labelUri is the target resource URI
         const changes = resources.map((r) => [r.rightUri, r.leftUri, r.rightUri]);
         await vscode.commands.executeCommand('vscode.changes', title, changes);

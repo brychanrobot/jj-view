@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import { stripGerritTrailers } from '../../utils/gerrit-utils';
 import {
     areUint8ArraysEqual,
@@ -11,10 +10,18 @@ import {
     resolveLocalUploadedDetails,
 } from '../code-forge-sync-utils';
 import type { CommandContext } from '../host/command-context';
+import type { MultiDiffResource } from '../host/host-environment';
 import { showJjError } from '../host/ui-helpers';
 import type { JjRepository } from '../jj-repository';
 import type { CodeForgeChangeInfo, JjLogEntry, JjStatusEntry } from '../jj-schemas';
-import { createDiffUris, createRevisionUri, createTextContentUri, createUploadedFileUri, Uri } from '../uri-utils';
+import {
+    createDiffUris,
+    createRepoFileUri,
+    createRevisionUri,
+    createTextContentUri,
+    createUploadedFileUri,
+    type Uri,
+} from '../uri-utils';
 
 export interface CompareWithUploadedPayload {
     revision?: string;
@@ -26,11 +33,7 @@ export interface ComputeUnuploadedComparisonOptions {
     localChanges?: readonly JjStatusEntry[];
 }
 
-export interface UnuploadedComparisonResource {
-    leftUri: Uri;
-    rightUri: Uri;
-    label: string;
-}
+export type UnuploadedComparisonResource = MultiDiffResource;
 
 export interface UnuploadedComparisonResult {
     changeId: string;
@@ -283,15 +286,28 @@ export async function computeUnuploadedComparison(
         if (isLocalMissing) {
             rightUri = createRevisionUri(jj.workspaceRoot, filePath, 'none');
         } else if (logEntry.is_current_working_copy) {
-            rightUri = Uri.file(path.resolve(jj.workspaceRoot, filePath));
+            rightUri = createRepoFileUri(jj.workspaceRoot, filePath, 'file');
         } else {
             rightUri = createRevisionUri(jj.workspaceRoot, filePath, logEntry.commit_id);
         }
 
+        const oldLabel =
+            !remoteFile && localChange && (localChange.status === 'renamed' || localChange.status === 'copied')
+                ? localChange.oldPath
+                : undefined;
+        const status = isLocalMissing
+            ? 'deleted'
+            : isRemoteDeleted || (!remoteFile && localChange?.status === 'added')
+              ? 'added'
+              : oldLabel
+                ? localChange?.status
+                : 'modified';
         resources.push({
             leftUri,
             rightUri,
             label: filePath,
+            ...(oldLabel ? { oldLabel } : {}),
+            status,
         });
     }
 

@@ -94,6 +94,7 @@ suite('JjScmProvider provideOriginalResource Integration Test', () => {
 
         assert.ok(originalUri, 'Should return a URI for modified files');
         assert.strictEqual(originalUri.scheme, 'jj-view', 'Scheme should be jj-view');
+        assert.strictEqual(originalUri.path, fileUri.path, 'Modified file original URI path should match file:// path');
 
         const query = new URLSearchParams(originalUri.fragment);
         assert.strictEqual(query.get('base'), '@', 'Base should be @ by default');

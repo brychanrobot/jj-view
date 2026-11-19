@@ -11,7 +11,7 @@ import { ScmContextValue } from './jj-context-keys';
 import type { JjRepository } from './jj-repository';
 import type { JjService } from './jj-service';
 import type { CommitParent, JjLogEntry, JjStatusEntry } from './jj-types';
-import { encodeJjViewQuery, getRepoRelativePath, getRevisionFromUri, Uri } from './uri-utils';
+import { createRepoFileUri, encodeJjViewQuery, getRepoRelativePath, getRevisionFromUri, type Uri } from './uri-utils';
 
 export interface ScmAncestorEntry {
     entry: JjLogEntry;
@@ -150,13 +150,13 @@ export class ScmModel implements Disposable {
 
         const revision = getRevisionFromUri(uri) || '@';
         const leftPath = statusEntry.oldPath || statusEntry.path;
-        const relPath = leftPath.startsWith('/') ? leftPath : `/${leftPath}`;
 
-        return Uri.from({
-            scheme: 'jj-view',
-            path: relPath,
-            fragment: encodeJjViewQuery({ mode: 'diff', root: this.jj.workspaceRoot, base: revision, side: 'left' }),
-        });
+        return createRepoFileUri(
+            this.jj.workspaceRoot,
+            leftPath,
+            'jj-view',
+            encodeJjViewQuery({ mode: 'diff', root: this.jj.workspaceRoot, base: revision, side: 'left' }),
+        );
     }
 
     public async updateSnapshot(event: { reason: string }): Promise<void> {

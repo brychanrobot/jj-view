@@ -3,10 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { promptForRevision, showJjError } from '../host/ui-helpers';
-import { createRevisionUri, Uri } from '../uri-utils';
+import { createRepoFileUri, createRevisionUri } from '../uri-utils';
 import { RevisionQuery } from './command-utils';
 
 export interface CompareAllFilesWithRevisionPayload {
@@ -53,9 +52,15 @@ export async function compareAllFilesWithRevisionCommand(
                 const leftUri = createRevisionUri(jj.workspaceRoot, leftPath, isAdded ? 'none' : rev);
                 const rightUri = isDeleted
                     ? createRevisionUri(jj.workspaceRoot, rightPath, 'none')
-                    : Uri.file(path.join(jj.workspaceRoot, rightPath));
+                    : createRepoFileUri(jj.workspaceRoot, rightPath, 'file');
 
-                return { leftUri, rightUri, label: rightPath };
+                return {
+                    leftUri,
+                    rightUri,
+                    label: rightPath,
+                    ...(entry.oldPath ? { oldLabel: entry.oldPath } : {}),
+                    status: entry.status,
+                };
             });
 
             const title = `Compare ${rev} with Working Copy`;

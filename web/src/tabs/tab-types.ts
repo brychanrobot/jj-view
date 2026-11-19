@@ -8,6 +8,7 @@ import type { Uri } from '../../../src/core/uri-utils';
 
 export interface MultiDiffFileEntry {
     filename: string;
+    oldFilename?: string;
     originalContent?: string;
     modifiedContent?: string;
     fileStatus?: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';

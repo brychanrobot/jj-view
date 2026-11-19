@@ -41,7 +41,13 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
 
             const resources = changes.map((entry) => {
                 const { leftUri, rightUri } = createDiffUris(entry, changeId, jj.workspaceRoot, diffOptions);
-                return { leftUri, rightUri, label: entry.path };
+                return {
+                    leftUri,
+                    rightUri,
+                    label: entry.path,
+                    ...(entry.oldPath ? { oldLabel: entry.oldPath } : {}),
+                    status: entry.status,
+                };
             });
 
             const firstLine = description.split('\n')[0].trim();

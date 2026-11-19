@@ -6,14 +6,14 @@ import type { CommandContext } from '../host/command-context';
 import type { HostDiffTab } from '../host/host-environment';
 import { showJjError } from '../host/ui-helpers';
 import {
+    createRepoFileUri,
     createRevisionUri,
     decodeJjViewQuery,
     encodeJjViewQuery,
-    getFsPathFromUri,
     getRepoRelativePath,
     getRevisionFromUri,
     getUriParams,
-    Uri,
+    type Uri,
 } from '../uri-utils';
 
 export interface ToggleDiffEditablePayload {
@@ -78,14 +78,6 @@ function resolveToggleTarget(
     };
 }
 
-function extractRepoRelativeFilePath(uri: Uri, root: string): string {
-    const params = getUriParams(uri);
-    if (params.get('path')) {
-        return getRepoRelativePath(Uri.file(getFsPathFromUri(uri)), root);
-    }
-    return uri.path.startsWith('/') ? uri.path : `/${uri.path}`;
-}
-
 async function closeReplacedTab(ctx: CommandContext, target: ResolvedToggleTarget): Promise<void> {
     if (target.matchingDiffTab) {
         await target.matchingDiffTab.close();
@@ -146,7 +138,7 @@ export async function enableDiffEditingCommand(
 
         const params = getUriParams(targetUri);
         const root = params.get('root') || params.get('repoRoot') || ctx.repo.jj.workspaceRoot;
-        const relPath = extractRepoRelativeFilePath(targetUri, root);
+        const relPath = getRepoRelativePath(targetUri, root);
         const cleanPath = relPath.startsWith('/') ? relPath.slice(1) : relPath;
         const targetRevision = revision.includes('/') ? revision : entry.change_id || revision;
 
@@ -164,11 +156,7 @@ export async function enableDiffEditingCommand(
         resourceParams.set('jj-revision', targetRevision);
         resourceParams.set('revision', entry.is_current_working_copy ? '@' : targetRevision);
 
-        const editUri = Uri.from({
-            scheme: 'jj-edit',
-            path: relPath,
-            fragment: resourceParams.toString(),
-        });
+        const editUri = createRepoFileUri(root, cleanPath, 'jj-edit', resourceParams.toString());
 
         if (leftUri) {
             const diffTitle = title || `${cleanPath} (${targetRevision})`;
@@ -211,17 +199,18 @@ export async function disableDiffEditingCommand(
 
         const params = getUriParams(targetUri);
         const root = params.get('root') || params.get('repoRoot') || ctx.repo.jj.workspaceRoot;
-        const relPath = extractRepoRelativeFilePath(targetUri, root);
+        const relPath = getRepoRelativePath(targetUri, root);
         const cleanPath = relPath.startsWith('/') ? relPath.slice(1) : relPath;
 
         await ctx.host.documents.saveIfDirty(targetUri);
 
         if (leftUri) {
-            const viewUri = Uri.from({
-                scheme: 'jj-view',
-                path: relPath,
-                fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
-            });
+            const viewUri = createRepoFileUri(
+                root,
+                cleanPath,
+                'jj-view',
+                encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
+            );
             const diffTitle = title || `${cleanPath} (${revision})`;
             await ctx.host.nav.openDiff(leftUri, viewUri, diffTitle, { preview: false });
         } else {

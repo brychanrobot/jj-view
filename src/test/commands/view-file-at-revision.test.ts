@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { viewFileAtRevisionCommand } from '../../core/commands/view-file-at-revision';
 import type { JjRepository } from '../../core/jj-repository';
@@ -26,8 +27,9 @@ describe('viewFileAtRevisionCommand', () => {
         ctx = new FakeCommandContext(mockJjRepo);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         vi.clearAllMocks();
+        await repo.dispose();
     });
 
     it('opens file with jj-view uri for target file and revision', async () => {
@@ -42,6 +44,6 @@ describe('viewFileAtRevisionCommand', () => {
         const targetUri = ctx.host.nav.filesOpened[0];
         expect(targetUri.scheme).toBe('jj-view');
         expect(targetUri.fragment).toContain('revision=main');
-        expect(targetUri.path).toBe('/file1.txt');
+        expect(targetUri.path).toBe(Uri.file(path.resolve(repo.path, 'file1.txt')).path);
     });
 });
