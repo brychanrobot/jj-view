@@ -184,7 +184,7 @@ describe('resolveScmResourceState', () => {
 
         expect(state).toBeDefined();
         expect(state?.relativePath).toBe('src/app.ts');
-        expect(state?.leftUri?.path).toBe('/src/app.ts');
+        expect(state?.leftUri?.path).toBe('/C:/Users/Dev/repo/src/app.ts');
         expect(state?.contextValue).toContain(ScmContextValue.ResourceAllowOpenMergeEditor);
     });
 
@@ -293,7 +293,7 @@ describe('resolveScmResourceState', () => {
         });
         expect(renamedAncestorState).toBeDefined();
         expect(renamedAncestorState?.status).toBe('renamed');
-        expect(renamedAncestorState?.leftUri?.path).toBe('/src/old-name.ts');
+        expect(renamedAncestorState?.leftUri?.path).toBe('/repo/src/old-name.ts');
     });
 
     it('honors editableMutableDiffs setting while preserving squashable actions and explicit jj-edit toggles', () => {
@@ -315,7 +315,7 @@ describe('resolveScmResourceState', () => {
         });
         const viewRightUri = Uri.from({
             scheme: 'jj-view',
-            path: '/src/ancestor.ts',
+            path: '/repo/src/ancestor.ts',
             fragment: `mode=diff&root=${encodeURIComponent(workspaceRoot)}&base=${ancestorChangeId}&side=right`,
         });
 
@@ -345,7 +345,7 @@ describe('resolveScmResourceState', () => {
         // Explicitly toggled jj-edit rightUri remains editable even when default setting is false
         const toggledEditUri = Uri.from({
             scheme: 'jj-edit',
-            path: '/src/ancestor.ts',
+            path: '/repo/src/ancestor.ts',
             fragment: `root=${encodeURIComponent(workspaceRoot)}&jj-revision=${ancestorChangeId}&revision=${ancestorChangeId}`,
         });
         const toggledEditable = resolveScmResourceState({

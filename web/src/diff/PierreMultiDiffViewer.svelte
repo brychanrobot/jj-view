@@ -19,6 +19,7 @@ import type { MultiDiffFileEntry } from '../tabs/tab-types';
 import { isBinaryFile, isImageByExtension } from './binary-detection';
 import {
     buildEditorContextJson,
+    cleanViewerFilename,
     type EditorChatContextSelection,
     resolveMultiDiffSelection,
 } from './chat-context-selection';
@@ -157,10 +158,10 @@ function renderMultiDiff(): void {
     const currentFiles = untrack(() => files);
 
     for (const file of currentFiles) {
-        const cleanName = file.filename
-            .replace(/\s*\([^)]*\)$/, '')
-            .replace(/^[/\\]+/, '')
-            .trim();
+        const cleanName = cleanViewerFilename(file.filename).replace(/^[/\\]+/, '');
+        const cleanOldName = file.oldFilename
+            ? cleanViewerFilename(file.oldFilename).replace(/^[/\\]+/, '')
+            : undefined;
         const orig = file.originalContent ?? '';
         const mod = file.modifiedContent ?? '';
 
@@ -168,12 +169,16 @@ function renderMultiDiff(): void {
             continue;
         }
 
-        const isAdded = file.fileStatus === 'added' || (!orig && Boolean(mod));
-        const isDeleted = file.fileStatus === 'deleted' || (Boolean(orig) && !mod);
-        const oldFile = isAdded ? null : { name: cleanName, contents: orig };
+        const isRenamed =
+            (file.fileStatus === 'renamed' || file.fileStatus === 'copied') &&
+            Boolean(cleanOldName) &&
+            cleanOldName !== cleanName;
+        const isAdded = file.fileStatus ? file.fileStatus === 'added' : !orig && Boolean(mod);
+        const isDeleted = file.fileStatus ? file.fileStatus === 'deleted' : Boolean(orig) && !mod;
+        const oldFile = isAdded ? null : { name: isRenamed && cleanOldName ? cleanOldName : cleanName, contents: orig };
         const newFile = isDeleted ? null : { name: cleanName, contents: mod };
 
-        if (orig === mod && !isAdded && !isDeleted) {
+        if (orig === mod && !isAdded && !isDeleted && !isRenamed) {
             items.push({
                 id: cleanName,
                 type: 'file',
@@ -185,6 +190,11 @@ function renderMultiDiff(): void {
 
         try {
             const fileDiff = parseDiffFromFile(oldFile, newFile);
+            if (isRenamed) {
+                fileDiff.type = orig === mod ? 'rename-pure' : 'rename-changed';
+            } else if (file.fileStatus === 'modified') {
+                fileDiff.type = 'change';
+            }
             items.push({
                 id: cleanName,
                 type: 'diff',

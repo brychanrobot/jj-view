@@ -8,7 +8,15 @@ import { type Disposable, type Event, EventEmitter } from './host/events';
 import type { HostFs } from './host/host-system';
 import type { JjService } from './jj-service';
 import type { JjStatusEntry } from './jj-types';
-import { normalizeDriveLetter, resolvePathAgainstRealRootAsync, toForwardSlash, Uri } from './uri-utils';
+import {
+    getRepoRelativePath,
+    getUriParams,
+    isInsideRelativePath,
+    normalizeDriveLetter,
+    resolvePathAgainstRealRootAsync,
+    toForwardSlash,
+    Uri,
+} from './uri-utils';
 
 export interface JjDecoration {
     badge?: string;
@@ -168,11 +176,6 @@ export class JjDecorationModel implements Disposable {
     }
 
     private getScmStatusDecoration(uri: Uri): JjDecoration | undefined {
-        if (uri.scheme === 'jj-edit' || uri.scheme === 'jj-view') {
-            const scmStatus = this.scmStatusDecorations.get(uri.toString());
-            return scmStatus ? this.createDecoration(scmStatus) : undefined;
-        }
-
         const directUriStatus = this.scmStatusDecorations.get(uri.toString());
         if (directUriStatus) {
             return this.createDecoration(directUriStatus);
@@ -186,6 +189,10 @@ export class JjDecorationModel implements Disposable {
         const scmStatus = this.getScmStatusEntryByRelativePath(relativePath);
         if (scmStatus) {
             return this.createDecoration(scmStatus);
+        }
+
+        if (uri.scheme === 'jj-edit' || uri.scheme === 'jj-view') {
+            return undefined;
         }
 
         const cached = this.trackedStatusCache.get(relativePath);
@@ -247,8 +254,18 @@ export class JjDecorationModel implements Disposable {
             return undefined;
         }
         if (uri.scheme === 'jj-edit' || uri.scheme === 'jj-view') {
-            const rel = uri.path;
-            return rel.startsWith('/') ? rel.substring(1) : rel;
+            const params = getUriParams(uri);
+            const embeddedRoot = params.get('root') || params.get('repoRoot');
+            if (embeddedRoot) {
+                const normEmbedded = toForwardSlash(normalizeDriveLetter(embeddedRoot)).replace(/\/+$/, '');
+                const normWorkspace = toForwardSlash(normalizeDriveLetter(this.workspaceRoot)).replace(/\/+$/, '');
+                if (normEmbedded !== normWorkspace) {
+                    return undefined;
+                }
+            }
+            const rel = getRepoRelativePath(uri, this.workspaceRoot);
+            const clean = rel.startsWith('/') ? rel.substring(1) : rel;
+            return isInsideRelativePath(clean) ? clean : undefined;
         }
 
         const isWin = this.isWinPlatform();

@@ -26,7 +26,8 @@ describe('compareAllFilesWithRevisionCommand', () => {
         ctx = new FakeCommandContext(mockJjRepo);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        await repo.dispose();
         vi.clearAllMocks();
     });
 
@@ -50,6 +51,8 @@ describe('compareAllFilesWithRevisionCommand', () => {
 
         const simplified = multiDiff.resources.map((t) => ({
             path: path.basename(t.rightUri.fsPath),
+            leftPath: t.leftUri.path,
+            rightPath: t.rightUri.path,
             leftScheme: t.leftUri.scheme,
             leftFragment: t.leftUri.fragment,
             rightScheme: t.rightUri.scheme,
@@ -60,15 +63,48 @@ describe('compareAllFilesWithRevisionCommand', () => {
         expect(simplified[0].leftScheme).toBe('jj-view');
         expect(simplified[0].leftFragment).toContain(`revision=${parentId}`);
         expect(simplified[0].rightScheme).toBe('file');
+        expect(simplified[0].leftPath).toBe(simplified[0].rightPath);
 
         expect(simplified[1].leftScheme).toBe('jj-view');
         expect(simplified[1].leftFragment).toContain(`revision=${parentId}`);
         expect(simplified[1].rightScheme).toBe('jj-view');
         expect(simplified[1].rightFragment).toContain('revision=none');
+        expect(simplified[1].leftPath).toBe(simplified[1].rightPath);
 
         expect(simplified[2].leftScheme).toBe('jj-view');
         expect(simplified[2].leftFragment).toContain('revision=none');
         expect(simplified[2].rightScheme).toBe('file');
+        expect(simplified[2].leftPath).toBe(simplified[2].rightPath);
+    });
+
+    it('preserves distinct left/right paths only for renamed files when comparing with revision', async () => {
+        const ids = await buildGraph(repo, [
+            {
+                label: 'v1',
+                files: {
+                    'mod.txt': 'v1\n',
+                    'old_name.txt': 'same content 1\nsame content 2\n',
+                },
+            },
+            { label: 'v2', parents: ['v1'], files: {} },
+        ]);
+        repo.writeFile('mod.txt', 'v2\n');
+        repo.writeFile('new_name.txt', 'same content 1\nsame content 2\n');
+        repo.deleteFile('old_name.txt');
+
+        await compareAllFilesWithRevisionCommand(ctx, { revision: ids.v1.changeId });
+
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const { resources } = ctx.host.nav.multiDiffsOpened[0];
+        const modEntry = resources.find((r) => r.label === 'mod.txt');
+        const renamedEntry = resources.find((r) => r.label === 'new_name.txt');
+
+        expect(modEntry?.status).toBe('modified');
+        expect(modEntry?.leftUri.path).toBe(modEntry?.rightUri.path);
+
+        expect(renamedEntry?.status).toBe('renamed');
+        expect(renamedEntry?.oldLabel).toBe('old_name.txt');
+        expect(renamedEntry?.leftUri.path).not.toBe(renamedEntry?.rightUri.path);
     });
 
     it('shows info message when no differences are found', async () => {

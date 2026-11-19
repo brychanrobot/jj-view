@@ -4,13 +4,14 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { showMultiFileDiffCommand } from '../../core/commands/multi-diff';
 import type { JjRepository } from '../../core/jj-repository';
 import { JjService, NO_OP_LOGGER } from '../../core/jj-service';
 import { FakeCommandContext } from '../fake-host-environment';
-import { TestRepo } from '../test-repo';
+import { buildGraph, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 describe('showMultiFileDiffCommand', () => {
@@ -198,6 +199,88 @@ describe('showMultiFileDiffCommand', () => {
             expect(formatter?.formatting.stripPathStartingSeparator).toBe(true);
             expect(formatter?.formatting.label).toBe('$' + '{path}');
             expect(formatter?.formatting.separator).toBe('/');
+        }
+    });
+
+    it('matches leftUri.path and rightUri.path for working-copy modified files while preserving distinct paths for genuine renames', async () => {
+        const renameContent = 'line1\nline2\nline3\nline4\nline5\n'.repeat(10);
+        await buildGraph(repo, [
+            {
+                label: 'base',
+                description: 'base commit',
+                files: {
+                    'cli/src/cli_util.rs': 'fn util() { 1 }\n',
+                    'old_name.txt': renameContent,
+                },
+            },
+            {
+                label: 'wc',
+                parents: ['base'],
+                description: 'modify and rename',
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+        repo.writeFile('cli/src/cli_util.rs', 'fn util() { 2 }\n');
+        repo.moveFile('old_name.txt', 'new_name.txt');
+
+        await showMultiFileDiffCommand(ctx, { revision: '@' });
+
+        expect(ctx.host.nav.multiDiffsOpened).toHaveLength(1);
+        const { resources } = ctx.host.nav.multiDiffsOpened[0];
+        const modified = resources.find((r) => r.label === 'cli/src/cli_util.rs');
+        const renamed = resources.find((r) => r.label === 'new_name.txt');
+
+        expect(modified).toBeDefined();
+        expect(modified?.status).toBe('modified');
+        expect(modified?.oldLabel).toBeUndefined();
+        expect(modified?.leftUri.scheme).toBe('jj-view');
+        expect(modified?.rightUri.scheme).toBe('file');
+        expect(modified?.leftUri.path).toBe(modified?.rightUri.path);
+        expect(modified?.leftUri.fragment).toContain('side=left');
+
+        expect(renamed).toBeDefined();
+        expect(renamed?.status).toBe('renamed');
+        expect(renamed?.oldLabel).toBe('old_name.txt');
+        expect(renamed?.leftUri.scheme).toBe('jj-view');
+        expect(renamed?.rightUri.scheme).toBe('file');
+        expect(renamed?.leftUri.path).not.toBe(renamed?.rightUri.path);
+        expect(renamed?.leftUri.path).toContain('/old_name.txt');
+        expect(renamed?.rightUri.path).toContain('/new_name.txt');
+    });
+
+    it('matches leftUri.path and rightUri.path for nested subfolder repositories', async () => {
+        const parentDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jj-nested-unit-'));
+        const nestedRepo = new TestRepo(path.join(parentDir, 'subrepo'));
+        try {
+            nestedRepo.init();
+            await buildGraph(nestedRepo, [
+                {
+                    label: 'base',
+                    description: 'base',
+                    files: { 'cli/src/cli_util.rs': 'v1\n' },
+                },
+                {
+                    label: 'wc',
+                    parents: ['base'],
+                    description: 'nested modify',
+                    files: { 'cli/src/cli_util.rs': 'v2\n' },
+                    isCurrentWorkingCopy: true,
+                },
+            ]);
+            const nestedJj = new JjService(nestedRepo.path, NO_OP_LOGGER);
+            const nestedCtx = new FakeCommandContext(createMock<JjRepository>({ jj: nestedJj }));
+
+            await showMultiFileDiffCommand(nestedCtx, { revision: '@' });
+
+            expect(nestedCtx.host.nav.multiDiffsOpened).toHaveLength(1);
+            const res = nestedCtx.host.nav.multiDiffsOpened[0].resources[0];
+            expect(res.leftUri.scheme).toBe('jj-view');
+            expect(res.rightUri.scheme).toBe('file');
+            expect(res.leftUri.path).toBe(res.rightUri.path);
+            expect(res.leftUri.path.endsWith('/subrepo/cli/src/cli_util.rs')).toBe(true);
+        } finally {
+            await nestedRepo.dispose();
+            await fs.rm(parentDir, { recursive: true, force: true });
         }
     });
 });

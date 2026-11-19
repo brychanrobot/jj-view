@@ -2,6 +2,7 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodeForgeRegistry } from '../../core/code-forge-registry';
 import { disableDiffEditingCommand, enableDiffEditingCommand } from '../../core/commands/toggle-diff-editable';
@@ -68,7 +69,8 @@ describe('toggleDiffEditable commands', () => {
         const opened = ctx.host.nav.diffsOpened[0];
         expect(opened.leftUri.toString()).toBe(leftUri.toString());
         expect(opened.rightUri.scheme).toBe('jj-edit');
-        expect(opened.rightUri.path).toBe('/notes.txt');
+        expect(opened.rightUri.path).toBe(Uri.file(path.resolve(repo.path, 'notes.txt')).path);
+        expect(opened.rightUri.path).toBe(opened.leftUri.path);
         expect(opened.rightUri.fragment).toContain(`jj-revision=${ids.parent.changeId}`);
         expect(opened.rightUri.fragment).toContain(`revision=${ids.parent.changeId}`);
         expect(opened.title).toBe(diffTitle);
@@ -167,7 +169,7 @@ describe('toggleDiffEditable commands', () => {
         expect(ctx.host.nav.filesOpened).toHaveLength(1);
         const editUri = ctx.host.nav.filesOpened[0];
         expect(editUri.scheme).toBe('jj-edit');
-        expect(editUri.path).toBe('/solo.txt');
+        expect(editUri.path).toBe(Uri.file(path.resolve(repo.path, 'solo.txt')).path);
         expect(ctx.host.nav.closedTabs.map((u) => u.toString())).toEqual([viewUri.toString()]);
 
         await disableDiffEditingCommand(ctx, { resourceUri: editUri });

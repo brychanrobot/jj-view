@@ -20,10 +20,10 @@ describe('createJjResourceState', () => {
             };
             const state = createJjResourceState(entry, 'rev123', root);
 
-            expect(state.resourceUri.path).toBe('/file.txt');
+            expect(state.resourceUri.path).toBe('/root/file.txt');
             expect(state.revision).toBe('rev123');
-            expect(state.leftUri?.path).toBe('/file.txt');
-            expect(state.rightUri?.path).toBe('/file.txt');
+            expect(state.leftUri?.path).toBe('/root/file.txt');
+            expect(state.rightUri?.path).toBe('/root/file.txt');
         });
 
         it('uses oldPath as leftPath for renamed entries', () => {
@@ -34,8 +34,8 @@ describe('createJjResourceState', () => {
             };
             const state = createJjResourceState(entry, 'rev123', root);
 
-            expect(state.leftUri?.path).toBe('/old-file.txt');
-            expect(state.rightUri?.path).toBe('/new-file.txt');
+            expect(state.leftUri?.path).toBe('/root/old-file.txt');
+            expect(state.rightUri?.path).toBe('/root/new-file.txt');
         });
 
         it('uses oldPath as leftPath for copied entries', () => {
@@ -46,8 +46,8 @@ describe('createJjResourceState', () => {
             };
             const state = createJjResourceState(entry, 'rev123', root);
 
-            expect(state.leftUri?.path).toBe('/old-file.txt');
-            expect(state.rightUri?.path).toBe('/new-file.txt');
+            expect(state.leftUri?.path).toBe('/root/old-file.txt');
+            expect(state.rightUri?.path).toBe('/root/new-file.txt');
         });
 
         it('uses jj-edit scheme for editable non-working-copy rightUri', () => {

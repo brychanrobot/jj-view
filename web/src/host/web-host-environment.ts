@@ -28,6 +28,7 @@ import type {
     HostWorkspace,
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
+    MultiDiffResource,
     TextSelectionRange,
 } from '../../../src/core/host/host-environment';
 import type { FuzzyFileMatch } from '../../../src/core/host/host-system';
@@ -53,7 +54,7 @@ export interface WebHostNavigationCallbacks {
     onOpenFolder?: (folderUri: Uri, forceNewWindow?: boolean) => Promise<void> | void;
     onOpenMultiDiff?: (
         title: string,
-        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+        resources: MultiDiffResource[],
         options?: HostOpenOptions,
     ) => Promise<void> | void;
     onCloseTab?: (uri: Uri) => Promise<void> | void;
@@ -409,7 +410,7 @@ export class WebHostNavigation implements HostNavigation {
 
     public async openMultiDiff(
         title: string,
-        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
+        resources: MultiDiffResource[],
         options?: HostOpenOptions,
     ): Promise<void> {
         if (this.callbacks.onOpenMultiDiff) {

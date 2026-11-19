@@ -30,6 +30,7 @@ import type {
     HostWorkspace,
     HostWorkspaceFolder,
     HostWorkspaceFoldersChangeEvent,
+    MultiDiffResource,
 } from '../core/host/host-environment';
 import type { HostSystem } from '../core/host/host-system';
 import { NodeHostSystem } from '../core/host/node-host-system';
@@ -207,7 +208,7 @@ export class FakeHostNavigation implements HostNavigation {
     public diffsOpened: { leftUri: Uri; rightUri: Uri; title: string; options?: HostOpenOptions }[] = [];
     public multiDiffsOpened: {
         title: string;
-        resources: { leftUri: Uri; rightUri: Uri; label: string }[];
+        resources: MultiDiffResource[];
         options?: HostOpenOptions;
     }[] = [];
     public mergeEditorsOpened: Uri[] = [];
@@ -232,11 +233,7 @@ export class FakeHostNavigation implements HostNavigation {
         this.diffsOpened.push({ leftUri, rightUri, title, options });
     }
 
-    async openMultiDiff(
-        title: string,
-        resources: { leftUri: Uri; rightUri: Uri; label: string }[],
-        options?: HostOpenOptions,
-    ): Promise<void> {
+    async openMultiDiff(title: string, resources: MultiDiffResource[], options?: HostOpenOptions): Promise<void> {
         this.multiDiffsOpened.push({ title, resources, options });
     }
 

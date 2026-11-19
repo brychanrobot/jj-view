@@ -201,6 +201,36 @@ export function getFsPathFromUri(uri: Uri): string {
     return path.resolve(root, relativePath);
 }
 
+/**
+ * Builds a repository file URI under `root` for `file`, `jj-view`, or `jj-edit`
+ * schemes, resolving the full filesystem path when `root` is provided so VS Code
+ * diff editors compare matching `.path` segments for modified files.
+ */
+export function createRepoFileUri(
+    root: string,
+    filePath: string,
+    scheme: 'file' | 'jj-view' | 'jj-edit',
+    fragment?: string,
+): Uri {
+    const cleanPath = filePath.replace(/^[/\\]+/, '');
+    if (!root) {
+        const relPathStr = cleanPath ? `/${toForwardSlash(cleanPath)}` : '/';
+        return Uri.from({
+            scheme,
+            path: relPathStr,
+            fragment,
+        });
+    }
+    const baseFileUri = Uri.file(cleanPath ? path.resolve(root, cleanPath) : path.resolve(root));
+    if (scheme === 'file' && !fragment) {
+        return baseFileUri;
+    }
+    return baseFileUri.with({
+        scheme,
+        fragment: fragment ?? '',
+    });
+}
+
 export function createDiffUris(
     entry: JjStatusEntry,
     revision: string,
@@ -208,43 +238,37 @@ export function createDiffUris(
     options: { editable?: boolean; workingCopyChangeId?: string } = {},
 ): { leftUri: Uri; rightUri: Uri; resourceUri: Uri } {
     const isCurrentWorkingCopy = isWorkingCopyRevision(revision, options.workingCopyChangeId);
-    const relPath = entry.path.startsWith('/') ? entry.path : `/${entry.path}`;
 
     // For renames/copies, the left side shows the old path
-    let leftRelPath = relPath;
-    if ((entry.status === 'renamed' || entry.status === 'copied') && entry.oldPath) {
-        leftRelPath = entry.oldPath.startsWith('/') ? entry.oldPath : `/${entry.oldPath}`;
-    }
+    const leftFilePath =
+        (entry.status === 'renamed' || entry.status === 'copied') && entry.oldPath ? entry.oldPath : entry.path;
 
-    const leftUri = Uri.from({
-        scheme: 'jj-view',
-        path: leftRelPath,
-        fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'left' }),
-    });
+    const leftUri = createRepoFileUri(
+        root,
+        leftFilePath,
+        'jj-view',
+        encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'left' }),
+    );
 
     const resourceParams = new URLSearchParams();
     resourceParams.set('root', root);
     resourceParams.set('jj-revision', revision);
     resourceParams.set('revision', isCurrentWorkingCopy ? '@' : revision);
 
-    const cleanEntryPath = entry.path.replace(/^[/\\]+/, '');
     const resourceUri = isCurrentWorkingCopy
-        ? Uri.file(path.resolve(root, cleanEntryPath))
-        : Uri.from({
-              scheme: options.editable ? 'jj-edit' : 'jj-view',
-              path: relPath,
-              fragment: resourceParams.toString(),
-          });
+        ? createRepoFileUri(root, entry.path, 'file')
+        : createRepoFileUri(root, entry.path, options.editable ? 'jj-edit' : 'jj-view', resourceParams.toString());
 
     const isDeleted = entry.status === 'deleted';
     const rightUri =
         !isDeleted && (isCurrentWorkingCopy || options.editable)
             ? resourceUri
-            : Uri.from({
-                  scheme: 'jj-view',
-                  path: relPath,
-                  fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
-              });
+            : createRepoFileUri(
+                  root,
+                  entry.path,
+                  'jj-view',
+                  encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
+              );
 
     return { leftUri, rightUri, resourceUri };
 }
@@ -283,13 +307,7 @@ export function createRevisionUri(root: string, filePath: string, revision: stri
     } else if (path.isAbsolute(filePath)) {
         relativePath = path.relative(root, filePath);
     }
-    const posixRel = toForwardSlash(relativePath);
-    const relPathStr = posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
-    return Uri.from({
-        scheme: 'jj-view',
-        path: relPathStr,
-        fragment: encodeJjViewQuery({ mode: 'revision', root, revision }),
-    });
+    return createRepoFileUri(root, relativePath, 'jj-view', encodeJjViewQuery({ mode: 'revision', root, revision }));
 }
 
 /**
@@ -306,12 +324,11 @@ export function createUploadedFileUri(
         changeNumber?: number;
     },
 ): Uri {
-    const posixRel = toForwardSlash(filePath);
-    const relPathStr = posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
-    return Uri.from({
-        scheme: 'jj-view',
-        path: relPathStr,
-        fragment: encodeJjViewQuery({
+    return createRepoFileUri(
+        root,
+        filePath,
+        'jj-view',
+        encodeJjViewQuery({
             mode: 'uploaded',
             root,
             changeId: options.changeId,
@@ -320,7 +337,7 @@ export function createUploadedFileUri(
             remoteRevision: options.remoteRevision,
             changeNumber: options.changeNumber,
         }),
-    });
+    );
 }
 
 /**
@@ -346,12 +363,12 @@ export function createTextContentUri(root: string, virtualPath: string, text: st
 export function getOriginalResourceUri(root: string, uri: Uri): Uri {
     const revision = getRevisionFromUri(uri) || '@';
     const relativePath = getRepoRelativePath(uri, root);
-    const relPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
-    return Uri.from({
-        scheme: 'jj-view',
-        path: relPath,
-        fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'left' }),
-    });
+    return createRepoFileUri(
+        root,
+        relativePath,
+        'jj-view',
+        encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'left' }),
+    );
 }
 
 /**
@@ -527,34 +544,40 @@ function resolveNearestRealPath(fsPath: string): string | undefined {
  * Normalizes leading slash.
  */
 export function getRepoRelativePath(uri: Uri, root: string): string {
-    if (uri.scheme !== 'file') {
+    const params = getUriParams(uri);
+    const hasEmbeddedRoot = Boolean(params.get('root') || params.get('repoRoot') || params.get('path'));
+    const effectiveRoot = root || params.get('root') || params.get('repoRoot') || '';
+    if (!effectiveRoot) {
         return uri.path.startsWith('/') ? uri.path : `/${uri.path}`;
     }
 
-    const relFromRoot = path.relative(root, uri.fsPath);
-    if (!relFromRoot.startsWith('..') && !path.isAbsolute(relFromRoot)) {
+    const targetFsPath = uri.scheme === 'file' ? uri.fsPath : getFsPathFromUri(uri);
+    const normTargetFsPath = normalizeDriveLetter(targetFsPath);
+    const normRoot = normalizeDriveLetter(effectiveRoot);
+
+    const relFromRoot = path.relative(normRoot, normTargetFsPath);
+    if (isInsideRelativePath(relFromRoot)) {
         const posixRel = toForwardSlash(relFromRoot);
         return posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
     }
 
-    const canonicalRoot = getCanonicalRoot(root);
-    const relFromCanonical = path.relative(canonicalRoot, uri.fsPath);
-    if (!relFromCanonical.startsWith('..') && !path.isAbsolute(relFromCanonical)) {
+    const canonicalRoot = normalizeDriveLetter(getCanonicalRoot(effectiveRoot));
+    const relFromCanonical = path.relative(canonicalRoot, normTargetFsPath);
+    if (isInsideRelativePath(relFromCanonical)) {
         const posixRel = toForwardSlash(relFromCanonical);
         return posixRel.startsWith('/') ? posixRel : `/${posixRel}`;
     }
 
-    const nearestCanonical = resolveNearestRealPath(uri.fsPath);
+    const nearestCanonical = resolveNearestRealPath(targetFsPath);
     if (nearestCanonical) {
-        const rel = toForwardSlash(path.relative(canonicalRoot, nearestCanonical));
-        if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+        const rel = toForwardSlash(path.relative(canonicalRoot, normalizeDriveLetter(nearestCanonical)));
+        if (isInsideRelativePath(rel)) {
             return rel.startsWith('/') ? rel : `/${rel}`;
         }
     }
 
-    const fallbackRel = toForwardSlash(path.relative(canonicalRoot, uri.fsPath));
-    if (!fallbackRel.startsWith('..') && !path.isAbsolute(fallbackRel)) {
-        return fallbackRel.startsWith('/') ? fallbackRel : `/${fallbackRel}`;
+    if (uri.scheme !== 'file' && !hasEmbeddedRoot) {
+        return uri.path.startsWith('/') ? uri.path : `/${uri.path}`;
     }
 
     const posixFallback = toForwardSlash(relFromRoot);

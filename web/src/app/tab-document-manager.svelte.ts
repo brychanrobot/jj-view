@@ -12,7 +12,7 @@ import type { JjStatusEntry } from '../../../src/core/jj-types';
 import type { JjViewFsService } from '../../../src/core/jj-view-fs-service';
 import type { ScmModel, ScmSnapshot } from '../../../src/core/scm-model';
 import { createJjResourceState, type JjResourceState } from '../../../src/core/scm-resource-state';
-import { getRevisionFromUri, isWorkingCopyRevision, type Uri } from '../../../src/core/uri-utils';
+import { getRepoRelativePath, getRevisionFromUri, isWorkingCopyRevision, type Uri } from '../../../src/core/uri-utils';
 import { OutputChannel } from '../../../src/utils/output-channel';
 import { createInMemoryBridge, type InMemoryBridge } from '../bridge/in-memory-bridge';
 import { getImageMimeType, uint8ArrayToDataUrl } from '../diff/binary-detection';
@@ -613,19 +613,17 @@ export class TabDocumentManager {
     }
 
     async loadFileFromUri(uri: Uri, options?: HostOpenOptions): Promise<void> {
-        const normPath = uri.path || uri.fsPath || '';
-        const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
+        const wsRoot = this.deps.resolveScmModelForUri(uri)?.repo.rootUri.fsPath ?? this.deps.getWorkspaceRoot();
+        const relPath = getRepoRelativePath(uri, wsRoot);
+        const cleanPath = relPath.startsWith('/') ? relPath.slice(1) : relPath;
         const fileName = cleanPath.split('/').filter(Boolean).pop() || cleanPath || 'file';
 
         let matchingState: JjResourceState | undefined;
         const uriRevision = uri.scheme === 'file' ? '@' : (getRevisionFromUri(uri) ?? '@');
         const snap = this.deps.getCurrentSnapshot();
         const isWc = isWorkingCopyRevision(uriRevision, snap?.currentEntry?.change_id);
-        const wsRoot = this.deps.getWorkspaceRoot();
         if (isWc) {
-            const change = snap?.workingCopyChanges?.find(
-                (c: JjStatusEntry) => c.path === cleanPath || normPath.endsWith(c.path),
-            );
+            const change = snap?.workingCopyChanges?.find((c: JjStatusEntry) => c.path === cleanPath);
             if (change) {
                 matchingState = createJjResourceState(change, '@', wsRoot, {
                     squashable: snap?.parentMutable ?? false,
@@ -806,12 +804,12 @@ export class TabDocumentManager {
 
     async openMergeEditorForResource(state: JjResourceState, options?: HostOpenOptions): Promise<void> {
         const uri = state.resourceUri;
-        const normPath = state.relativePath || uri.path || uri.fsPath || '';
-        const cleanPath = normPath.startsWith('/') ? normPath.slice(1) : normPath;
         const targetScm = this.deps.resolveScmModelForUri(uri);
+        const wsRoot = targetScm?.repo.rootUri.fsPath ?? this.deps.getWorkspaceRoot();
+        const rawRel = state.relativePath || getRepoRelativePath(uri, wsRoot);
+        const cleanPath = rawRel.startsWith('/') ? rawRel.slice(1) : rawRel;
         const targetSnap = targetScm?.snapshot ?? this.deps.getCurrentSnapshot();
-        const conflictPath =
-            targetSnap?.conflictedPaths.find((p: string) => p === cleanPath || normPath.endsWith(p)) || cleanPath;
+        const conflictPath = targetSnap?.conflictedPaths.find((p: string) => p === cleanPath) || cleanPath;
         const fileName = conflictPath.split('/').filter(Boolean).pop() || conflictPath || 'Merge';
         const mergeTitle = `${fileName} (Merge)`;
 

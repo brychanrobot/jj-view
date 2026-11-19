@@ -59,19 +59,20 @@ describe('createDiffUris', () => {
         const { leftUri, rightUri } = createDiffUris(entry, revision, root);
 
         expect(leftUri.scheme).toBe('jj-view');
-        expect(leftUri.path).toBe('/file.txt');
+        expect(leftUri.path).toBe('/root/file.txt');
         expect(leftUri.fragment).toContain('root=%2Froot');
         expect(leftUri.fragment).toContain('base=rev1');
         expect(leftUri.fragment).toContain('side=left');
 
         expect(rightUri.scheme).toBe('jj-view');
-        expect(rightUri.path).toBe('/file.txt');
+        expect(rightUri.path).toBe('/root/file.txt');
+        expect(rightUri.path).toBe(leftUri.path);
         expect(rightUri.fragment).toContain('root=%2Froot');
         expect(rightUri.fragment).toContain('base=rev1');
         expect(rightUri.fragment).toContain('side=right');
     });
 
-    it('creates correct URIs for working copy (rev=@)', () => {
+    it('creates correct URIs for working copy (rev=@) with matching paths', () => {
         const entry: JjStatusEntry = {
             path: 'file.txt',
             status: 'modified',
@@ -81,12 +82,13 @@ describe('createDiffUris', () => {
         const { leftUri, rightUri } = createDiffUris(entry, revision, root);
 
         expect(leftUri.scheme).toBe('jj-view');
-        expect(leftUri.path).toBe('/file.txt');
+        expect(leftUri.path).toBe('/root/file.txt');
         expect(leftUri.fragment).toContain(`base=${ENCODED_AT}`);
         expect(leftUri.fragment).toContain('side=left');
 
-        // Working copy should use file scheme for right side
+        // Working copy should use file scheme for right side and match leftUri.path
         expect(rightUri.scheme).toBe('file');
+        expect(rightUri.path).toBe(leftUri.path);
         expect(rightUri.fsPath).toBeSameFsPath('/root/file.txt');
     });
 
@@ -101,12 +103,12 @@ describe('createDiffUris', () => {
         const { leftUri, rightUri } = createDiffUris(entry, revision, root);
 
         // Left side should use old path
-        expect(leftUri.path).toBe('/old.txt');
+        expect(leftUri.path).toBe('/root/old.txt');
         expect(leftUri.fragment).toContain('base=rev1');
         expect(leftUri.fragment).toContain('side=left');
 
         // Right side should use new path
-        expect(rightUri.path).toBe('/new.txt');
+        expect(rightUri.path).toBe('/root/new.txt');
         expect(rightUri.fragment).toContain('base=rev1');
         expect(rightUri.fragment).toContain('side=right');
     });
@@ -121,14 +123,14 @@ describe('createDiffUris', () => {
         const { leftUri, rightUri } = createDiffUris(entry, revision, root);
 
         expect(leftUri.scheme).toBe('jj-view');
-        expect(leftUri.path).toBe('/deleted.txt');
+        expect(leftUri.path).toBe('/root/deleted.txt');
         expect(leftUri.fragment).toContain(`base=${ENCODED_AT}`);
         expect(leftUri.fragment).toContain('side=left');
 
         // Removed files in working copy should use jj-view scheme for right side
         // to avoid "File not found" errors in VS Code.
         expect(rightUri.scheme).toBe('jj-view');
-        expect(rightUri.path).toBe('/deleted.txt');
+        expect(rightUri.path).toBe('/root/deleted.txt');
         expect(rightUri.fragment).toContain(`base=${ENCODED_AT}`);
         expect(rightUri.fragment).toContain('side=right');
     });
@@ -172,8 +174,8 @@ describe('createDiffUris', () => {
 
         const { leftUri, rightUri } = createDiffUris(entry, revision, root);
 
-        expect(leftUri.path).toBe('/original.txt');
-        expect(rightUri.path).toBe('/copy.txt');
+        expect(leftUri.path).toBe('/root/original.txt');
+        expect(rightUri.path).toBe('/root/copy.txt');
     });
 
     it('detects working copy via options.workingCopyChangeId', () => {
@@ -183,11 +185,12 @@ describe('createDiffUris', () => {
         };
         // Revision is a commit ID, but it matches the working copy change ID
         const revision = 'commit-123';
-        const { rightUri } = createDiffUris(entry, revision, root, {
+        const { leftUri, rightUri } = createDiffUris(entry, revision, root, {
             workingCopyChangeId: 'commit-123',
         });
 
         expect(rightUri.scheme).toBe('file');
+        expect(rightUri.path).toBe(leftUri.path);
         expect(rightUri.fsPath).toBeSameFsPath('/root/file.txt');
     });
 
@@ -197,10 +200,11 @@ describe('createDiffUris', () => {
             status: 'modified',
         };
         const revision = 'rev1';
-        const { rightUri } = createDiffUris(entry, revision, root, { editable: true });
+        const { leftUri, rightUri } = createDiffUris(entry, revision, root, { editable: true });
 
         expect(rightUri.scheme).toBe('jj-edit');
-        expect(rightUri.path).toBe('/file.txt');
+        expect(rightUri.path).toBe('/root/file.txt');
+        expect(rightUri.path).toBe(leftUri.path);
         expect(rightUri.fragment).toContain('root=%2Froot');
         expect(rightUri.fragment).toContain('revision=rev1');
     });
@@ -251,18 +255,18 @@ describe('isWorkingCopyRevision', () => {
 describe('createRevisionUri', () => {
     const root = '/workspace/repo';
 
-    it('creates relative path URI with fragment root from absolute path', () => {
+    it('creates full repository path URI with fragment root from absolute path', () => {
         const uri = createRevisionUri(root, '/workspace/repo/src/sub/file.ts', 'main');
         expect(uri.scheme).toBe('jj-view');
-        expect(uri.path).toBe('/src/sub/file.ts');
+        expect(uri.path).toBe('/workspace/repo/src/sub/file.ts');
         expect(uri.fragment).toContain('root=%2Fworkspace%2Frepo');
         expect(uri.fragment).toContain('revision=main');
     });
 
-    it('creates relative path URI from relative path input', () => {
+    it('creates full repository path URI from relative path input', () => {
         const uri = createRevisionUri(root, 'src/sub/file.ts', 'main');
         expect(uri.scheme).toBe('jj-view');
-        expect(uri.path).toBe('/src/sub/file.ts');
+        expect(uri.path).toBe('/workspace/repo/src/sub/file.ts');
         expect(uri.fragment).toContain('root=%2Fworkspace%2Frepo');
         expect(uri.fragment).toContain('revision=main');
     });
@@ -274,7 +278,7 @@ describe('createRevisionUri', () => {
         const uri = createRevisionUri(windowsRoot, windowsPath, 'main');
 
         expect(uri.scheme).toBe('jj-view');
-        expect(uri.path).toBe('/src/sub/file.ts');
+        expect(uri.path).toBe('/C:/workspace/repo/src/sub/file.ts');
         expect(uri.fragment).toContain(encodeURIComponent(windowsRoot));
         expect(uri.fragment).toContain('revision=main');
     });
@@ -495,12 +499,13 @@ describe('isJjScheme', () => {
 describe('getOriginalResourceUri and getRepoRelativePath', () => {
     const root = '/workspace/repo';
 
-    it('generates original resource URI with jj-view scheme for diff left side', () => {
+    it('generates original resource URI with jj-view scheme matching file URI path', () => {
         const fileUri = Uri.file('/workspace/repo/src/index.ts');
         const origUri = getOriginalResourceUri(root, fileUri);
 
         expect(origUri.scheme).toBe('jj-view');
-        expect(origUri.path).toBe('/src/index.ts');
+        expect(origUri.path).toBe('/workspace/repo/src/index.ts');
+        expect(origUri.path).toBe(fileUri.path);
         expect(origUri.fragment).toContain('side=left');
         expect(origUri.fragment).toContain('base=%40');
     });
@@ -514,6 +519,9 @@ describe('getOriginalResourceUri and getRepoRelativePath', () => {
             path: '/src/nested/file.ts',
         });
         expect(getRepoRelativePath(viewUri, root)).toBe('/src/nested/file.ts');
+
+        const fullViewUri = createRevisionUri(root, 'src/nested/file.ts', '@-');
+        expect(getRepoRelativePath(fullViewUri, root)).toBe('/src/nested/file.ts');
     });
 
     it('computes repo relative path for non-existent/deleted files without throwing', () => {
@@ -648,7 +656,7 @@ describe('pathe cross-platform contract', () => {
             });
 
             expect(uri.scheme).toBe('jj-view');
-            expect(uri.path).toBe('/src/file.ts');
+            expect(uri.path).toBe('/repo/root/src/file.ts');
 
             const query = decodeJjViewQuery(uri);
             expect(query.mode).toBe('uploaded');
@@ -783,5 +791,27 @@ describe('resolvePathAgainstRealRootAsync and resolveInsideRealRootAsync', () =>
             inside: true,
             relativePath: 'sub/file.ts',
         });
+    });
+
+    it('getRepoRelativePath handles empty root and external embedded root safely', () => {
+        const embeddedUri = Uri.from({
+            scheme: 'jj-view',
+            path: '/repo/src/index.ts',
+            fragment: encodeJjViewQuery({ mode: 'diff', root: '/repo', base: 'abc', side: 'left' }),
+        });
+        expect(getRepoRelativePath(embeddedUri, '')).toBe('/src/index.ts');
+
+        const virtualNoRootUri = Uri.from({
+            scheme: 'jj-view',
+            path: '/src/plain.ts',
+        });
+        expect(getRepoRelativePath(virtualNoRootUri, '')).toBe('/src/plain.ts');
+
+        const otherRepoUri = Uri.from({
+            scheme: 'jj-view',
+            path: '/other-repo/src/foreign.ts',
+            fragment: encodeJjViewQuery({ mode: 'diff', root: '/other-repo', base: 'abc', side: 'left' }),
+        });
+        expect(getRepoRelativePath(otherRepoUri, '/repo')).toBe('/../other-repo/src/foreign.ts');
     });
 });

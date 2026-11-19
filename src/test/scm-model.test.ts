@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CodeForgeRegistry } from '../core/code-forge-registry';
 import { JjRepositoryManager } from '../core/jj-repository-manager';
@@ -42,6 +43,7 @@ describe('ScmModel Domain Unit Tests', () => {
     afterEach(async () => {
         scmModel.dispose();
         await repositoryManager.dispose();
+        await testRepo.dispose();
     });
 
     test('computes working copy changes and fires onDidChangeSnapshot', async () => {
@@ -91,6 +93,43 @@ describe('ScmModel Domain Unit Tests', () => {
         await scmModel.setDescription('New working copy message');
         const log = await scmModel.jj.getLog({ revision: '@' });
         expect(log[0]?.description?.trim()).toBe('New working copy message');
+    });
+
+    test('getOriginalResourceUri builds full-path jj-view URIs matching file:// paths on modified files', async () => {
+        const sharedLines = Array.from({ length: 10 }, (_, idx) => `line ${idx + 1}`).join('\n');
+        await buildGraph(testRepo, [
+            {
+                label: 'base',
+                description: 'base commit',
+                files: {
+                    'src/mod.txt': 'v1\n',
+                    'legacy/old_name.txt': sharedLines,
+                },
+            },
+            {
+                label: 'wc',
+                parents: ['base'],
+                isCurrentWorkingCopy: true,
+                files: {
+                    'src/mod.txt': 'v2\n',
+                    'modern/new_name.txt': `${sharedLines}\nline 11`,
+                },
+            },
+        ]);
+        testRepo.deleteFile('legacy/old_name.txt');
+        await scmModel.updateSnapshot({ reason: 'modified and renamed files' });
+
+        const modFileUri = Uri.file(path.resolve(testRepo.path, 'src/mod.txt'));
+        const modOrigUri = scmModel.getOriginalResourceUri(modFileUri);
+        expect(modOrigUri).toBeDefined();
+        expect(modOrigUri?.scheme).toBe('jj-view');
+        expect(modOrigUri?.path).toBe(modFileUri.path);
+
+        const renamedFileUri = Uri.file(path.resolve(testRepo.path, 'modern/new_name.txt'));
+        const renamedOrigUri = scmModel.getOriginalResourceUri(renamedFileUri);
+        expect(renamedOrigUri).toBeDefined();
+        expect(renamedOrigUri?.scheme).toBe('jj-view');
+        expect(renamedOrigUri?.path).toBe(Uri.file(path.resolve(testRepo.path, 'legacy/old_name.txt')).path);
     });
 
     test('disposes safely and unsubscribes all listeners', () => {
