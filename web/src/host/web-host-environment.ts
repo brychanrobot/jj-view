@@ -33,6 +33,7 @@ import type {
 } from '../../../src/core/host/host-environment';
 import type { FuzzyFileMatch } from '../../../src/core/host/host-system';
 import type { RemoteHostSystem } from '../../../src/core/host/remote-host-system';
+import { isWindowsPlatform, pathBasename } from '../../../src/core/path-utils';
 import type { Uri } from '../../../src/core/uri-utils';
 import { Uri as UriImpl } from '../../../src/core/uri-utils';
 import { writeClipboardText } from '../../../src/utils/clipboard';
@@ -903,7 +904,9 @@ export class WebHostWorkspace implements HostWorkspace {
 
         // 4. Loosely check .gitignore in baseDir (skip when searching for repository markers like .jj)
         if (includeGitIgnore && this.hostSystem) {
-            const cleanBase = baseDir.replace(/[/\\]+$/, '');
+            const cleanBase = isWindowsPlatform(this.hostSystem.platform)
+                ? baseDir.replace(/[/\\]+$/, '')
+                : baseDir.replace(/\/+$/, '');
             const cached = this._gitIgnoreCache.get(cleanBase);
             let gitIgnorePatterns: string[] = [];
             if (cached && Date.now() < cached.expiresAt) {
@@ -1037,11 +1040,7 @@ export class WebHostEnvironment implements HostEnvironment {
             }
         });
 
-        const folderName =
-            repoRoot
-                .replace(/[/\\]+$/, '')
-                .split(/[/\\]/)
-                .pop() || 'Workspace';
+        const folderName = pathBasename(repoRoot, this.system.platform) || 'Workspace';
         this.workspace = new WebHostWorkspace(
             [
                 {

@@ -197,6 +197,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
         this._workingCopyGroup.label = snapshot.workingCopyLabel;
         this._workingCopyGroup.contextValue = snapshot.workingCopyContextValue;
 
+        const platform = this.jj.system.platform;
         this._workingCopyGroup.resourceStates = snapshot.workingCopyChanges.map((c) => {
             const state = this.toResourceState(c, currentEntry?.change_id || '@', {
                 squashable: snapshot.parentMutable,
@@ -206,7 +207,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
                 mutableCommit: !(currentEntry?.is_immutable ?? false),
             });
             decorationMap.set(state.resourceUri.toString(), c);
-            decorationMap.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot), c);
+            decorationMap.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot, platform), c);
             return state;
         });
 
@@ -218,7 +219,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
                 mutableCommit: !(currentEntry?.is_immutable ?? false),
             });
             decorationMap.set(state.resourceUri.toString(), entry);
-            decorationMap.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot), entry);
+            decorationMap.set(getRepoRelativePath(state.resourceUri, this.jj.workspaceRoot, platform), entry);
             return state;
         });
 
@@ -275,6 +276,7 @@ export class VsCodeScmProvider implements vscode.Disposable {
         return createJjResourceState(entry, revision, this._sourceControl.rootUri?.fsPath || '', {
             ...options,
             workingCopyChangeId: this.scmModel.currentEntry?.change_id,
+            platform: this.jj.system.platform,
         });
     }
 

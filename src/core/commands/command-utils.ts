@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import { formatCommitDescription } from '../../utils/format-utils';
 import { extractRemoteLineRange } from '../../utils/remote-url-utils';
-import type { HostFs } from '../host/host-system';
+import type { HostFs, HostPlatform } from '../host/host-system';
 import { ScmContextValue } from '../jj-context-keys';
+import { isWindowsStylePath, pathNormalize, pathRelative } from '../path-utils';
 import type { JjResourceState } from '../scm-resource-state';
 import {
     getFsPathFromUri,
@@ -84,11 +84,11 @@ function collectResourceStatesRaw(args: unknown[]): JjResourceState[] {
     return resourceStates;
 }
 
-export function collectResourceStates(args: unknown[]): JjResourceState[] {
+export function collectResourceStates(args: unknown[], platform?: HostPlatform | string): JjResourceState[] {
     // De-duplicate by fsPath
     const unique = new Map<string, JjResourceState>();
     for (const state of collectResourceStatesRaw(args)) {
-        unique.set(getFsPathFromUri(state.resourceUri), state);
+        unique.set(getFsPathFromUri(state.resourceUri, platform), state);
     }
 
     return Array.from(unique.values());
@@ -196,10 +196,17 @@ export async function resolveWorkspaceRelativePath(
     workspaceRoot: string,
     filePath: string,
     fs?: HostFs,
+    platform?: HostPlatform | string,
 ): Promise<string | undefined> {
-    const relFromRoot = path.relative(normalizeDriveLetter(workspaceRoot), normalizeDriveLetter(filePath));
-    if (isInsideRelativePath(relFromRoot)) {
-        return path.normalize(relFromRoot);
+    const effectivePlatform =
+        platform ?? (isWindowsStylePath(workspaceRoot) || isWindowsStylePath(filePath) ? 'win32' : undefined);
+    const relFromRoot = pathRelative(
+        normalizeDriveLetter(workspaceRoot),
+        normalizeDriveLetter(filePath),
+        effectivePlatform,
+    );
+    if (isInsideRelativePath(relFromRoot, effectivePlatform)) {
+        return pathNormalize(relFromRoot, effectivePlatform);
     }
     if (!fs) {
         return undefined;
@@ -210,14 +217,17 @@ export async function resolveWorkspaceRelativePath(
     } catch {
         // Keep original workspaceRoot when realpath is unavailable
     }
-    return resolveInsideRealRootAsync(filePath, realRoot, fs);
+    return resolveInsideRealRootAsync(filePath, realRoot, fs, effectivePlatform);
 }
 
 /**
  * Extracts file paths and target revision from either SCM resource states
  * or explicit `{ paths, revision }` command payload objects.
  */
-export function extractSplitFilesPayload(args: unknown[]): {
+export function extractSplitFilesPayload(
+    args: unknown[],
+    platform?: HostPlatform | string,
+): {
     paths: string[];
     revision: string;
     validationError?: string;
@@ -243,7 +253,7 @@ export function extractSplitFilesPayload(args: unknown[]): {
         const uniquePaths = new Set<string>();
         const paths: string[] = [];
         for (const state of rawStates) {
-            const fsPath = getFsPathFromUri(state.resourceUri);
+            const fsPath = getFsPathFromUri(state.resourceUri, platform);
             if (!uniquePaths.has(fsPath)) {
                 uniquePaths.add(fsPath);
                 paths.push(fsPath);

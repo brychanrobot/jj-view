@@ -32,7 +32,7 @@ const resolvedCount = $derived(store.handles.length - store.unresolvedCount);
 const groups = $derived.by((): FileGroup[] => {
     const byPath = new Map<string | undefined, CommentThreadHandle[]>();
     for (const handle of visibleHandles) {
-        const key = normalizeThreadPath(handle.thread.filePath, store.repoPath);
+        const key = normalizeThreadPath(handle.thread.filePath, store.repoPath, store.platform);
         const list = byPath.get(key);
         if (list) {
             list.push(handle);

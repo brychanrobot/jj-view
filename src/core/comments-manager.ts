@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import { type DiffHunkRange, mapLineAcrossHunks } from '../utils/line-drift';
 import type { CodeForgeCommentThread, CodeForgeProvider } from './code-forge-provider';
 import type { CommentThread } from './comments-types';
@@ -13,6 +12,7 @@ import { showJjError } from './host/ui-helpers';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
 import type { CodeForgeChangeInfo, JjBookmark, JjLogEntry } from './jj-types';
+import { normalizeRepoSeparators, pathIsAbsolute, pathJoin, pathRelative } from './path-utils';
 
 export * from './comments-types';
 
@@ -429,8 +429,11 @@ export class CommentsManager implements Disposable {
                 continue;
             }
 
-            const fullPath = path.isAbsolute(thread.filePath) ? thread.filePath : path.join(repoRoot, thread.filePath);
-            const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
+            const platform = repo.jj.system.platform;
+            const fullPath = pathIsAbsolute(thread.filePath, platform)
+                ? thread.filePath
+                : pathJoin([repoRoot, thread.filePath], platform);
+            const relPath = normalizeRepoSeparators(pathRelative(repoRoot, fullPath, platform), platform);
             const threadCommitId = thread.metadata?.commitId || undefined;
             const anchorCommitId = threadCommitId ?? remoteCurrentRev;
 
@@ -706,15 +709,16 @@ export class CommentsManager implements Disposable {
         const changeLabel = info ? ` for ${info.displayLabel}` : '';
         let result = `### Unresolved Comments${changeLabel}\n\n`;
 
+        const platform = this.host.system?.platform;
         for (const thread of sorted) {
             let relativePath = '';
             if (thread.filePath) {
-                const fullPath = path.isAbsolute(thread.filePath)
+                const fullPath = pathIsAbsolute(thread.filePath, platform)
                     ? thread.filePath
                     : root
-                      ? path.join(root, thread.filePath)
+                      ? pathJoin([root, thread.filePath], platform)
                       : thread.filePath;
-                relativePath = root ? path.relative(root, fullPath) : thread.filePath;
+                relativePath = root ? pathRelative(root, fullPath, platform) : thread.filePath;
             }
             const displayPath = relativePath || thread.filePath || 'Change-level';
 

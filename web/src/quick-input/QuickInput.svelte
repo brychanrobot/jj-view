@@ -4,15 +4,17 @@
 -->
 <script lang="ts">
 import { onDestroy, onMount, tick } from 'svelte';
+import type { HostPlatform } from '../../../src/core/host/host-system';
 import { filterAndScoreQuickPickItems } from './fuzzy-score';
 import type { QuickInputService } from './quick-input-service';
 import type { QuickInputSession, QuickPickItem } from './quick-input-types';
 
 interface Props {
     service: QuickInputService;
+    platform?: HostPlatform | string;
 }
 
-let { service }: Props = $props();
+let { service, platform }: Props = $props();
 
 let sessionState = $state.raw<QuickInputSession | null>(null);
 const session = $derived(sessionState ?? service.activeSession);
@@ -92,6 +94,7 @@ const filteredItems: QuickPickItem[] = $derived.by(() => {
         matchOnDescription: options.matchOnDescription,
         matchOnDetail: options.matchOnDetail,
         preserveOrder: options.preserveOrder,
+        platform,
     });
 });
 

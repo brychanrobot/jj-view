@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { HostPlatform } from '../core/host/host-system';
+import { normalizeRepoSeparators, unquoteGitPath } from '../core/path-utils';
+
 export interface DiffHunkRange {
     oldStart: number;
     oldCount: number;
@@ -11,21 +14,6 @@ export interface DiffHunkRange {
 }
 
 const HUNK_HEADER_REGEX = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
-
-function unquoteGitDiffPath(rawPath: string): string {
-    if (!rawPath.startsWith('"') || !rawPath.endsWith('"')) {
-        return rawPath;
-    }
-    try {
-        const parsed: unknown = JSON.parse(rawPath);
-        if (typeof parsed === 'string') {
-            return parsed;
-        }
-    } catch {
-        // Ignore parse error and fall back to raw
-    }
-    return rawPath.slice(1, -1);
-}
 
 /**
  * Parses unified diff hunk headers (`@@ -oldStart,oldCount +newStart,newCount @@`)
@@ -51,7 +39,10 @@ export function parseDiffHunks(diffOutput: string): DiffHunkRange[] {
  * Parses a multi-file unified diff (`git diff -U0`) into a map from normalized
  * repo-relative file path to its ordered list of hunk ranges.
  */
-export function parseMultiFileDiffHunks(diffOutput: string): Map<string, DiffHunkRange[]> {
+export function parseMultiFileDiffHunks(
+    diffOutput: string,
+    platform?: HostPlatform | string,
+): Map<string, DiffHunkRange[]> {
     const result = new Map<string, DiffHunkRange[]>();
     let currentFile: string | undefined;
 
@@ -61,12 +52,12 @@ export function parseMultiFileDiffHunks(diffOutput: string): Map<string, DiffHun
             continue;
         }
         if (line.startsWith('+++ ')) {
-            const rawTarget = unquoteGitDiffPath(line.slice(4).trim());
+            const rawTarget = unquoteGitPath(line.slice(4).trim());
             if (rawTarget === '/dev/null') {
                 currentFile = undefined;
             } else {
                 const stripped = rawTarget.startsWith('b/') ? rawTarget.slice(2) : rawTarget;
-                currentFile = stripped.replace(/\\/g, '/');
+                currentFile = normalizeRepoSeparators(stripped, platform);
                 if (!result.has(currentFile)) {
                     result.set(currentFile, []);
                 }

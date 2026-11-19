@@ -428,4 +428,46 @@ func TestFindFiles_CitcPruning(t *testing.T) {
 			t.Fatalf("expected .citc symlink not to prune nested subrepos (%v), got %v", expected, res)
 		}
 	})
+
+	t.Run("POSIX preserves literal backslashes in filenames and excludes", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("POSIX literal backslash test")
+		}
+		posixDir := t.TempDir()
+		keptRoot := filepath.Join(posixDir, "foo\\bar.txt")
+		keptNested := filepath.Join(posixDir, "sub", "a\\b.txt")
+		excludedBackslash := filepath.Join(posixDir, "ignored\\dir", "secret.txt")
+		keptSlash := filepath.Join(posixDir, "ignored", "dir", "keep.txt")
+		for _, f := range []string{keptRoot, keptNested, excludedBackslash, keptSlash} {
+			if err := os.MkdirAll(filepath.Dir(f), 0755); err != nil {
+				t.Fatalf("mkdir failed: %v", err)
+			}
+			if err := os.WriteFile(f, []byte("ok"), 0644); err != nil {
+				t.Fatalf("write failed: %v", err)
+			}
+		}
+
+		localSm, err := NewSandboxManager(posixDir)
+		if err != nil {
+			t.Fatalf("NewSandboxManager failed: %v", err)
+		}
+		res, err := localSm.FindFiles(FindFilesOptions{
+			BaseDir:  posixDir,
+			Pattern:  "**/*",
+			Excludes: []string{"ignored\\dir"},
+		})
+		if err != nil {
+			t.Fatalf("FindFiles failed: %v", err)
+		}
+		found := make(map[string]bool, len(res))
+		for _, r := range res {
+			found[r] = true
+		}
+		if !found[keptRoot] || !found[keptNested] || !found[keptSlash] {
+			t.Fatalf("expected keptRoot, keptNested, keptSlash in results, got %v", res)
+		}
+		if found[excludedBackslash] {
+			t.Fatalf("expected %s to be excluded without mangling %s", excludedBackslash, keptSlash)
+		}
+	})
 }

@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { HostPlatform } from '../../../src/core/host/host-system';
+import { normalizeRepoSeparators, stripLeadingSeparators, trimSeparators } from '../../../src/core/path-utils';
 import type { QuickPickItem } from './quick-input-types';
 
 function isWordBoundary(target: string, index: number, baseOffset = 0): boolean {
@@ -190,8 +192,8 @@ export function scoreFuzzyString(target: string, query: string, baseOffset = 0, 
  * Scores a relative file path against a potentially multi-token query, matching
  * the Go `FuzzyFindFiles` scoring rules.
  */
-export function scoreFuzzyPath(relPath: string, query: string): number | null {
-    const normPath = relPath.replace(/\\/g, '/');
+export function scoreFuzzyPath(relPath: string, query: string, platform?: HostPlatform | string): number | null {
+    const normPath = normalizeRepoSeparators(relPath, platform);
     const lastSlash = normPath.lastIndexOf('/');
     const baseOffset = lastSlash + 1;
     const basename = normPath.slice(baseOffset);
@@ -202,10 +204,10 @@ export function scoreFuzzyPath(relPath: string, query: string): number | null {
         .trim()
         .split(/\s+/)
         .map((t) =>
-            t
-                .replace(/\\/g, '/')
-                .replace(/^\.\//, '')
-                .replace(/^\/+|\/+$/g, ''),
+            stripLeadingSeparators(
+                trimSeparators(normalizeRepoSeparators(t, platform), platform).replace(/^\.\//, ''),
+                platform,
+            ),
         )
         .filter((t) => t.length > 0);
 
@@ -279,6 +281,7 @@ export function filterAndScoreQuickPickItems<T>(
         matchOnDescription?: boolean;
         matchOnDetail?: boolean;
         preserveOrder?: boolean;
+        platform?: HostPlatform | string;
     } = {},
 ): QuickPickItem<T>[] {
     const trimmed = query.trim();
@@ -296,7 +299,7 @@ export function filterAndScoreQuickPickItems<T>(
         }
 
         if (it.filterText) {
-            const pathScore = scoreFuzzyPath(it.filterText, trimmed);
+            const pathScore = scoreFuzzyPath(it.filterText, trimmed, options.platform);
             if (pathScore !== null) {
                 scored.push({ item: it, score: pathScore, index: i });
                 continue;

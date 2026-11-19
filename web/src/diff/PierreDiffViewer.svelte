@@ -6,6 +6,7 @@
 import { type DiffLineAnnotation, type FileDiffOptions, parseDiffFromFile } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
+import type { HostPlatform } from '../../../src/core/host/host-system';
 import type { Uri } from '../../../src/core/uri-utils';
 import type { CommentThreadHandle } from '../comments/comments-store.svelte';
 import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
@@ -29,6 +30,7 @@ import { startRenderTrace } from './render-perf';
 interface Props {
     filename: string;
     resourceUri?: Uri;
+    platform?: HostPlatform | string;
     originalContent?: string;
     modifiedContent?: string;
     fileStatus?: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
@@ -55,6 +57,7 @@ interface Props {
 let {
     filename,
     resourceUri,
+    platform,
     originalContent = '',
     modifiedContent = '',
     fileStatus,
@@ -105,12 +108,13 @@ const threadMounts = new ThreadAnnotationMounts({
     onSetResolved: (handle, resolved) => onSetThreadResolved?.(handle, resolved) ?? Promise.resolve(),
 });
 
-const isRasterImage = $derived(isImageByExtension(filename));
-const isSvg = $derived(isSvgByExtension(filename));
+const isRasterImage = $derived(isImageByExtension(filename, platform));
+const isSvg = $derived(isSvgByExtension(filename, platform));
 let svgPreviewMode = $state(false);
 const showImageDiff = $derived(isRasterImage || (isSvg && svgPreviewMode));
 const isBinary = $derived(
-    !isRasterImage && (isBinaryFile(filename, modifiedContent) || isBinaryFile(filename, originalContent)),
+    !isRasterImage &&
+        (isBinaryFile(filename, modifiedContent, platform) || isBinaryFile(filename, originalContent, platform)),
 );
 
 /**
@@ -527,6 +531,7 @@ export function getChatContextSelection(): EditorChatContextSelection | null {
         resolveDiffOrFileSelection({
             filename,
             resourceUri,
+            platform,
             isWorkingCopy,
             containerEl,
             modifiedContent: currentContent || modifiedContent,

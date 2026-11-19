@@ -37,6 +37,7 @@ export async function showMultiFileDiffCommand(ctx: CommandContext, payload?: Sh
             const diffOptions = {
                 editable,
                 workingCopyChangeId: logEntry?.is_current_working_copy ? changeId : undefined,
+                platform: jj.system.platform,
             };
 
             const resources = changes.map((entry) => {

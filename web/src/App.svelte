@@ -3,7 +3,6 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
-import path from 'pathe';
 import { onMount } from 'svelte';
 import type { CommentsManager, CommentThread } from '../../src/core/comments-manager';
 import { ProcessMonitorController } from '../../src/core/controllers/process-monitor-controller';
@@ -17,6 +16,7 @@ import type { JjRepository } from '../../src/core/jj-repository';
 import type { JjRepositoryManager } from '../../src/core/jj-repository-manager';
 import type { JjStatusEntry } from '../../src/core/jj-types';
 import type { JjViewFsService } from '../../src/core/jj-view-fs-service';
+import { pathIsAbsolute, pathJoin, stripLeadingSeparators } from '../../src/core/path-utils';
 import type { ScmModel, ScmSnapshot } from '../../src/core/scm-model';
 import { createJjResourceState, type JjResourceState } from '../../src/core/scm-resource-state';
 import { getRepoRelativePath, getUriParams, Uri } from '../../src/core/uri-utils';
@@ -194,6 +194,7 @@ const tabDocManager = new TabDocumentManager({
     resolveScmModelForUri,
     getCurrentSnapshot: () => currentSnapshot,
     getWorkspaceRoot: () => workspaceRoot,
+    getPlatform: () => host?.platform ?? webHostEnv?.system?.platform,
     openFileDiffForChange: (file, changeId, isWorkingCopy, options, isImmutable) =>
         openFileDiffForChange(file, changeId, isWorkingCopy, options, isImmutable),
     handleAction: (cmd, payload) => handleAction(cmd, payload),
@@ -329,6 +330,7 @@ async function openFileDiffForChange(
     options: HostOpenOptions,
     isImmutable?: boolean,
 ): Promise<void> {
+    const platform = host?.platform ?? webHostEnv?.system?.platform;
     const matchingState =
         resolveScmResourceState({
             snapshot: currentSnapshot,
@@ -337,14 +339,16 @@ async function openFileDiffForChange(
             isWorkingCopyOverride: isWorkingCopy,
             isImmutable,
             editableMutableDiffs,
-            rightUri: Uri.file(path.join(workspaceRoot, file.path)),
+            rightUri: Uri.file(pathJoin([workspaceRoot, file.path], platform)),
             fallbackEntry: file,
+            platform,
         }) ??
         createJjResourceState(file, changeId, workspaceRoot, {
             editable: isWorkingCopy || (isImmutable !== undefined ? !isImmutable && editableMutableDiffs : false),
             openDiffOnClick: true,
             workingCopyChangeId: isWorkingCopy ? changeId : currentSnapshot?.currentEntry?.change_id,
             mutableCommit: isImmutable !== undefined ? !isImmutable : isWorkingCopy,
+            platform,
         });
     await tabDocManager.loadDiffFromUris(
         matchingState.leftUri,
@@ -359,15 +363,18 @@ async function openFileDiffForChange(
 
 // The manager is wired once at startup; capturing the initial value is intentional.
 // svelte-ignore state_referenced_locally
-const commentsStore = commentsManager ? new CommentsStore(commentsManager) : undefined;
+const commentsStore = commentsManager
+    ? new CommentsStore(commentsManager, () => host?.platform ?? webHostEnv?.system?.platform)
+    : undefined;
 
 /** Repo-relative path for a file URI, for matching comment threads. */
 function uriRelativePath(uri: Uri | undefined): string | undefined {
     if (!uri) {
         return undefined;
     }
+    const platform = host?.platform ?? webHostEnv?.system?.platform;
     const root = commentsStore?.repoPath ?? workspaceRoot;
-    return normalizeThreadPath(getRepoRelativePath(uri, root), undefined);
+    return normalizeThreadPath(getRepoRelativePath(uri, root, platform), undefined, platform);
 }
 
 /** Repo-relative path of the file a diff/file tab shows, for matching comment threads. */
@@ -406,9 +413,10 @@ const activeMultiDiffThreads = $derived.by((): ReadonlyMap<string, readonly Comm
 function toCommandThread(handle: CommentThreadHandle): CommentThread {
     const filePath = handle.thread.filePath ?? '';
     const root = commentsStore?.repoPath ?? workspaceRoot;
+    const platform = host?.platform ?? webHostEnv?.system?.platform;
     return {
         id: handle.id,
-        uri: Uri.file(path.isAbsolute(filePath) ? filePath : path.join(root, filePath)),
+        uri: Uri.file(pathIsAbsolute(filePath, platform) ? filePath : pathJoin([root, filePath], platform)),
     };
 }
 
@@ -425,7 +433,9 @@ async function setThreadResolved(handle: CommentThreadHandle, resolved: boolean)
 function openThreadLocation(handle: CommentThreadHandle): void {
     const store = commentsStore;
     const changeId = store?.jjChangeId;
-    const relativePath = store ? normalizeThreadPath(handle.thread.filePath, store.repoPath) : undefined;
+    const relativePath = store
+        ? normalizeThreadPath(handle.thread.filePath, store.repoPath, store.platform)
+        : undefined;
     if (!changeId || !relativePath) {
         return;
     }
@@ -886,12 +896,14 @@ onMount(() => {
             },
             onOpenDiff: async (leftUri, rightUri, title, options) => {
                 const targetScm = resolveScmModelForUri(rightUri);
+                const platform = host?.platform ?? webHostEnv?.system?.platform;
                 const matchingState = resolveScmResourceState({
                     leftUri,
                     rightUri,
                     snapshot: targetScm?.snapshot ?? currentSnapshot,
                     workspaceRoot: targetScm?.repo.rootUri.fsPath ?? workspaceRoot,
                     editableMutableDiffs: rightUri.scheme === 'jj-view' ? false : editableMutableDiffs,
+                    platform,
                 });
                 await tabDocManager.loadDiffFromUris(leftUri, rightUri, title, matchingState, options);
             },
@@ -899,10 +911,14 @@ onMount(() => {
                 await tabDocManager.loadFileFromUri(uri, options);
             },
             onOpenMergeEditor: async (resourceUri) => {
+                const platform = host?.platform ?? webHostEnv?.system?.platform;
                 const targetScm = resolveScmModelForUri(resourceUri);
                 const targetRoot = targetScm?.repo.rootUri.fsPath ?? workspaceRoot;
                 const targetSnapshot = targetScm?.snapshot ?? currentSnapshot;
-                const cleanPath = getRepoRelativePath(resourceUri, targetRoot).replace(/^\/+/, '');
+                const cleanPath = stripLeadingSeparators(
+                    getRepoRelativePath(resourceUri, targetRoot, platform),
+                    platform,
+                );
                 const conflictPath = targetSnapshot?.conflictedPaths.find((p) => p === cleanPath) || cleanPath;
                 const state = createJjResourceState(
                     { path: conflictPath, status: 'modified', conflicted: true },
@@ -912,6 +928,7 @@ onMount(() => {
                         openDiffOnClick: true,
                         inConflictGroup: true,
                         workingCopyChangeId: targetSnapshot?.currentEntry?.change_id,
+                        platform,
                     },
                 );
                 await tabDocManager.openMergeEditorForResource(state, { preview: false });
@@ -936,6 +953,7 @@ onMount(() => {
                     return;
                 }
 
+                const platform = host?.platform ?? webHostEnv?.system?.platform;
                 const loadedFiles: MultiDiffFileEntry[] = await Promise.all(
                     resources.map(async (r) => {
                         const [orig, mod] = await Promise.all([
@@ -947,9 +965,12 @@ onMount(() => {
                             (fallbackUri ? resolveScmModelForUri(fallbackUri)?.repo.rootUri.fsPath : undefined) ??
                             workspaceRoot;
                         const rawFilename =
-                            r.label || (fallbackUri ? getRepoRelativePath(fallbackUri, fallbackRoot) : '') || 'file';
-                        const filename = rawFilename.replace(/^[/\\]+/, '');
-                        const cleanOldFilename = r.oldLabel?.replace(/^[/\\]+/, '');
+                            r.label ||
+                            (fallbackUri ? getRepoRelativePath(fallbackUri, fallbackRoot, platform) : '') ||
+                            'file';
+                        const filename = stripLeadingSeparators(rawFilename, platform);
+                        const cleanOldFilename =
+                            r.oldLabel !== undefined ? stripLeadingSeparators(r.oldLabel, platform) : undefined;
                         const isWorkingCopy = r.rightUri?.scheme === 'file' || r.rightUri?.scheme === 'jj-edit';
                         return {
                             filename,
@@ -1028,6 +1049,7 @@ onMount(() => {
         <ScmPane
             snapshot={currentSnapshot}
             {workspaceRoot}
+            platform={host?.platform ?? webHostEnv?.system?.platform}
             repositories={scmRepositories}
             focusedWorkspaceRoot={currentRepoRoot || workspaceRoot}
             {menuRegistry}
@@ -1107,6 +1129,7 @@ onMount(() => {
                 bind:this={editorWorkspaceRef}
                 activeTab={tabDocManager.activeTab}
                 {activeTheme}
+                platform={host?.platform ?? webHostEnv?.system?.platform}
                 {currentSnapshot}
                 {activeDiffThreads}
                 {activeMultiDiffThreads}
@@ -1193,7 +1216,7 @@ onMount(() => {
     />
 {/if}
 
-<QuickInput service={activeQuickInput} />
+<QuickInput service={activeQuickInput} platform={host?.platform ?? webHostEnv?.system?.platform} />
 <NotificationContainer service={activeNotifications} />
 
 {#if contextMenuController.state.visible}

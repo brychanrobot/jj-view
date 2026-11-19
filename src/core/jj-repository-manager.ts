@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import path from 'pathe';
 import { AsyncCache } from '../utils/async-cache';
 import { CoalescingQueue } from '../utils/coalescing-queue';
 import { toError } from '../utils/error-utils';
@@ -12,11 +11,22 @@ import { type LoggerChannel, OutputChannel } from '../utils/output-channel';
 import type { CodeForgeRegistry } from './code-forge-registry';
 import { type Event, EventEmitter } from './host/events';
 import type { HostDisposable, HostEnvironment, HostStorage } from './host/host-environment';
-import type { HostFs } from './host/host-system';
+import type { HostFs, HostPlatform } from './host/host-system';
 import type { JjProcessTracker } from './jj-process-tracker';
 import { JjRepository } from './jj-repository';
 import { JjService, NO_OP_LOGGER } from './jj-service';
-import { getFsPathFromUri, parseCommitDetailsUri, Uri } from './uri-utils';
+import {
+    isFilesystemRootPath,
+    isWindowsStylePath,
+    isWindowsUncSharePath,
+    pathBasename,
+    pathDirname,
+    pathIsAbsolute,
+    pathJoin,
+    pathNormalize,
+    pathResolve,
+} from './path-utils';
+import { createRepoFileUri, getFsPathFromUri, parseCommitDetailsUri, type Uri } from './uri-utils';
 
 interface DetectedRepoInfo {
     rootPath: string;
@@ -162,6 +172,14 @@ export class JjRepositoryManager implements HostDisposable {
         return p;
     }
 
+    private getPathPlatform(absPath?: string): HostPlatform | string | undefined {
+        const platform = this._host.system?.platform;
+        if (absPath && (isWindowsStylePath(absPath) || isWindowsUncSharePath(absPath))) {
+            return 'win32';
+        }
+        return platform;
+    }
+
     get outputChannel(): LoggerChannel {
         return this._outputChannel;
     }
@@ -191,7 +209,7 @@ export class JjRepositoryManager implements HostDisposable {
         if (folders.length === 0) {
             return '';
         }
-        const normalized = folders.map((f) => this.normalizePath(f.uri.fsPath)).sort();
+        const normalized = folders.map((f) => this.normalizePath(this.getPathForUri(f.uri))).sort();
         return `:${normalized.join('|')}`;
     }
 
@@ -260,12 +278,13 @@ export class JjRepositoryManager implements HostDisposable {
         for (const item of stored) {
             const normalizedCandidate = this.normalizePath(item.rootPath);
             for (const folder of folders) {
-                const normalizedFolder = this.normalizePath(folder.uri.fsPath);
+                const folderPath = this.getPathForUri(folder.uri);
+                const normalizedFolder = this.normalizePath(folderPath);
                 if (
                     normalizedFolder !== normalizedCandidate &&
                     normalizedFolder.startsWith(`${normalizedCandidate}/`)
                 ) {
-                    await this.findRepoRoot(folder.uri.fsPath);
+                    await this.findRepoRoot(folderPath);
                     break;
                 }
             }
@@ -350,7 +369,7 @@ export class JjRepositoryManager implements HostDisposable {
         // Clean up _closingPaths for folders that are no longer in the workspace
         const folders = this._host.workspace.workspaceFolders || [];
         const normalizedFolders = await Promise.all(
-            folders.map((folder) => this.getRealNormalizedPath(folder.uri.fsPath)),
+            folders.map((folder) => this.getRealNormalizedPath(this.getPathForUri(folder.uri))),
         );
         for (const closedPath of this._closingPaths) {
             if (!normalizedFolders.some((f) => f === closedPath || f.startsWith(`${closedPath}/`))) {
@@ -401,7 +420,7 @@ export class JjRepositoryManager implements HostDisposable {
                     if (this._disposed) {
                         return;
                     }
-                    const rootPath = folder.uri.fsPath;
+                    const rootPath = this.getPathForUri(folder.uri);
                     const rootReal = await this.fs.realpath(rootPath).catch(() => rootPath);
                     const rootDir = await this.findRepoRoot(rootReal);
                     if (rootDir) {
@@ -413,11 +432,13 @@ export class JjRepositoryManager implements HostDisposable {
         }
 
         // 3. Scan explicit paths
+        const firstFolderPath = folders.length > 0 ? this.getPathForUri(folders[0].uri) : undefined;
         await Promise.all(
             scanPaths.map(async (p) => {
+                const basePlatform = firstFolderPath ? this.getPathPlatform(firstFolderPath) : this.getPathPlatform(p);
                 let absPath = p;
-                if (!path.isAbsolute(p) && folders.length > 0) {
-                    absPath = path.resolve(folders[0].uri.fsPath, p);
+                if (!pathIsAbsolute(p, basePlatform) && firstFolderPath) {
+                    absPath = pathResolve([firstFolderPath, p], basePlatform);
                 }
                 if (!(await this.isPathInOrAncestorOfWorkspace(absPath))) {
                     this._outputChannel.warn(
@@ -427,7 +448,7 @@ export class JjRepositoryManager implements HostDisposable {
                 }
                 try {
                     const realAbs = await this.fs.realpath(absPath);
-                    const selfCheck = path.join(realAbs, '.jj', 'working_copy', 'type');
+                    const selfCheck = pathJoin([realAbs, '.jj', 'working_copy', 'type'], this.getPathPlatform(realAbs));
                     if (await this.fs.exists(selfCheck)) {
                         await addCandidate(realAbs);
                     }
@@ -466,7 +487,10 @@ export class JjRepositoryManager implements HostDisposable {
                     if (this._disposed) {
                         return { folder, skip: true };
                     }
-                    const isCitc = await this.isCitcWorkspaceOrChild(folder.uri.fsPath, folderRepoRoots.get(folder));
+                    const isCitc = await this.isCitcWorkspaceOrChild(
+                        this.getPathForUri(folder.uri),
+                        folderRepoRoots.get(folder),
+                    );
                     if (isCitc) {
                         this._outputChannel.debug(
                             `[RepositoryManager] Skipping recursive subfolder scan for virtualized (.citc) workspace folder: ${folder.uri.fsPath}`,
@@ -496,7 +520,12 @@ export class JjRepositoryManager implements HostDisposable {
                             if (this._disposed) {
                                 return Promise.resolve();
                             }
-                            const rootDir = path.dirname(path.dirname(path.dirname(file.fsPath)));
+                            const filePath = this.getPathForUri(file);
+                            const filePlatform = this.getPathPlatform(filePath);
+                            const rootDir = pathDirname(
+                                pathDirname(pathDirname(filePath, filePlatform), filePlatform),
+                                filePlatform,
+                            );
                             return addCandidate(rootDir);
                         }),
                     );
@@ -519,7 +548,7 @@ export class JjRepositoryManager implements HostDisposable {
 
     private async hasCitcDir(dirPath: string): Promise<boolean> {
         try {
-            const stats = await this.fs.lstat(path.join(dirPath, '.citc'));
+            const stats = await this.fs.lstat(pathJoin([dirPath, '.citc'], this.getPathPlatform(dirPath)));
             return stats.isDirectory();
         } catch {
             return false;
@@ -541,13 +570,14 @@ export class JjRepositoryManager implements HostDisposable {
         }
 
         const realFolder = await this.fs.realpath(folderPath).catch(() => folderPath);
-        let curr = path.normalize(realFolder).replace(/\\/g, '/');
+        const walkPlatform = this.getPathPlatform(realFolder);
+        let curr = pathNormalize(realFolder, walkPlatform);
         while (curr) {
             if (this.isWindowsRootBoundary(curr)) {
                 break;
             }
             try {
-                const stats = await this.fs.lstat(path.join(curr, '.citc'));
+                const stats = await this.fs.lstat(pathJoin([curr, '.citc'], walkPlatform));
                 if (stats.isDirectory()) {
                     return true;
                 }
@@ -561,7 +591,7 @@ export class JjRepositoryManager implements HostDisposable {
                     break;
                 }
             }
-            const parent = path.dirname(curr);
+            const parent = pathDirname(curr, walkPlatform);
             if (parent === curr) {
                 break;
             }
@@ -734,12 +764,13 @@ export class JjRepositoryManager implements HostDisposable {
      * Resolve the store path for a `.jj/repo` entry.
      */
     private async resolveStorePath(repoPath: string): Promise<string> {
+        const platform = this.getPathPlatform(repoPath);
         try {
             const stats = await this.fs.lstat(repoPath);
             if (stats.isFile()) {
                 // Secondary workspace: file contains relative path to main store
                 const content = await this.fs.readTextFile(repoPath);
-                return path.resolve(path.dirname(repoPath), content.trim());
+                return pathResolve([pathDirname(repoPath, platform), content.trim()], platform);
             }
             return await this.fs.realpath(repoPath);
         } catch {
@@ -751,14 +782,15 @@ export class JjRepositoryManager implements HostDisposable {
      * Finds the repository root by running `jj root` in the directory of the given path.
      */
     private async findRepoRoot(fsPath: string): Promise<string | undefined> {
+        const platform = this.getPathPlatform(fsPath);
         let dir = fsPath;
         try {
             const stats = await this.fs.stat(fsPath);
             if (!stats.isDirectory()) {
-                dir = path.dirname(fsPath);
+                dir = pathDirname(fsPath, platform);
             }
         } catch {
-            dir = path.dirname(fsPath);
+            dir = pathDirname(fsPath, platform);
         }
 
         const normalizedDir = this.normalizePath(dir);
@@ -779,10 +811,8 @@ export class JjRepositoryManager implements HostDisposable {
                 if (await this.fs.exists(existingDir)) {
                     break;
                 }
-                const parent = path.dirname(existingDir);
-                // Guard against infinite loops on Windows/UNC roots where path.dirname('C:\\') === 'C:\\'
-                // Also guard against pathe returning '/' for Windows drive roots (e.g. 'C:/')
-                if (parent === existingDir || /^[a-zA-Z]:(\/)?$/.test(existingDir)) {
+                const parent = pathDirname(existingDir, platform);
+                if (parent === existingDir || isFilesystemRootPath(existingDir, platform)) {
                     break;
                 }
                 existingDir = parent;
@@ -962,11 +992,13 @@ export class JjRepositoryManager implements HostDisposable {
      * @returns A Promise resolving to the configured JjRepository instance.
      */
     private async createRepository(rootPath: string, storePath?: string): Promise<JjRepository> {
-        const resolvedStorePath = storePath ?? (await this.resolveStorePath(path.join(rootPath, '.jj', 'repo')));
-        const repoPrefix = path.basename(rootPath);
+        const platform = this.getPathPlatform(rootPath);
+        const resolvedStorePath =
+            storePath ?? (await this.resolveStorePath(pathJoin([rootPath, '.jj', 'repo'], platform)));
+        const repoPrefix = pathBasename(rootPath, platform);
         const repoOutputChannel = new OutputChannel(this._outputChannel, repoPrefix);
         return new JjRepository(
-            Uri.file(rootPath),
+            createRepoFileUri(rootPath, '', 'file', { platform }),
             resolvedStorePath,
             this._codeForgeRegistry,
             repoOutputChannel,
@@ -1001,7 +1033,7 @@ export class JjRepositoryManager implements HostDisposable {
         }
         const folders = this._host.workspace.workspaceFolders || [];
         this._normalizedWorkspaceFolders = await Promise.all(
-            folders.map((folder) => this.getRealNormalizedPath(folder.uri.fsPath)),
+            folders.map((folder) => this.getRealNormalizedPath(this.getPathForUri(folder.uri))),
         );
         return this._normalizedWorkspaceFolders;
     }
@@ -1046,12 +1078,13 @@ export class JjRepositoryManager implements HostDisposable {
                 return undefined;
             }
 
+            const platform = this.getPathPlatform(realRoot);
             // Verify .jj/working_copy/type exists to ensure it's a valid, initialized repository
-            if (!(await this.fs.exists(path.join(realRoot, '.jj', 'working_copy', 'type')))) {
+            if (!(await this.fs.exists(pathJoin([realRoot, '.jj', 'working_copy', 'type'], platform)))) {
                 return undefined; // Not a valid repository
             }
 
-            const storePath = await this.resolveStorePath(path.join(realRoot, '.jj', 'repo'));
+            const storePath = await this.resolveStorePath(pathJoin([realRoot, '.jj', 'repo'], platform));
             if (this._disposed) {
                 return undefined;
             }
@@ -1095,7 +1128,7 @@ export class JjRepositoryManager implements HostDisposable {
 
     private sortRepositories(): void {
         const workspaceFolders = this._host.workspace.workspaceFolders || [];
-        const folderPaths = workspaceFolders.map((f) => this.normalizePath(f.uri.fsPath));
+        const folderPaths = workspaceFolders.map((f) => this.normalizePath(this.getPathForUri(f.uri)));
 
         this._repositories.sort((a, b) => {
             const aPath = this.normalizePath(a.rootUri.fsPath);
@@ -1126,10 +1159,11 @@ export class JjRepositoryManager implements HostDisposable {
      * @returns True if the workspace is the main workspace, false otherwise.
      */
     private async isMainWorkspace(rootPath: string, storePath: string): Promise<boolean> {
+        const platform = this.getPathPlatform(rootPath);
         try {
-            const jjPath = path.join(rootPath, '.jj');
+            const jjPath = pathJoin([rootPath, '.jj'], platform);
             const realJjPath = await this.fs.realpath(jjPath);
-            const realJjParent = path.dirname(realJjPath);
+            const realJjParent = pathDirname(realJjPath, platform);
             if (!this.isSamePath(realJjParent, rootPath)) {
                 return false;
             }
@@ -1137,7 +1171,7 @@ export class JjRepositoryManager implements HostDisposable {
             return false;
         }
 
-        const expectedMainStore = path.join(rootPath, '.jj', 'repo');
+        const expectedMainStore = pathJoin([rootPath, '.jj', 'repo'], platform);
         const realExpected = await this.fs.realpath(expectedMainStore).catch(() => expectedMainStore);
         return this.isSamePath(realExpected, storePath) || this.isSamePath(expectedMainStore, storePath);
     }
@@ -1159,18 +1193,25 @@ export class JjRepositoryManager implements HostDisposable {
     }
 
     private getPathForUri(uri: Uri): string {
-        if (uri.scheme !== 'jj-commit') {
-            return getFsPathFromUri(uri);
-        }
-        try {
-            const { repoRoot } = parseCommitDetailsUri(uri);
-            if (repoRoot) {
-                return repoRoot.fsPath;
+        const platform = this._host.system?.platform;
+        if (uri.scheme === 'jj-commit') {
+            try {
+                const { repoRoot } = parseCommitDetailsUri(uri, platform);
+                if (repoRoot) {
+                    return this.getPathForUri(repoRoot);
+                }
+            } catch {
+                // Ignore parsing errors
             }
-        } catch {
-            // Ignore parsing errors
         }
-        return getFsPathFromUri(uri);
+        if (
+            uri.scheme === 'file' &&
+            globalThis.process?.platform === 'win32' &&
+            /^\/[a-zA-Z]:(?:\/|$)/.test(uri.path)
+        ) {
+            return uri.fsPath;
+        }
+        return getFsPathFromUri(uri, platform);
     }
 
     private async isUriInWorkspaceFolder(uri: Uri): Promise<boolean> {
@@ -1208,11 +1249,12 @@ export class JjRepositoryManager implements HostDisposable {
         }
 
         let fsPath = rawPath;
+        const platform = this.getPathPlatform(rawPath);
         try {
             // Try resolving the directory path instead of the file path, since the file might not exist yet
-            const dir = path.dirname(rawPath);
+            const dir = pathDirname(rawPath, platform);
             const realDir = this.realpathSync(dir);
-            fsPath = path.join(realDir, path.basename(rawPath));
+            fsPath = pathJoin([realDir, pathBasename(rawPath, platform)], platform);
         } catch {
             try {
                 fsPath = this.realpathSync(rawPath);
@@ -1241,8 +1283,7 @@ export class JjRepositoryManager implements HostDisposable {
             if (
                 normalizedFsPath.startsWith(normalizedRepoRoot) &&
                 (normalizedFsPath.length === normalizedRepoRoot.length ||
-                    normalizedFsPath[normalizedRepoRoot.length] === '/' ||
-                    normalizedFsPath[normalizedRepoRoot.length] === path.sep) &&
+                    normalizedFsPath[normalizedRepoRoot.length] === '/') &&
                 normalizedRepoRoot.length > bestLength
             ) {
                 bestMatch = repo;
@@ -1256,10 +1297,13 @@ export class JjRepositoryManager implements HostDisposable {
     private updateIgnoredPaths(): void {
         const ignoredPaths = this.getIgnoredRepositoriesConfig();
         const folders = this._host.workspace.workspaceFolders || [];
+        const firstFolderPath = folders.length > 0 ? this.getPathForUri(folders[0].uri) : undefined;
 
         this._ignoredAbsolutePaths.clear();
         for (const p of ignoredPaths) {
-            const abs = !path.isAbsolute(p) && folders.length > 0 ? path.resolve(folders[0].uri.fsPath, p) : p;
+            const pPlatform = firstFolderPath ? this.getPathPlatform(firstFolderPath) : this.getPathPlatform(p);
+            const abs =
+                !pathIsAbsolute(p, pPlatform) && firstFolderPath ? pathResolve([firstFolderPath, p], pPlatform) : p;
             try {
                 const real = this.realpathSync(abs);
                 this._ignoredAbsolutePaths.add(this.normalizePath(real));
@@ -1292,7 +1336,7 @@ export class JjRepositoryManager implements HostDisposable {
      * @returns The normalized path string.
      */
     private normalizePath(p: string): string {
-        return path.normalize(p).replace(/\\/g, '/').toLowerCase();
+        return pathNormalize(p, this.getPathPlatform(p)).toLowerCase();
     }
 
     /**
@@ -1377,7 +1421,7 @@ export class JjRepositoryManager implements HostDisposable {
      * Fires didClose events and removes it from the managed list.
      */
     async closeRepository(uri: Uri): Promise<void> {
-        const targetPath = uri.fsPath;
+        const targetPath = this.getPathForUri(uri);
         const normalizedTarget = this.normalizePath(targetPath);
         this._closingPaths.add(normalizedTarget);
 

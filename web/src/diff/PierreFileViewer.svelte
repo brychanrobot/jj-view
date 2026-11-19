@@ -6,6 +6,7 @@
 import { File } from '@pierre/diffs';
 import { Editor } from '@pierre/diffs/edit';
 import { onDestroy, onMount, untrack } from 'svelte';
+import type { HostPlatform } from '../../../src/core/host/host-system';
 import type { Uri } from '../../../src/core/uri-utils';
 import { isBinaryFile, isImageByExtension, isSvgByExtension } from './binary-detection';
 import {
@@ -21,6 +22,7 @@ import ImageDiffViewer from './ImageDiffViewer.svelte';
 interface Props {
     filename: string;
     resourceUri?: Uri;
+    platform?: HostPlatform | string;
     content?: string;
     isWorkingCopy?: boolean;
     theme?: string;
@@ -36,6 +38,7 @@ interface Props {
 let {
     filename,
     resourceUri,
+    platform,
     content = '',
     isWorkingCopy = false,
     theme: themeProp = '',
@@ -64,11 +67,11 @@ let detachEditor: (() => void) | null = null;
 let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let saveMessageTimer: ReturnType<typeof setTimeout> | null = null;
 
-const isRasterImage = $derived(isImageByExtension(filename));
-const isSvg = $derived(isSvgByExtension(filename));
+const isRasterImage = $derived(isImageByExtension(filename, platform));
+const isSvg = $derived(isSvgByExtension(filename, platform));
 let svgPreviewMode = $state(false);
 const showImagePreview = $derived(isRasterImage || (isSvg && svgPreviewMode));
-const isBinary = $derived(!isRasterImage && isBinaryFile(filename, content));
+const isBinary = $derived(!isRasterImage && isBinaryFile(filename, content, platform));
 
 function cleanupInstances(): void {
     selectedRanges = undefined;
@@ -258,6 +261,7 @@ export function getChatContextSelection(): EditorChatContextSelection | null {
         resolveDiffOrFileSelection({
             filename,
             resourceUri,
+            platform,
             isWorkingCopy,
             containerEl,
             modifiedContent: currentContent || content,

@@ -13,6 +13,8 @@ import {
     parseDiffFromFile,
 } from '@pierre/diffs';
 import { onDestroy, onMount, untrack } from 'svelte';
+import type { HostPlatform } from '../../../src/core/host/host-system';
+import { stripLeadingSeparators } from '../../../src/core/path-utils';
 import type { CommentThreadHandle } from '../comments/comments-store.svelte';
 import { ThreadAnnotationMounts } from '../comments/thread-annotation-mounts';
 import type { MultiDiffFileEntry } from '../tabs/tab-types';
@@ -36,9 +38,10 @@ import ImageDiffViewer from './ImageDiffViewer.svelte';
 interface Props {
     title: string;
     files: MultiDiffFileEntry[];
+    platform?: HostPlatform | string;
     theme?: string;
     onSave?: (filename: string, newContent: string) => Promise<void> | void;
-    onDiscard?: (filename: string) => Promise<void> | void;
+    onDiscard?: (filename: string, newContent?: string) => Promise<void> | void;
     /** Review threads per entry, keyed by {@link MultiDiffFileEntry.filename}. */
     commentThreads?: ReadonlyMap<string, readonly CommentThreadHandle[]>;
     onReplyToThread?: (handle: CommentThreadHandle, text: string, resolve: boolean) => Promise<void>;
@@ -49,6 +52,7 @@ interface Props {
 let {
     title,
     files,
+    platform,
     theme: themeProp = '',
     onSave: _onSave,
     onDiscard: _onDiscard,
@@ -81,7 +85,7 @@ const threadLayoutKey = $derived(
         .join('|'),
 );
 
-const imageFiles = $derived(files.filter((file) => isImageByExtension(file.filename)));
+const imageFiles = $derived(files.filter((file) => isImageByExtension(file.filename, platform)));
 
 function threadsFor(file: MultiDiffFileEntry): readonly CommentThreadHandle[] {
     return commentThreads?.get(file.filename) ?? [];
@@ -158,14 +162,14 @@ function renderMultiDiff(): void {
     const currentFiles = untrack(() => files);
 
     for (const file of currentFiles) {
-        const cleanName = cleanViewerFilename(file.filename).replace(/^[/\\]+/, '');
+        const cleanName = stripLeadingSeparators(cleanViewerFilename(file.filename), platform);
         const cleanOldName = file.oldFilename
-            ? cleanViewerFilename(file.oldFilename).replace(/^[/\\]+/, '')
+            ? stripLeadingSeparators(cleanViewerFilename(file.oldFilename), platform)
             : undefined;
         const orig = file.originalContent ?? '';
         const mod = file.modifiedContent ?? '';
 
-        if (isBinaryFile(cleanName, mod) || isBinaryFile(cleanName, orig)) {
+        if (isBinaryFile(cleanName, mod, platform) || isBinaryFile(cleanName, orig, platform)) {
             continue;
         }
 
@@ -239,6 +243,7 @@ export function getChatContextSelection(): EditorChatContextSelection | null {
     return (
         resolveMultiDiffSelection({
             files,
+            platform,
             containerEl,
             codeView,
         }) ?? null

@@ -19,8 +19,9 @@ import { JjProcessTracker } from '../../src/core/jj-process-tracker';
 import { JjRepository } from '../../src/core/jj-repository';
 import { JjRepositoryManager } from '../../src/core/jj-repository-manager';
 import { JjViewFsService } from '../../src/core/jj-view-fs-service';
+import { pathBasename } from '../../src/core/path-utils';
 import { ScmModel } from '../../src/core/scm-model';
-import { Uri } from '../../src/core/uri-utils';
+import { getFsPathFromUri, Uri } from '../../src/core/uri-utils';
 import { toError } from '../../src/utils/error-utils';
 import { OutputChannel } from '../../src/utils/output-channel';
 import App from './App.svelte';
@@ -193,7 +194,7 @@ export async function bootstrap(): Promise<void> {
 
         function getFsPathFromUriString(uriStr: string): string {
             if (uriStr.startsWith('file://')) {
-                return Uri.parse(uriStr).fsPath;
+                return getFsPathFromUri(Uri.parse(uriStr), hostSystem.platform);
             }
             return uriStr;
         }
@@ -214,11 +215,7 @@ export async function bootstrap(): Promise<void> {
                         const fsPath = getFsPathFromUriString(rawUri);
                         return {
                             uri: Uri.file(fsPath),
-                            name:
-                                fsPath
-                                    .replace(/[/\\]+$/, '')
-                                    .split(/[/\\]/)
-                                    .pop() || 'Workspace',
+                            name: pathBasename(fsPath, hostSystem.platform) || 'Workspace',
                         };
                     });
                     for (const folder of initialFolders) {
@@ -342,11 +339,7 @@ export async function bootstrap(): Promise<void> {
                     const fsPath = getFsPathFromUriString(rawUri);
                     return {
                         uri: Uri.file(fsPath),
-                        name:
-                            fsPath
-                                .replace(/[/\\]+$/, '')
-                                .split(/[/\\]/)
-                                .pop() || 'Workspace',
+                        name: pathBasename(fsPath, hostSystem.platform) || 'Workspace',
                     };
                 });
                 const currentFolders = webHostEnv.workspace.workspaceFolders;

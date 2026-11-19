@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -137,7 +138,10 @@ func parseExcludes(excludes []string, validBaseDir, cleanBaseDir string) parsedE
 			}
 		}
 
-		normEx := strings.ReplaceAll(filepath.ToSlash(ex), "\\", "/")
+		normEx := filepath.ToSlash(ex)
+		if runtime.GOOS == "windows" {
+			normEx = strings.ReplaceAll(normEx, "\\", "/")
+		}
 		rootAnchored := strings.HasPrefix(normEx, "/") || strings.HasPrefix(normEx, "./")
 		normEx = strings.TrimPrefix(normEx, "./")
 		normEx = strings.TrimPrefix(normEx, "/")

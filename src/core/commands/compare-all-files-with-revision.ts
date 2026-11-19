@@ -42,6 +42,7 @@ export async function compareAllFilesWithRevisionCommand(
                 return;
             }
 
+            const platform = jj.system.platform;
             const resources = changes.map((entry) => {
                 const isAdded = entry.status === 'added';
                 const isDeleted = entry.status === 'deleted';
@@ -49,10 +50,10 @@ export async function compareAllFilesWithRevisionCommand(
                 const leftPath = entry.oldPath || entry.path;
                 const rightPath = entry.path;
 
-                const leftUri = createRevisionUri(jj.workspaceRoot, leftPath, isAdded ? 'none' : rev);
+                const leftUri = createRevisionUri(jj.workspaceRoot, leftPath, isAdded ? 'none' : rev, platform);
                 const rightUri = isDeleted
-                    ? createRevisionUri(jj.workspaceRoot, rightPath, 'none')
-                    : createRepoFileUri(jj.workspaceRoot, rightPath, 'file');
+                    ? createRevisionUri(jj.workspaceRoot, rightPath, 'none', platform)
+                    : createRepoFileUri(jj.workspaceRoot, rightPath, 'file', { platform });
 
                 return {
                     leftUri,

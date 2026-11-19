@@ -2,14 +2,13 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import path from 'pathe';
 import type { CommandContext } from '../host/command-context';
 import { promptForRevision, showJjError } from '../host/ui-helpers';
-import { formatRootFileFileset } from '../jj-service';
+import { pathBasename, pathJoin } from '../path-utils';
 import type { Uri } from '../uri-utils';
 import { RevisionQuery, resolveWorkspaceRelativePath } from './command-utils';
 
-export { formatRootFileFileset, resolveWorkspaceRelativePath };
+export { resolveWorkspaceRelativePath };
 
 export interface RestoreFileFromRevisionPayload {
     fileUri?: Uri;
@@ -34,10 +33,12 @@ export async function restoreFileFromRevisionCommand(
             return;
         }
 
+        const platform = ctx.repo.jj.system.platform;
         const relPath = await resolveWorkspaceRelativePath(
             ctx.repo.jj.workspaceRoot,
             fileUri.fsPath,
             ctx.host.system?.fs,
+            platform,
         );
         if (relPath === undefined) {
             await showJjError(
@@ -53,7 +54,7 @@ export async function restoreFileFromRevisionCommand(
         let isDirectory = relPath === '' || relPath === '.';
         if (!isDirectory && ctx.host.system?.fs) {
             try {
-                const resolvedFsPath = path.join(ctx.repo.jj.workspaceRoot, relPath);
+                const resolvedFsPath = pathJoin([ctx.repo.jj.workspaceRoot, relPath], platform);
                 const stat = await ctx.host.system.fs.stat(resolvedFsPath);
                 isDirectory = stat.isDirectory();
             } catch {
@@ -72,7 +73,7 @@ export async function restoreFileFromRevisionCommand(
             return;
         }
 
-        const fileName = path.basename(fileUri.fsPath);
+        const fileName = pathBasename(fileUri.fsPath, platform);
         let revision = payload?.revision?.trim() || undefined;
         if (!revision) {
             revision = await promptForRevision(ctx.host.ui, ctx.repo.jj, {
@@ -102,7 +103,7 @@ export async function restoreFileFromRevisionCommand(
 
         await ctx.host.ui.withProgress(`Restoring ${fileName} from ${targetRevision}...`, async () => {
             await ctx.host.documents.saveIfDirty(fileUri);
-            await ctx.repo.jj.restore([formatRootFileFileset(relPath)], { from: resolvedCommitId });
+            await ctx.repo.jj.restore([relPath], { from: resolvedCommitId, exact: true });
         });
         await ctx.repo.refresh({ reason: 'restoreFileFrom' });
     } catch (err: unknown) {

@@ -7,6 +7,7 @@ import { AsyncCache } from '../utils/async-cache';
 import type { Disposable, Event } from './host/events';
 import type { JjRepository } from './jj-repository';
 import type { JjRepositoryManager } from './jj-repository-manager';
+import { stripLeadingSeparators } from './path-utils';
 import {
     decodeJjViewQuery,
     type FileStatLike,
@@ -77,8 +78,8 @@ export class JjViewFsService implements Disposable {
         if (this._isDisposed) {
             return new Uint8Array();
         }
-        const filePath = getFsPathFromUri(uri);
         const repo = this._repositoryManager.getRepositoryForUri(uri);
+        const filePath = getFsPathFromUri(uri, repo?.jj.system.platform);
         if (!repo) {
             this._repositoryManager.outputChannel.info(
                 `[JjViewFsService] No Jujutsu repository resolved for URI: ${uri.toString()} (scheme: ${uri.scheme}, fsPath: ${filePath})`,
@@ -128,7 +129,8 @@ export class JjViewFsService implements Disposable {
         query: Extract<JjViewQuery, { mode: 'uploaded' }>,
     ): Promise<Uint8Array> {
         try {
-            const relPath = getRepoRelativePath(uri, repo.jj.workspaceRoot).replace(/^\/+/, '');
+            const platform = repo.jj.system.platform;
+            const relPath = stripLeadingSeparators(getRepoRelativePath(uri, repo.jj.workspaceRoot, platform), platform);
 
             let deferredBlobContent: string | undefined;
             if (query.blobSha && !BINARY_UPLOADED_EXT_PATTERN.test(relPath)) {

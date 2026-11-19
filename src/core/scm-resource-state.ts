@@ -2,8 +2,10 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import type { HostPlatform } from './host/host-system';
 import { ScmContextValue } from './jj-context-keys';
 import type { JjStatusEntry } from './jj-types';
+import { normalizeRepoSeparators } from './path-utils';
 import { createDiffUris, isWorkingCopyRevision, toFileUri, type Uri } from './uri-utils';
 
 export interface ResourceCommand {
@@ -43,15 +45,17 @@ export function createJjResourceState(
         hasChild?: boolean;
         inConflictGroup?: boolean;
         mutableCommit?: boolean;
+        platform?: HostPlatform | string;
     } = {},
 ): JjResourceState {
     const isCurrentWorkingCopy = isWorkingCopyRevision(revision, options.workingCopyChangeId);
     const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, options);
+    const canonicalPath = normalizeRepoSeparators(entry.path, options.platform);
 
     const openDiffOnClick = options.openDiffOnClick ?? true;
     const isDeleted = entry.status === 'deleted';
 
-    const diffTitle = `${entry.path} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`;
+    const diffTitle = `${canonicalPath} (${isCurrentWorkingCopy ? 'Working Copy' : revision})`;
 
     const diffCommand: ResourceCommand = {
         command: 'vscode.diff',
@@ -71,7 +75,7 @@ export function createJjResourceState(
               : {
                     command: 'vscode.open',
                     title: 'Open File',
-                    arguments: [toFileUri(resourceUri)],
+                    arguments: [toFileUri(resourceUri, options.platform)],
                 };
 
     const flags: string[] = [];
@@ -103,7 +107,7 @@ export function createJjResourceState(
 
     return {
         resourceUri,
-        relativePath: entry.path,
+        relativePath: canonicalPath,
         command,
         leftUri,
         rightUri,

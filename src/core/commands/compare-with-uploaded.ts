@@ -168,11 +168,12 @@ export async function computeUnuploadedComparison(
 
     const resources: UnuploadedComparisonResource[] = [];
     const unuploadedFilePaths: string[] = [];
+    const platform = jj.system.platform;
 
     // 1. Commit message diff (synthetic COMMIT_MSG file, similar to code forge UI)
     if (descriptionModified && remoteDescription !== undefined) {
-        const leftUri = createTextContentUri(jj.workspaceRoot, 'COMMIT_MSG', remoteDescription);
-        const rightUri = createTextContentUri(jj.workspaceRoot, 'COMMIT_MSG', localDescription);
+        const leftUri = createTextContentUri(jj.workspaceRoot, 'COMMIT_MSG', remoteDescription, platform);
+        const rightUri = createTextContentUri(jj.workspaceRoot, 'COMMIT_MSG', localDescription, platform);
         resources.push({
             leftUri,
             rightUri,
@@ -258,7 +259,7 @@ export async function computeUnuploadedComparison(
         // Build left URI (Uploaded remote revision)
         let leftUri: Uri;
         if (isRemoteDeleted || (!remoteFile && localChange?.status === 'added')) {
-            leftUri = createRevisionUri(jj.workspaceRoot, filePath, 'none');
+            leftUri = createRevisionUri(jj.workspaceRoot, filePath, 'none', platform);
         } else if (!remoteFile && localChange) {
             // File was modified locally but not present in remote: compare against local branch base
             if (localBaseCommitId) {
@@ -266,9 +267,13 @@ export async function computeUnuploadedComparison(
                     jj.workspaceRoot,
                     localChange.oldPath ?? localChange.path,
                     localBaseCommitId,
+                    platform,
                 );
             } else {
-                const diffUris = createDiffUris(localChange, logEntry.commit_id, jj.workspaceRoot, { editable: false });
+                const diffUris = createDiffUris(localChange, logEntry.commit_id, jj.workspaceRoot, {
+                    editable: false,
+                    platform,
+                });
                 leftUri = diffUris.leftUri;
             }
         } else {
@@ -278,17 +283,18 @@ export async function computeUnuploadedComparison(
                 blobSha: remoteSha,
                 remoteRevision,
                 changeNumber: info.number,
+                platform,
             });
         }
 
         // Build right URI (Local revision)
         let rightUri: Uri;
         if (isLocalMissing) {
-            rightUri = createRevisionUri(jj.workspaceRoot, filePath, 'none');
+            rightUri = createRevisionUri(jj.workspaceRoot, filePath, 'none', platform);
         } else if (logEntry.is_current_working_copy) {
-            rightUri = createRepoFileUri(jj.workspaceRoot, filePath, 'file');
+            rightUri = createRepoFileUri(jj.workspaceRoot, filePath, 'file', { platform });
         } else {
-            rightUri = createRevisionUri(jj.workspaceRoot, filePath, logEntry.commit_id);
+            rightUri = createRevisionUri(jj.workspaceRoot, filePath, logEntry.commit_id, platform);
         }
 
         const oldLabel =
