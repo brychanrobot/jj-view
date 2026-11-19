@@ -39,11 +39,15 @@ export class VsCodeDecorationProvider implements vscode.FileDecorationProvider, 
         if (result instanceof Promise) {
             const promise = result
                 .then((dec) => {
-                    this._pendingPromises.delete(key);
+                    if (this._pendingPromises.get(key) === promise) {
+                        this._pendingPromises.delete(key);
+                    }
                     return this._mapToVsCodeDecoration(dec);
                 })
                 .catch((err: unknown) => {
-                    this._pendingPromises.delete(key);
+                    if (this._pendingPromises.get(key) === promise) {
+                        this._pendingPromises.delete(key);
+                    }
                     throw err;
                 });
             this._pendingPromises.set(key, promise);
@@ -73,6 +77,7 @@ export class VsCodeDecorationProvider implements vscode.FileDecorationProvider, 
     }
 
     dispose(): void {
+        this._pendingPromises.clear();
         this.model.dispose();
         this._onDidChangeFileDecorations.dispose();
         for (const d of this._disposables) {

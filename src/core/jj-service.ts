@@ -372,7 +372,11 @@ export class JjService {
     private _realRoots?: { repoReal: string; workspaceReal: string };
     private _realRootsPromise?: Promise<{ repoReal: string; workspaceReal: string }>;
 
-    private async getWorkspaceReal(): Promise<string> {
+    /**
+     * Resolves and caches the canonical `realpath` of `workspaceRoot`, falling
+     * back to `workspaceRoot` without caching if resolution fails.
+     */
+    async getWorkspaceReal(): Promise<string> {
         if (this._workspaceReal !== undefined) {
             return this._workspaceReal;
         }

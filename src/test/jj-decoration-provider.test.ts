@@ -4,11 +4,17 @@
  */
 
 // sort-imports-ignore (needed so that we can import after `vscode` is mocked)
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as vscode from 'vscode';
-import type { JjService } from '../core/jj-service';
+import { NodeHostFs, NodeHostSystem } from '../core/host/node-host-system';
+import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import type { JjStatusEntry } from '../core/jj-types';
-import type { Uri } from '../core/uri-utils';
+import { Uri } from '../core/uri-utils';
+import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
+import { TestRepo } from './test-repo';
 import { accessPrivate, createMock } from './test-utils';
 
 // Mock vscode
@@ -375,5 +381,443 @@ describe('VsCodeDecorationProvider', () => {
         await p3;
 
         expect(mockJjService.checkTrackedPaths).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not match sibling directories sharing a workspaceRoot prefix', () => {
+        const mockJjService = createMock<JjService>({});
+        provider = createProvider(mockJjService, '/ws');
+        const siblingUri = Uri.file('/ws-other/file.txt');
+        const mockToken = createMock<vscode.CancellationToken>({});
+
+        expect(provider.provideFileDecoration(siblingUri, mockToken)).toBeUndefined();
+    });
+});
+
+describe('VsCodeDecorationProvider symlinked folders (real TestRepo)', () => {
+    const symlinkDirType: fs.symlink.Type = process.platform === 'win32' ? 'junction' : 'dir';
+    let repo: TestRepo | undefined;
+    let activeProvider: VsCodeDecorationProvider | undefined;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        repo = new TestRepo();
+        repo.init();
+    });
+
+    afterEach(async () => {
+        activeProvider?.dispose();
+        activeProvider = undefined;
+        await repo?.dispose();
+        repo = undefined;
+    });
+
+    function getRepo(): TestRepo {
+        if (!repo) {
+            throw new Error('TestRepo not initialized');
+        }
+        return repo;
+    }
+
+    function setupSymlinkRepo(): TestRepo {
+        const currentRepo = getRepo();
+        currentRepo.writeFile('.gitignore', '*.ignored\nignored-dir/\n');
+        currentRepo.writeFile('docs/guide.md', '# Guide\n');
+        currentRepo.writeFile('docs/sub/nested.md', '# Nested\n');
+        currentRepo.writeFile('docs/local.ignored', 'ignored\n');
+        currentRepo.writeFile('docs/ignored-dir/skip.txt', 'ignored dir file\n');
+        currentRepo.writeFile('cli/index.ts', 'export const v = 1;\n');
+        fs.symlinkSync('../docs', path.join(currentRepo.path, 'cli', 'docs'), symlinkDirType);
+        currentRepo.snapshot();
+        currentRepo.describe('base with symlinked docs');
+        currentRepo.new();
+        return currentRepo;
+    }
+
+    it('treats direct children, nested files/dirs, and symlink itself as tracked while keeping .gitignore entries Ignored', async () => {
+        const currentRepo = setupSymlinkRepo();
+        const jjService = new JjService(currentRepo.path, NO_OP_LOGGER);
+        activeProvider = createProvider(jjService, currentRepo.path);
+        const token = createMock<vscode.CancellationToken>({});
+
+        const [
+            symlinkSelfDec,
+            guideDec,
+            nestedDirDec,
+            nestedFileDec,
+            ignoredFileDec,
+            ignoredDirDec,
+            ignoredDirFileDec,
+        ] = await Promise.all([
+            activeProvider.provideFileDecoration(Uri.file(path.join(currentRepo.path, 'cli', 'docs')), token),
+            activeProvider.provideFileDecoration(
+                Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'guide.md')),
+                token,
+            ),
+            activeProvider.provideFileDecoration(Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'sub')), token),
+            activeProvider.provideFileDecoration(
+                Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'sub', 'nested.md')),
+                token,
+            ),
+            activeProvider.provideFileDecoration(
+                Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'local.ignored')),
+                token,
+            ),
+            activeProvider.provideFileDecoration(
+                Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'ignored-dir')),
+                token,
+            ),
+            activeProvider.provideFileDecoration(
+                Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'ignored-dir', 'skip.txt')),
+                token,
+            ),
+        ]);
+
+        expect(symlinkSelfDec).toBeUndefined();
+        expect(guideDec).toBeUndefined();
+        expect(nestedDirDec).toBeUndefined();
+        expect(nestedFileDec).toBeUndefined();
+        expect(ignoredFileDec?.tooltip).toBe('Ignored');
+        expect(ignoredDirDec?.tooltip).toBe('Ignored');
+        expect(ignoredDirFileDec?.tooltip).toBe('Ignored');
+    });
+
+    it('uses fast path with zero realpath calls for normal tracked files and tracked symlinks', async () => {
+        const currentRepo = setupSymlinkRepo();
+        const realpathCalls: string[] = [];
+        class TrackingFs extends NodeHostFs {
+            override async realpath(targetPath: string): Promise<string> {
+                realpathCalls.push(targetPath);
+                return super.realpath(targetPath);
+            }
+        }
+
+        const jjService = new JjService(currentRepo.path, NO_OP_LOGGER, {
+            system: new NodeHostSystem({ fs: new TrackingFs() }),
+        });
+        activeProvider = createProvider(jjService, currentRepo.path);
+        const token = createMock<vscode.CancellationToken>({});
+
+        const [docGuideDec, docNestedDec, cliIndexDec, symEntryDec] = await Promise.all([
+            activeProvider.provideFileDecoration(Uri.file(path.join(currentRepo.path, 'docs', 'guide.md')), token),
+            activeProvider.provideFileDecoration(
+                Uri.file(path.join(currentRepo.path, 'docs', 'sub', 'nested.md')),
+                token,
+            ),
+            activeProvider.provideFileDecoration(Uri.file(path.join(currentRepo.path, 'cli', 'index.ts')), token),
+            activeProvider.provideFileDecoration(Uri.file(path.join(currentRepo.path, 'cli', 'docs')), token),
+        ]);
+
+        expect(docGuideDec).toBeUndefined();
+        expect(docNestedDec).toBeUndefined();
+        expect(cliIndexDec).toBeUndefined();
+        expect(symEntryDec).toBeUndefined();
+        expect(realpathCalls).toHaveLength(0);
+
+        // Lexical miss inside symlinked directory triggers realpath fallback
+        const symGuideDec = await activeProvider.provideFileDecoration(
+            Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'guide.md')),
+            token,
+        );
+        expect(symGuideDec).toBeUndefined();
+        expect(realpathCalls.length).toBeGreaterThan(0);
+    });
+
+    it('safely handles external symlinks, broken/dangling symlinks, and symlink loops as Ignored', async () => {
+        const currentRepo = getRepo();
+        using outsideDir = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-dec-outside-'));
+        fs.writeFileSync(path.join(outsideDir.path, 'secret.txt'), 'outside secret\n');
+        fs.writeFileSync(path.join(outsideDir.path, 'guide.md'), 'outside colliding name\n');
+
+        currentRepo.writeFile('.gitignore', 'cli/ext-untracked\ncli/dangling\ncli/loop\n');
+        currentRepo.writeFile('docs/guide.md', '# Tracked internal guide\n');
+        fs.mkdirSync(path.join(currentRepo.path, 'cli'), { recursive: true });
+        using _trackedExt = new ScopedSymlink(
+            path.join(currentRepo.path, 'cli', 'ext-tracked'),
+            outsideDir.path,
+            symlinkDirType,
+        );
+        using _untrackedExt = new ScopedSymlink(
+            path.join(currentRepo.path, 'cli', 'ext-untracked'),
+            outsideDir.path,
+            symlinkDirType,
+        );
+        using _dangling = new ScopedSymlink(
+            path.join(currentRepo.path, 'cli', 'dangling'),
+            path.join(currentRepo.path, 'nonexistent-target'),
+            symlinkDirType,
+        );
+        currentRepo.snapshot();
+        currentRepo.describe('external and dangling symlinks');
+        currentRepo.new();
+
+        const jjService = new JjService(currentRepo.path, NO_OP_LOGGER);
+        activeProvider = createProvider(jjService, currentRepo.path);
+        const token = createMock<vscode.CancellationToken>({});
+
+        const checks: Array<Promise<vscode.FileDecoration | null | undefined>> = [
+            Promise.resolve(
+                activeProvider.provideFileDecoration(
+                    Uri.file(path.join(currentRepo.path, 'cli', 'ext-tracked')),
+                    token,
+                ),
+            ),
+            Promise.resolve(
+                activeProvider.provideFileDecoration(
+                    Uri.file(path.join(currentRepo.path, 'cli', 'ext-tracked', 'secret.txt')),
+                    token,
+                ),
+            ),
+            Promise.resolve(
+                activeProvider.provideFileDecoration(
+                    Uri.file(path.join(currentRepo.path, 'cli', 'ext-tracked', 'guide.md')),
+                    token,
+                ),
+            ),
+            Promise.resolve(
+                activeProvider.provideFileDecoration(
+                    Uri.file(path.join(currentRepo.path, 'cli', 'ext-untracked')),
+                    token,
+                ),
+            ),
+            Promise.resolve(
+                activeProvider.provideFileDecoration(
+                    Uri.file(path.join(currentRepo.path, 'cli', 'ext-untracked', 'secret.txt')),
+                    token,
+                ),
+            ),
+            Promise.resolve(
+                activeProvider.provideFileDecoration(
+                    Uri.file(path.join(currentRepo.path, 'cli', 'dangling', 'missing.txt')),
+                    token,
+                ),
+            ),
+        ];
+
+        const loopPath = path.join(currentRepo.path, 'cli', 'loop');
+        let loopDisposable: ScopedSymlink | undefined;
+        if (process.platform !== 'win32') {
+            loopDisposable = new ScopedSymlink(loopPath, 'loop', 'dir');
+            checks.push(
+                Promise.resolve(
+                    activeProvider.provideFileDecoration(Uri.file(path.join(loopPath, 'inner.txt')), token),
+                ),
+            );
+        }
+
+        try {
+            const results = await Promise.all(checks);
+            // Tracked external symlink entry itself is preserved as tracked
+            expect(results[0]).toBeUndefined();
+            // Contents of external symlink (even matching a tracked filename) must stay Ignored
+            expect(results[1]?.tooltip).toBe('Ignored');
+            expect(results[2]?.tooltip).toBe('Ignored');
+            // Untracked external symlink and its contents stay Ignored
+            expect(results[3]?.tooltip).toBe('Ignored');
+            expect(results[4]?.tooltip).toBe('Ignored');
+            // Dangling symlink child stays Ignored without throwing
+            expect(results[5]?.tooltip).toBe('Ignored');
+            if (process.platform !== 'win32') {
+                // Symlink loop stays Ignored without throwing
+                expect(results[6]?.tooltip).toBe('Ignored');
+            }
+        } finally {
+            loopDisposable?.[Symbol.dispose]();
+        }
+    });
+
+    it('revalidates symlinked folder entries when target files transition between tracked and ignored', async () => {
+        const currentRepo = getRepo();
+        currentRepo.writeFile('.gitignore', 'dynamic.txt\n');
+        currentRepo.writeFile('docs/dynamic.txt', 'initially ignored\n');
+        currentRepo.writeFile('docs/will-ignore.txt', 'initially tracked\n');
+        fs.mkdirSync(path.join(currentRepo.path, 'cli'), { recursive: true });
+        fs.symlinkSync('../docs', path.join(currentRepo.path, 'cli', 'docs'), symlinkDirType);
+        currentRepo.snapshot();
+
+        const jjService = new JjService(currentRepo.path, NO_OP_LOGGER);
+        activeProvider = createProvider(jjService, currentRepo.path);
+        const fireSpy = vi.spyOn(
+            accessPrivate<vscode.EventEmitter<Uri | Uri[] | undefined>>(activeProvider, '_onDidChangeFileDecorations'),
+            'fire',
+        );
+        const token = createMock<vscode.CancellationToken>({});
+
+        const symDynamicUri = Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'dynamic.txt'));
+        const symWillIgnoreUri = Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'will-ignore.txt'));
+
+        const [initDynamic, initWillIgnore] = await Promise.all([
+            activeProvider.provideFileDecoration(symDynamicUri, token),
+            activeProvider.provideFileDecoration(symWillIgnoreUri, token),
+        ]);
+        expect(initDynamic?.tooltip).toBe('Ignored');
+        expect(initWillIgnore).toBeUndefined();
+
+        // Transition dynamic.txt -> tracked and will-ignore.txt -> ignored
+        currentRepo.writeFile('.gitignore', 'will-ignore.txt\n');
+        currentRepo.untrack('docs/will-ignore.txt');
+        currentRepo.snapshot();
+
+        await activeProvider.model.updateTrackedStatusDecorations();
+
+        expect(fireSpy).toHaveBeenCalledTimes(1);
+        const firedUris = fireSpy.mock.calls[0][0];
+        if (!Array.isArray(firedUris)) {
+            throw new Error('Expected array of changed URIs');
+        }
+        expect(firedUris.some((u) => u.toString() === symDynamicUri.toString())).toBe(true);
+        expect(firedUris.some((u) => u.toString() === symWillIgnoreUri.toString())).toBe(true);
+
+        const afterDynamic = await activeProvider.provideFileDecoration(symDynamicUri, token);
+        const afterWillIgnore = await activeProvider.provideFileDecoration(symWillIgnoreUri, token);
+        expect(afterDynamic).toBeUndefined();
+        expect(afterWillIgnore?.tooltip).toBe('Ignored');
+    });
+
+    it('drops stale overlapping updateTrackedStatusDecorations results when a newer revalidation completes first', async () => {
+        const currentRepo = getRepo();
+        currentRepo.writeFile('.gitignore', 'item.txt\n');
+        currentRepo.writeFile('docs/item.txt', 'content\n');
+        fs.mkdirSync(path.join(currentRepo.path, 'cli'), { recursive: true });
+        fs.symlinkSync('../docs', path.join(currentRepo.path, 'cli', 'docs'), symlinkDirType);
+        currentRepo.snapshot();
+
+        let callCount = 0;
+        let releaseFirstCall: (() => void) | undefined;
+        const firstCallEntered = new Promise<void>((resolve) => {
+            releaseFirstCall = resolve;
+        });
+        let finishFirstCall: ((value: string[]) => void) | undefined;
+
+        class SlowFirstJjService extends JjService {
+            override async checkTrackedPaths(paths: string[]): Promise<string[]> {
+                const actual = await super.checkTrackedPaths(paths);
+                callCount++;
+                // Delay only the lexical-miss or resolved-target revalidation during the first overlapping run
+                if (callCount === 3) {
+                    releaseFirstCall?.();
+                    return new Promise<string[]>((resolve) => {
+                        finishFirstCall = resolve;
+                    });
+                }
+                return actual;
+            }
+        }
+
+        const jjService = new SlowFirstJjService(currentRepo.path, NO_OP_LOGGER);
+        activeProvider = createProvider(jjService, currentRepo.path);
+        const fireSpy = vi.spyOn(
+            accessPrivate<vscode.EventEmitter<Uri | Uri[] | undefined>>(activeProvider, '_onDidChangeFileDecorations'),
+            'fire',
+        );
+        const token = createMock<vscode.CancellationToken>({});
+
+        const symItemUri = Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'item.txt'));
+        // Prime cache (calls 1 & 2) -> Ignored
+        expect((await activeProvider.provideFileDecoration(symItemUri, token))?.tooltip).toBe('Ignored');
+        fireSpy.mockClear();
+
+        // Start overlapping revalidation #1 while item is still ignored
+        const p1 = activeProvider.model.updateTrackedStatusDecorations();
+        await firstCallEntered;
+
+        // Track the file and run revalidation #2 to completion BEFORE #1 settles
+        currentRepo.writeFile('.gitignore', '');
+        currentRepo.snapshot();
+        await activeProvider.model.updateTrackedStatusDecorations();
+        expect(await activeProvider.provideFileDecoration(symItemUri, token)).toBeUndefined();
+
+        // Now resolve stale revalidation #1 with old ignored result; it must be ignored!
+        fireSpy.mockClear();
+        finishFirstCall?.([]);
+        await p1;
+
+        expect(fireSpy).not.toHaveBeenCalled();
+        expect(await activeProvider.provideFileDecoration(symItemUri, token)).toBeUndefined();
+    });
+
+    it('surfaces and updates SCM status decorations for symlinked folder paths', async () => {
+        const currentRepo = setupSymlinkRepo();
+        const jjService = new JjService(currentRepo.path, NO_OP_LOGGER);
+        activeProvider = createProvider(jjService, currentRepo.path);
+        const fireSpy = vi.spyOn(
+            accessPrivate<vscode.EventEmitter<Uri | Uri[] | undefined>>(activeProvider, '_onDidChangeFileDecorations'),
+            'fire',
+        );
+        const token = createMock<vscode.CancellationToken>({});
+
+        const symGuideUri = Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'guide.md'));
+        const symNestedUri = Uri.file(path.join(currentRepo.path, 'cli', 'docs', 'sub', 'nested.md'));
+
+        // 1. Prime cache for symGuideUri before modification
+        expect(await activeProvider.provideFileDecoration(symGuideUri, token)).toBeUndefined();
+        fireSpy.mockClear();
+
+        // 2. Mark docs/guide.md and docs/sub/nested.md as Modified in SCM status
+        const modifiedEntry: JjStatusEntry = { path: 'docs/guide.md', status: 'modified' };
+        const nestedEntry: JjStatusEntry = { path: 'docs/sub/nested.md', status: 'added' };
+        const scmMap = new Map<string, JjStatusEntry>([
+            ['/docs/guide.md', modifiedEntry],
+            [Uri.file(path.join(currentRepo.path, 'docs', 'guide.md')).toString(), modifiedEntry],
+            ['/docs/sub/nested.md', nestedEntry],
+            [Uri.file(path.join(currentRepo.path, 'docs', 'sub', 'nested.md')).toString(), nestedEntry],
+        ]);
+        activeProvider.updateScmAndTrackedStatus(scmMap);
+
+        // Cached symlinked path must receive a change notification
+        expect(fireSpy).toHaveBeenCalled();
+        const notifiedUris = fireSpy.mock.calls.flatMap((call) =>
+            Array.isArray(call[0]) ? call[0] : call[0] ? [call[0]] : [],
+        );
+        expect(notifiedUris.some((u) => u.toString() === symGuideUri.toString())).toBe(true);
+
+        // Both cached (symGuideUri) and uncached (symNestedUri) symlinked paths resolve SCM decorations
+        const guideDec = await activeProvider.provideFileDecoration(symGuideUri, token);
+        const nestedDec = await activeProvider.provideFileDecoration(symNestedUri, token);
+        expect(guideDec?.badge).toBe('M');
+        expect(guideDec?.tooltip).toBe('Modified');
+        expect(nestedDec?.badge).toBe('A');
+        expect(nestedDec?.tooltip).toBe('Added');
+
+        // 3. Clearing SCM decorations notifies cached symlinked alias and clears badge
+        fireSpy.mockClear();
+        activeProvider.updateScmAndTrackedStatus(new Map());
+        const clearedUris = fireSpy.mock.calls.flatMap((call) =>
+            Array.isArray(call[0]) ? call[0] : call[0] ? [call[0]] : [],
+        );
+        expect(clearedUris.some((u) => u.toString() === symGuideUri.toString())).toBe(true);
+        expect(await activeProvider.provideFileDecoration(symGuideUri, token)).toBeUndefined();
+    });
+
+    it('resolves symlinked workspaceRoot, trailing-slash URIs, and chained internal symlinks consistently', async () => {
+        const currentRepo = setupSymlinkRepo();
+        currentRepo.writeFile('shared/info.txt', 'shared info\n');
+        fs.symlinkSync('../shared', path.join(currentRepo.path, 'docs', 'extra'), symlinkDirType);
+        currentRepo.snapshot();
+
+        using tempContainer = new ScopedTempDir(path.join(os.tmpdir(), 'jj-view-dec-wslink-'));
+        const wsLink = path.join(tempContainer.path, 'ws-link');
+        using _wsLink = new ScopedSymlink(wsLink, currentRepo.path, symlinkDirType);
+
+        const jjService = new JjService(wsLink, NO_OP_LOGGER);
+        activeProvider = createProvider(jjService, wsLink);
+        const token = createMock<vscode.CancellationToken>({});
+
+        // Chained symlink inside symlinked workspaceRoot: cli/docs/extra/info.txt -> shared/info.txt
+        const chainedUri = Uri.file(path.join(wsLink, 'cli', 'docs', 'extra', 'info.txt'));
+        expect(await activeProvider.provideFileDecoration(chainedUri, token)).toBeUndefined();
+
+        // Trailing-slash directory URI inside symlinked folder normalizes without mismatch
+        const trailingDirUri = Uri.file(`${path.join(wsLink, 'cli', 'docs', 'sub')}${path.sep}`);
+        expect(await activeProvider.provideFileDecoration(trailingDirUri, token)).toBeUndefined();
+
+        // Canonical workspace path also maps cleanly to tracked & SCM status
+        const canonicalGuideUri = Uri.file(path.join(currentRepo.path, 'docs', 'guide.md'));
+        expect(await activeProvider.provideFileDecoration(canonicalGuideUri, token)).toBeUndefined();
+
+        activeProvider.updateScmAndTrackedStatus(
+            new Map([['/docs/guide.md', { path: 'docs/guide.md', status: 'modified' }]]),
+        );
+        const canonicalScmDec = await activeProvider.provideFileDecoration(canonicalGuideUri, token);
+        expect(canonicalScmDec?.badge).toBe('M');
     });
 });
