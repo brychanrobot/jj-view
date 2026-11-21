@@ -22,6 +22,10 @@ func TestRunUpdateCommandCheckAndApplyAndPluginRefresh(t *testing.T) {
 	const assetName = "jj-view-linux-amd64"
 	t.Setenv("JJ_VIEW_RELEASE_ASSET", assetName)
 
+	origVersion := version
+	version = "3.0.0"
+	defer func() { version = origVersion }()
+
 	newBinaryContent := []byte("#!/bin/sh\necho jj-view-3.2.0\n")
 	sum := sha256.Sum256(newBinaryContent)
 	checksumHex := hex.EncodeToString(sum[:])

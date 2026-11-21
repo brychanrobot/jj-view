@@ -11,7 +11,7 @@ This skill details the process for generating release notes and bumping the vers
 
 Use this skill when the user wants to cut a new release of the extension. It requires reading commit history, determining the next version number, updating the changelog, and preparing a GitHub release link.
 
-**No Verification / Tests Required:** There is no need to run any tests (unit, integration, or E2E), type checks, or linters during release generation.
+**No Verification / Tests Required:** Full unit, integration, E2E, type check, and linter suites are not required during release generation, except running `node tooling/generate-version.ts` (and optionally `go test ./cmd/jj-view -run TestGeneratedVersionMatchesPackageJSON`) to keep `cmd/jj-view/version.generated.go` synchronized with `package.json`.
 
 ## Execution Steps
 
@@ -22,7 +22,8 @@ Use this skill when the user wants to cut a new release of the extension. It req
     - Read all commit messages since the previous tag using `jj log -r '<previous_tag>..@' -T 'description "\n"' --no-graph`.
     - Analyze the commit messages to determine the correct next version (patch, minor, or major bump) based on standard conventions (e.g., `feat:` is minor, `fix:` is patch).
     - Update the `version` field in `package.json` with the new version.
-5.  **Fetch Commits (If No Match):** If they _do not match_, assume the version in `package.json` was already bumped manually and is correct. Fetch the commit messages since the most recent tag using `jj log -r '<previous_tag>..@' -T 'description "\n"' --no-graph`.
+    - Run `node tooling/generate-version.ts` to update `cmd/jj-view/version.generated.go` to match `package.json` (enforced by `TestGeneratedVersionMatchesPackageJSON`).
+5.  **Fetch Commits (If No Match):** If they _do not match_, assume the version in `package.json` was already bumped manually and is correct. Run `node tooling/generate-version.ts` to ensure `cmd/jj-view/version.generated.go` matches `package.json`, and fetch the commit messages since the most recent tag using `jj log -r '<previous_tag>..@' -T 'description "\n"' --no-graph`.
 6.  **Draft Release Notes:** Generate nicely formatted, categorized release notes (e.g., `### Features`, `### Fixes`, `### Performance`, `### Chores & Internal`) from the commits. **CRITICAL:**
     - **Separate Scopes with Explicit Sub-Headings (`#### Common`, `#### VS Code`, `#### Web`):** Within user-facing sections (`### Features`, `### Fixes`, `### Performance`), group entries under `#### Common` (shared across both VS Code and Web, e.g., `src/core/`, `src/webview/`), `#### VS Code` (`src/vscode/`, extension-only changes), and `#### Web` (`web/`, `cmd/`, `internal/`). Omit any scope sub-heading that has no entries in that section. Never mix Web-only changes (such as `@pierre/diffs` viewer features, standalone web tabs, or Go daemon changes) into `#### Common` or `#### VS Code`.
     - **Consolidate Multi-Commit Features & Pre-Release Fixes:** When a new feature is developed and polished across multiple commits within the same release cycle, consolidate it into a high-level summary of the capability rather than narrating every incremental commit. Do not list bug fixes in `### Fixes` for a feature that was introduced in the same release (never previously released).
@@ -35,7 +36,7 @@ Use this skill when the user wants to cut a new release of the extension. It req
           - [Description of change]
       ```
 7.  **Update Changelog:** Update `CHANGELOG.md` by prepending the new version and the drafted release notes.
-8.  **CRITICAL - User Review:** Use the `notify_user` tool to present the proposed changes (updated `CHANGELOG.md` and `package.json`) to the user. **Wait for their approval before proceeding.**
+8.  **CRITICAL - User Review:** Use the `notify_user` tool to present the proposed changes (updated `CHANGELOG.md`, `package.json`, and `cmd/jj-view/version.generated.go`) to the user. **Wait for their approval before proceeding.**
 9.  **Describe Changes:** After user approval, describe the working copy commit using `jj describe -m "chore: bump version to <new_version>"` (or the `jj_describe` MCP tool).
 10. **Open Release URL:** Run `pnpm release:open` (located at `tooling/open-release-url.ts`) to automatically parse the latest release section from `CHANGELOG.md`, construct the GitHub release creation URL, and launch the browser via `xdg-open` (or `open` on macOS / `start` on Windows). This avoids chat markdown link truncation issues when clicking long query URLs.
     - Note: To inspect the URL without launching the browser, use `pnpm release:open --dry-run`.
