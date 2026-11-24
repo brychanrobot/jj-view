@@ -176,6 +176,90 @@ func (sm *SandboxManager) AddAllowedRoot(root string) {
 	sm.allowedRoots = appendRoot(sm.allowedRoots, root)
 }
 
+func normalizeRootKey(p string) string {
+	clean := filepath.Clean(p)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(clean)
+	}
+	return clean
+}
+
+func resolveWithNearestAncestor(abs string) string {
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil && resolved != "" {
+		return filepath.Clean(resolved)
+	}
+	curr := filepath.Clean(abs)
+	var tail []string
+	for {
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			return filepath.Clean(abs)
+		}
+		tail = append(tail, filepath.Base(curr))
+		if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil && resolvedParent != "" {
+			parts := make([]string, 0, 1+len(tail))
+			parts = append(parts, filepath.Clean(resolvedParent))
+			for i := len(tail) - 1; i >= 0; i-- {
+				parts = append(parts, tail[i])
+			}
+			return filepath.Clean(filepath.Join(parts...))
+		}
+		curr = parent
+	}
+}
+
+// RemoveAllowedRoot removes a dynamically added root from the sandbox while
+// always preserving the primary repository root and daemon temporary directory.
+func (sm *SandboxManager) RemoveAllowedRoot(root string) {
+	if strings.TrimSpace(root) == "" {
+		return
+	}
+	candidates := make(map[string]struct{}, 2)
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		abs = filepath.Clean(root)
+	} else {
+		abs = filepath.Clean(abs)
+	}
+	candidates[normalizeRootKey(abs)] = struct{}{}
+	candidates[normalizeRootKey(resolveWithNearestAncestor(abs))] = struct{}{}
+
+	protected := make(map[string]struct{}, 4)
+	for _, base := range []string{sm.repoRoot, sm.daemonTempDir} {
+		if base == "" {
+			continue
+		}
+		cleanBase := filepath.Clean(base)
+		protected[normalizeRootKey(cleanBase)] = struct{}{}
+		protected[normalizeRootKey(resolveWithNearestAncestor(cleanBase))] = struct{}{}
+	}
+
+	removed := false
+	sm.mu.Lock()
+	filtered := make([]string, 0, len(sm.allowedRoots))
+	for _, existing := range sm.allowedRoots {
+		key := normalizeRootKey(existing)
+		resolvedKey := normalizeRootKey(resolveWithNearestAncestor(existing))
+		_, keyCand := candidates[key]
+		_, resCand := candidates[resolvedKey]
+		_, keyProt := protected[key]
+		_, resProt := protected[resolvedKey]
+		isCandidate := keyCand || resCand
+		isProtected := keyProt || resProt
+		if isCandidate && !isProtected {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	sm.allowedRoots = filtered
+	sm.mu.Unlock()
+
+	if removed {
+		sm.InvalidateFileIndex()
+	}
+}
+
 // AllowedRoots returns a copy of all currently allowed sandbox root directories.
 func (sm *SandboxManager) AllowedRoots() []string {
 	sm.mu.RLock()

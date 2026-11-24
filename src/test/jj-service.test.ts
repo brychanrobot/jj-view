@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { ProcessExecOptions, ProcessResult } from '../core/host/host-system';
 import { NodeHostFs, NodeHostProcess, NodeHostSystem } from '../core/host/node-host-system';
 import { JjProcessTracker } from '../core/jj-process-tracker';
+import { JjWorkspaceSchema } from '../core/jj-schemas';
 import { formatRootFileFileset, JjService, NO_OP_LOGGER } from '../core/jj-service';
 import { normalizeDriveLetter } from '../core/uri-utils';
 import { ScopedSymlink, ScopedTempDir } from './scoped-helpers';
@@ -467,13 +468,20 @@ log = "none()"
             expect(fs.existsSync(wsPath)).toBe(true);
         });
 
-        test('getWorkspaces returns all workspace names', async () => {
+        test('getWorkspaces returns all workspace names and target change IDs', async () => {
             await jjService.workspaceAdd(path.join(repo.path, 'ws1'), 'ws1');
             await jjService.workspaceAdd(path.join(repo.path, 'ws_colon'), 'ws:colon');
             await jjService.workspaceAdd(path.join(repo.path, 'ws-dash_under'), 'ws-dash_under');
 
             const workspaces = await jjService.getWorkspaces();
             expect(workspaces.map((w) => w.name).sort()).toEqual(['default', 'ws-dash_under', 'ws1', 'ws:colon']);
+            for (const ws of workspaces) {
+                expect(ws.change_id).toMatch(/^[k-z]{32}$/);
+                expect(ws.change_id_shortest).toBeTruthy();
+                expect(ws.change_id?.startsWith(ws.change_id_shortest ?? '')).toBe(true);
+            }
+
+            expect(JjWorkspaceSchema.parse({ name: 'stale', path: null })).toEqual({ name: 'stale', path: '' });
         });
 
         test('creates a new change with parent', async () => {

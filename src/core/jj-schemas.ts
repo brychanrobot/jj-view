@@ -17,8 +17,15 @@ export type JjBookmark = z.infer<typeof JjBookmarkSchema>;
 export const JjWorkspaceSchema = z.object({
     /** The name of the Jujutsu workspace. */
     name: z.string(),
-    /** The filesystem path to the workspace root. */
-    path: z.string(),
+    /** The filesystem path to the workspace root (empty if unrecorded or stale). */
+    path: z
+        .string()
+        .nullable()
+        .transform((val) => val ?? ''),
+    /** The full change ID of the workspace's working-copy commit. */
+    change_id: z.string().optional(),
+    /** The shortest unique prefix of the workspace's working-copy change ID. */
+    change_id_shortest: z.string().optional(),
 });
 export type JjWorkspace = z.infer<typeof JjWorkspaceSchema>;
 

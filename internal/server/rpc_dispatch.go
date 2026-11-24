@@ -794,10 +794,201 @@ func (s *Server) dispatchWorkspace(ctx context.Context, clientID string, req *pr
 		s.maybeWarmRepoRoot(resolvedPath)
 		return map[string]any{"success": true, "path": resolvedPath}, nil
 
+	case "workspace.delete":
+		var params struct {
+			RepoRoot      string `json:"repoRoot"`
+			WorkspaceName string `json:"workspaceName"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: err.Error()}
+		}
+		return s.deleteWorkspace(ctx, params.RepoRoot, params.WorkspaceName)
+
 	default:
 		return nil, &protocol.RPCError{
 			Code:    protocol.CodeMethodNotFound,
 			Message: fmt.Sprintf("method not found: %s", req.Method),
 		}
 	}
+}
+
+func canonicalizeWorkspacePath(p string) (string, string) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = filepath.Clean(p)
+	} else {
+		abs = filepath.Clean(abs)
+	}
+	canonical := abs
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil && resolved != "" {
+		canonical = filepath.Clean(resolved)
+	}
+	return abs, canonical
+}
+
+func isFilesystemRoot(p string) bool {
+	clean := filepath.Clean(p)
+	vol := filepath.VolumeName(clean)
+	return clean == "/" || clean == vol || clean == vol+`\` || clean == vol+"/"
+}
+
+func isSameOrAncestorPath(ancestor string, target string) bool {
+	cleanAncestor := filepath.Clean(ancestor)
+	cleanTarget := filepath.Clean(target)
+	if runtime.GOOS == "windows" {
+		cleanAncestor = strings.ToLower(cleanAncestor)
+		cleanTarget = strings.ToLower(cleanTarget)
+	}
+	rel, err := filepath.Rel(cleanAncestor, cleanTarget)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !strings.HasPrefix(rel, "../"))
+}
+
+func formatExecError(err error) string {
+	var exitErr *process.ProcessExitError
+	if errors.As(err, &exitErr) {
+		if trimmed := strings.TrimSpace(exitErr.Stderr); trimmed != "" {
+			return trimmed
+		}
+		if trimmed := strings.TrimSpace(exitErr.Stdout); trimmed != "" {
+			return trimmed
+		}
+		return exitErr.Message
+	}
+	return err.Error()
+}
+
+func (s *Server) deleteWorkspace(ctx context.Context, rawRepoRoot string, rawWorkspaceName string) (any, *protocol.RPCError) {
+	repoRoot := strings.TrimSpace(rawRepoRoot)
+	workspaceName := strings.TrimSpace(rawWorkspaceName)
+	if repoRoot == "" || workspaceName == "" {
+		return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: "repoRoot and workspaceName are required"}
+	}
+
+	validatedRepoRoot, err := s.fsMgr.ValidatePath(repoRoot)
+	if err != nil {
+		return nil, &protocol.RPCError{Code: protocol.CodeSecurityError, Message: err.Error()}
+	}
+	repoInfo, err := os.Stat(validatedRepoRoot)
+	if err != nil || !repoInfo.IsDir() {
+		return nil, &protocol.RPCError{Code: protocol.CodeInvalidParams, Message: "repoRoot does not exist or is not a directory"}
+	}
+
+	rootRes, err := s.procMgr.ExecFile(ctx, process.ExecParams{
+		File: "jj",
+		Args: []string{"--config", "ui.color=never", "--config", "ui.paginate=never", "workspace", "root", "--ignore-working-copy", "--name=" + workspaceName},
+		Cwd:  validatedRepoRoot,
+	})
+	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil, &protocol.RPCError{Code: protocol.CodeRequestCancelled, Message: "request cancelled"}
+		}
+		return nil, &protocol.RPCError{
+			Code:    protocol.CodeInternalError,
+			Message: fmt.Sprintf("Could not find workspace directory (%s)", formatExecError(err)),
+		}
+	}
+
+	rawDirPath := strings.TrimSpace(rootRes.Stdout)
+	if rawDirPath == "" {
+		return nil, &protocol.RPCError{
+			Code:    protocol.CodeInternalError,
+			Message: "Could not find workspace directory",
+		}
+	}
+	if !filepath.IsAbs(rawDirPath) {
+		rawDirPath = filepath.Join(validatedRepoRoot, rawDirPath)
+	}
+
+	dirAbs, dirCanonical := canonicalizeWorkspacePath(rawDirPath)
+	repoAbs, repoCanonical := canonicalizeWorkspacePath(validatedRepoRoot)
+	cfgRepoAbs, cfgRepoCanonical := canonicalizeWorkspacePath(s.cfg.RepoRoot)
+
+	if isFilesystemRoot(dirAbs) || isFilesystemRoot(dirCanonical) {
+		return nil, &protocol.RPCError{Code: protocol.CodeSecurityError, Message: "Cannot remove filesystem root"}
+	}
+	if isSameOrAncestorPath(dirCanonical, repoCanonical) ||
+		isSameOrAncestorPath(dirCanonical, cfgRepoCanonical) ||
+		isSameOrAncestorPath(dirAbs, repoAbs) ||
+		isSameOrAncestorPath(dirAbs, cfgRepoAbs) {
+		return nil, &protocol.RPCError{
+			Code:    protocol.CodeSecurityError,
+			Message: "Cannot delete the active workspace directory or a parent containing it",
+		}
+	}
+
+	dirExists := false
+	fi, lstatErr := os.Lstat(dirAbs)
+	if lstatErr == nil {
+		dirExists = true
+		if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+			return nil, &protocol.RPCError{
+				Code:    protocol.CodeSecurityError,
+				Message: "Refusing to delete non-directory workspace path",
+			}
+		}
+		if mainRepoFi, err := os.Lstat(filepath.Join(dirAbs, ".jj", "repo")); err == nil && mainRepoFi.IsDir() {
+			return nil, &protocol.RPCError{
+				Code:    protocol.CodeSecurityError,
+				Message: "Cannot delete the main repository workspace directory containing .jj/repo",
+			}
+		}
+		if jjFi, err := os.Lstat(filepath.Join(dirAbs, ".jj")); err != nil || !jjFi.IsDir() {
+			return nil, &protocol.RPCError{
+				Code:    protocol.CodeSecurityError,
+				Message: "Refusing to delete directory without .jj metadata",
+			}
+		}
+	} else if !os.IsNotExist(lstatErr) {
+		return nil, &protocol.RPCError{
+			Code:    protocol.CodeInternalError,
+			Message: fmt.Sprintf("Failed to inspect workspace directory %q: %v", dirAbs, lstatErr),
+		}
+	}
+
+	if _, err := s.procMgr.ExecFile(ctx, process.ExecParams{
+		File: "jj",
+		Args: []string{"--config", "ui.color=never", "--config", "ui.paginate=never", "workspace", "forget", "--", workspaceName},
+		Cwd:  validatedRepoRoot,
+	}); err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil, &protocol.RPCError{Code: protocol.CodeRequestCancelled, Message: "request cancelled"}
+		}
+		return nil, &protocol.RPCError{
+			Code:    protocol.CodeInternalError,
+			Message: formatExecError(err),
+		}
+	}
+
+	if s.configStore != nil {
+		s.configStore.UnwatchWorkspaceRoot(dirAbs)
+		if dirCanonical != dirAbs {
+			s.configStore.UnwatchWorkspaceRoot(dirCanonical)
+		}
+	}
+
+	if dirExists {
+		if err := os.RemoveAll(dirAbs); err != nil {
+			return nil, &protocol.RPCError{
+				Code:    protocol.CodeInternalError,
+				Message: fmt.Sprintf("Workspace was forgotten, but failed to remove directory %q: %v", dirAbs, err),
+			}
+		}
+	}
+
+	s.fsMgr.RemoveAllowedRoot(dirAbs)
+	deletedPaths := []string{dirAbs}
+	if dirCanonical != dirAbs {
+		s.fsMgr.RemoveAllowedRoot(dirCanonical)
+		deletedPaths = append(deletedPaths, dirCanonical)
+	}
+	s.fsMgr.InvalidateFileIndex()
+
+	return map[string]any{
+		"success":      true,
+		"deletedPath":  dirAbs,
+		"deletedPaths": deletedPaths,
+	}, nil
 }

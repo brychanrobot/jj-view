@@ -443,6 +443,46 @@ func (s *Store) WatchWorkspaceRoot(workspaceRoot string) {
 	}
 }
 
+// UnwatchWorkspaceRoot removes a workspace root from the config store and stops
+// watching its directory and config subdirectories before directory deletion.
+func (s *Store) UnwatchWorkspaceRoot(workspaceRoot string) {
+	if strings.TrimSpace(workspaceRoot) == "" {
+		return
+	}
+	cleaned := filepath.Clean(workspaceRoot)
+
+	s.mu.Lock()
+	if runtime.GOOS == "windows" {
+		targetLower := strings.ToLower(cleaned)
+		for k := range s.workspaces {
+			if strings.ToLower(k) == targetLower {
+				delete(s.workspaces, k)
+			}
+		}
+	} else {
+		delete(s.workspaces, cleaned)
+	}
+	s.mu.Unlock()
+
+	watchTargets := []string{
+		cleaned,
+		filepath.Join(cleaned, ".jj-view"),
+		filepath.Join(cleaned, ".vscode"),
+	}
+
+	s.watchMu.Lock()
+	for _, dir := range watchTargets {
+		delete(s.watchedDirs, dir)
+	}
+	s.watchMu.Unlock()
+
+	if s.watcher != nil {
+		for _, dir := range watchTargets {
+			_ = s.watcher.Remove(dir)
+		}
+	}
+}
+
 func normalizeKey(k string) string {
 	return strings.TrimPrefix(k, "jj-view.")
 }
@@ -1070,6 +1110,12 @@ func (s *Store) watchAddLoop() {
 		case <-s.done:
 			return
 		case dir := <-s.watchAddCh:
+			s.watchMu.Lock()
+			stillWanted := s.watchedDirs[dir]
+			s.watchMu.Unlock()
+			if !stillWanted {
+				continue
+			}
 			if err := s.watcher.Add(dir); err != nil {
 				s.watchMu.Lock()
 				delete(s.watchedDirs, dir)

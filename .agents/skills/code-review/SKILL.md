@@ -135,6 +135,8 @@ categories:
         nesting 4–5 levels of `if` statements.
     -   Place all imports at the top of the file.
 -   **Share Host-Agnostic Payload Extraction in `src/core/commands/command-utils.ts`**: Extract pure helpers taking `readonly string[]` (e.g. `extractSelectedOrArgRevisions`) so VS Code and Web payload adapters share identical single-commit, multi-selection, SCM group, and Command Palette behavior without duplication.
+-   **Never Fall Back to `extractRevision` in Entity-Specific Context Extractors (Anti-Pattern)**: Because `MenuRegistry` merges ancestor `CommitNode` `data-vscode-context` (`changeId`, `commitId`) into child pill contexts, dedicated extractors (`extractWorkspaceName`, `extractBookmarkName`) must check entity-specific keys and return `undefined` when missing rather than falling back to `extractRevision`.
+-   **Keep Destructive Safety Guards Symmetric Across Host Paths**: Never enforce pre-deletion checks (active workspace, `.jj/repo` store, symlink, filesystem-root guards) solely in the Go daemon RPC while leaving the TypeScript/Node fallback unguarded.
 
 ### 3. Component Lifecycle, Shadow DOM & Virtualized Rendering
 
@@ -195,6 +197,7 @@ categories:
 -   **Lexical Fast-Path Symlink Fallback & Monotonic Revalidation Guards**: When checking tracked/containment status across workspace entries, query lexical workspace-relative paths first (zero `realpath` calls for normal files/tracked symlinks) and run `resolvePathAgainstRealRootAsync` only on misses; guard overlapping fire-and-forget revalidations with a dedicated monotonic revalidation counter alongside identity-guarded `.then`/`.catch` map cleanup.
 -   **Platform-Gated Path Helpers Over Unconditional `pathe` / Backslash Normalization (`Anti-Pattern`)**: Because `\` is valid inside POSIX filenames while `pathe` and `.replace(/\\/g, '/')` unconditionally convert `\` to `/`, use platform-aware helpers in `src/core/path-utils.ts` (handling UNC `//server/share` roots cleanly) and `runtime.GOOS == "windows"` in Go, threading `HostPlatform` into browser components where `process.platform` is `undefined`.
 -   **Boundary-Checked URI Prefixes & Exact Fileset Restoration**: Prefix-based workspace/URI mappers (`createRevisionUri`, `getWorkspaceRelativePath`) must normalize `..` segments, gate case-insensitive matching on `win32`/`darwin`, and enforce a separator boundary after the root, while single-file commands (`restore`, `hasFileAtRevision`) must pass `'--'` plus `root-file:"..."` exact filesets rather than prefix globs.
+-   **Unwatch Config Handles & Normalize Sandbox Root Removal**: Unwatch `configStore` handles before `os.RemoveAll`, and normalize Windows casing (`strings.ToLower` on `runtime.GOOS == "windows"`) plus nearest-ancestor symlink resolution in `SandboxManager.RemoveAllowedRoot` so post-delete cleanup removes canonical and lexical entries alike.
 
 ### 4. Testing & Visual Verification Quality
 

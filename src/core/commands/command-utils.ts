@@ -305,6 +305,29 @@ export function extractBookmarkName(args: unknown[]): string | undefined {
     return undefined;
 }
 
+/**
+ * Extracts a workspace name from a string argument or context/payload object,
+ * checking `workspaceName` before `name` and never falling back to revision IDs.
+ */
+export function extractWorkspaceName(args: unknown[]): string | undefined {
+    const firstArg = args?.[0];
+
+    if (typeof firstArg === 'string') {
+        return firstArg.trim() || undefined;
+    }
+
+    if (firstArg && typeof firstArg === 'object' && !Array.isArray(firstArg)) {
+        if ('workspaceName' in firstArg && typeof firstArg.workspaceName === 'string') {
+            return firstArg.workspaceName.trim() || undefined;
+        }
+        if ('name' in firstArg && typeof firstArg.name === 'string') {
+            return firstArg.name.trim() || undefined;
+        }
+    }
+
+    return undefined;
+}
+
 export interface ScmResourceGroup {
     id: string;
     label?: string;

@@ -483,6 +483,9 @@ export class ChangeDetectionManager implements HostDisposable {
                 : this.workspaceRoot;
 
             for (const ws of workspaceList) {
+                if (!ws.path) {
+                    continue;
+                }
                 const wsReal = hostFs ? await hostFs.realpath(ws.path).catch(() => ws.path) : ws.path;
                 if (wsReal !== rootReal) {
                     const platform = this.host.system?.platform;

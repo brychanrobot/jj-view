@@ -28,29 +28,38 @@ describe('workspaceForgetCommand', () => {
         ctx = new FakeCommandContext(mockJjRepo);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         vi.clearAllMocks();
+        await repo.dispose();
     });
 
-    test('forgets the workspace when confirmed', async () => {
+    test('forgets the workspace when confirmed and includes shortest change ID', async () => {
         repo.workspaceAdd('feature');
+        const fullChangeId = repo.getLog('feature@', 'change_id').trim();
+        const shortestChangeId = repo.getLog('feature@', 'change_id.shortest()').trim();
         const YES = 'Yes, Forget Workspace';
         ctx.host.ui.setNextWarningResponse(YES);
 
         await workspaceForgetCommand(ctx, { workspaceName: 'feature' });
 
-        expect(ctx.host.ui.warningMessages[0]).toContain('Are you sure you want to forget the workspace "feature"?');
+        expect(ctx.host.ui.warningMessages[0]).toContain(
+            `Are you sure you want to forget workspace "feature" (change ${shortestChangeId})?`,
+        );
+        expect(ctx.host.ui.warningMessages[0]).not.toContain(fullChangeId);
         expect(repo.listWorkspaces()).not.toContain('feature');
         expect(mockJjRepo.refresh).toHaveBeenCalled();
     });
 
     test('does not forget the workspace when not confirmed', async () => {
         repo.workspaceAdd('feature');
+        const shortestChangeId = repo.getLog('feature@', 'change_id.shortest()').trim();
         ctx.host.ui.setNextWarningResponse(undefined);
 
         await workspaceForgetCommand(ctx, { workspaceName: 'feature' });
 
-        expect(ctx.host.ui.warningMessages[0]).toContain('Are you sure you want to forget the workspace "feature"?');
+        expect(ctx.host.ui.warningMessages[0]).toContain(
+            `Are you sure you want to forget workspace "feature" (change ${shortestChangeId})?`,
+        );
         expect(repo.listWorkspaces()).toContain('feature');
         expect(mockJjRepo.refresh).not.toHaveBeenCalled();
     });
@@ -69,7 +78,7 @@ describe('workspaceForgetCommand', () => {
         expect(repo.listWorkspaces()).toContain('feature-2');
     });
 
-    test('handles errors during workspace forget and displays error', async () => {
+    test('handles errors during workspace forget and displays error with workspace name', async () => {
         const YES = 'Yes, Forget Workspace';
         const brokenJj = new JjService(repo.path, NO_OP_LOGGER, { binaryPath: '/non/existent/jj' });
         const brokenRepo = createMock<JjRepository>({
@@ -82,6 +91,6 @@ describe('workspaceForgetCommand', () => {
         await workspaceForgetCommand(brokenCtx, { workspaceName: 'feature' });
 
         expect(brokenCtx.host.ui.errorMessages).toHaveLength(1);
-        expect(brokenCtx.host.ui.errorMessages[0]).toContain('Workspace Forget Error');
+        expect(brokenCtx.host.ui.errorMessages[0]).toContain('Failed to forget workspace "feature":');
     });
 });

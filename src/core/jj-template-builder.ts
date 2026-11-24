@@ -169,4 +169,9 @@ export const BOOKMARK_SCHEMA: Record<string, JjTemplateField> = {
 export const WORKSPACE_SCHEMA: Record<string, JjTemplateField> = {
     name: { type: 'json', expr: 'name' },
     path: { type: 'json', expr: 'root' },
+    change_id: {
+        type: 'string',
+        expr: 'if(target.divergent() || target.hidden(), target.change_id() ++ "/" ++ target.change_offset(), target.change_id())',
+    },
+    change_id_shortest: { type: 'string', expr: 'target.change_id().shortest()' },
 };

@@ -1409,6 +1409,32 @@ export class RemoteHostSystem implements HostSystem {
         await this.request('workspace.addAllowedRoot', { path });
     }
 
+    public async deleteWorkspace(repoRoot: string, workspaceName: string): Promise<void> {
+        const res = await this.request<{ success: boolean; deletedPath?: string; deletedPaths?: string[] }>(
+            'workspace.delete',
+            {
+                repoRoot,
+                workspaceName,
+            },
+        );
+        const removed = new Set<string>();
+        for (const p of res.deletedPaths ?? (res.deletedPath ? [res.deletedPath] : [])) {
+            const key = this._platform === 'win32' ? p.toLowerCase() : p;
+            removed.add(key);
+        }
+        if (removed.size > 0) {
+            for (const existing of Array.from(this._allowedRoots)) {
+                const key = this._platform === 'win32' ? existing.toLowerCase() : existing;
+                if (removed.has(key)) {
+                    this._allowedRoots.delete(existing);
+                }
+            }
+        }
+        if (this.fs instanceof RemoteHostFs) {
+            this.fs.clearRealpathCache();
+        }
+    }
+
     public onUpdateAvailable(listener: (info: SystemUpdateInfo) => void): { dispose: () => void } {
         this._updateListeners.add(listener);
         return {

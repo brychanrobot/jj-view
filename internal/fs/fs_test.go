@@ -189,3 +189,77 @@ func TestFileOperations(t *testing.T) {
 		t.Fatal("expected error when trying to remove repoRoot, got nil")
 	}
 }
+
+func TestRemoveAllowedRoot(t *testing.T) {
+	tempRepo := t.TempDir()
+	extraRoot := t.TempDir()
+
+	sm, err := NewSandboxManager(tempRepo)
+	if err != nil {
+		t.Fatalf("failed to create sandbox manager: %v", err)
+	}
+
+	sm.AddAllowedRoot(extraRoot)
+	if !sm.Exists(extraRoot) {
+		t.Fatalf("expected extraRoot to be allowed after AddAllowedRoot")
+	}
+
+	// Removing extraRoot removes it from allowedRoots
+	sm.RemoveAllowedRoot(extraRoot)
+	if sm.Exists(extraRoot) {
+		t.Fatalf("expected extraRoot to no longer be allowed after RemoveAllowedRoot")
+	}
+
+	// Attempting to remove repoRoot or daemonTempDir must be ignored
+	sm.RemoveAllowedRoot(tempRepo)
+	sm.RemoveAllowedRoot(sm.DaemonTempDir())
+
+	if !sm.Exists(tempRepo) {
+		t.Fatalf("expected repoRoot to remain allowed")
+	}
+	if !sm.Exists(sm.DaemonTempDir()) {
+		t.Fatalf("expected daemonTempDir to remain allowed")
+	}
+
+	if runtime.GOOS != "windows" {
+		symParent := t.TempDir()
+		realParent := t.TempDir()
+		linkParent := filepath.Join(symParent, "linked")
+		if err := os.Symlink(realParent, linkParent); err != nil {
+			t.Fatalf("symlink failed: %v", err)
+		}
+		realWs := filepath.Join(realParent, "ws")
+		if err := os.MkdirAll(realWs, 0755); err != nil {
+			t.Fatalf("mkdir realWs: %v", err)
+		}
+		linkWs := filepath.Join(linkParent, "ws")
+		sm.AddAllowedRoot(linkWs)
+		if err := os.RemoveAll(realWs); err != nil {
+			t.Fatalf("remove realWs: %v", err)
+		}
+		// RemoveAllowedRoot with the symlinked path after deletion still removes canonical realWs
+		sm.RemoveAllowedRoot(linkWs)
+		for _, root := range sm.AllowedRoots() {
+			if root == linkWs || root == realWs {
+				t.Fatalf("expected %q and %q to be removed from AllowedRoots, got %v", linkWs, realWs, sm.AllowedRoots())
+			}
+		}
+
+		// Conversely, RemoveAllowedRoot with the canonical path after deletion also removes the symlinked entry
+		realWs2 := filepath.Join(realParent, "ws2")
+		if err := os.MkdirAll(realWs2, 0755); err != nil {
+			t.Fatalf("mkdir realWs2: %v", err)
+		}
+		linkWs2 := filepath.Join(linkParent, "ws2")
+		sm.AddAllowedRoot(linkWs2)
+		if err := os.RemoveAll(realWs2); err != nil {
+			t.Fatalf("remove realWs2: %v", err)
+		}
+		sm.RemoveAllowedRoot(realWs2)
+		for _, root := range sm.AllowedRoots() {
+			if root == linkWs2 || root == realWs2 {
+				t.Fatalf("expected %q and %q to be removed from AllowedRoots, got %v", linkWs2, realWs2, sm.AllowedRoots())
+			}
+		}
+	}
+}

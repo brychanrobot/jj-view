@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -394,4 +395,232 @@ func TestRPCDispatch_WorkspaceDomain(t *testing.T) {
 	if !ok || mValid["success"] != true {
 		t.Fatalf("expected success=true, got %v", resValid)
 	}
+}
+
+func TestWorkspaceDeleteRPC(t *testing.T) {
+	if _, err := exec.LookPath("jj"); err != nil {
+		t.Skip("jj executable not found on PATH")
+	}
+
+	parentDir := t.TempDir()
+	mainRepoDir := filepath.Join(parentDir, "main-repo")
+	if err := os.MkdirAll(mainRepoDir, 0755); err != nil {
+		t.Fatalf("mkdir mainRepoDir: %v", err)
+	}
+
+	runJJ := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("jj", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"JJ_USER=Test User",
+			"JJ_EMAIL=test@example.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("jj %v in %s failed: %v\n%s", args, dir, err, string(out))
+		}
+		return string(out)
+	}
+
+	runJJ(mainRepoDir, "git", "init")
+	if err := os.MkdirAll(filepath.Join(mainRepoDir, ".workspaces"), 0755); err != nil {
+		t.Fatalf("mkdir .workspaces: %v", err)
+	}
+	nestedWsDir := filepath.Join(mainRepoDir, ".workspaces", "nested-ws")
+	siblingWsDir := filepath.Join(parentDir, "sibling-ws")
+	allowedSiblingWsDir := filepath.Join(parentDir, "allowed-sibling-ws")
+	activeSecondaryWsDir := filepath.Join(parentDir, "active-secondary-ws")
+
+	runJJ(mainRepoDir, "workspace", "add", nestedWsDir, "--name", "nested-ws")
+	runJJ(mainRepoDir, "workspace", "add", siblingWsDir, "--name", "sibling-ws")
+	runJJ(mainRepoDir, "workspace", "add", allowedSiblingWsDir, "--name", "allowed-sibling-ws")
+	runJJ(mainRepoDir, "workspace", "add", activeSecondaryWsDir, "--name", "active-secondary-ws")
+
+	callDelete := func(srv *Server, id string, repoRoot string, workspaceName string) (any, *protocol.RPCError) {
+		t.Helper()
+		params, _ := json.Marshal(map[string]string{
+			"repoRoot":      repoRoot,
+			"workspaceName": workspaceName,
+		})
+		return srv.dispatch(context.Background(), "c1", &protocol.Request{
+			JSONRPC: "2.0",
+			ID:      rawRPCID(id),
+			Method:  "workspace.delete",
+			Params:  params,
+		})
+	}
+
+	hasWorkspace := func(wsList string, name string) bool {
+		for _, line := range strings.Split(wsList, "\n") {
+			if strings.HasPrefix(line, name+":") || strings.HasPrefix(line, name+" (") {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("from main repo: nested, sibling, allowed sibling, active, and invalid cases", func(t *testing.T) {
+		srv, err := NewServer(Config{
+			RepoRoot:    mainRepoDir,
+			UserDataDir: filepath.Join(parentDir, "user-data-main"),
+		})
+		if err != nil {
+			t.Fatalf("NewServer: %v", err)
+		}
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = srv.Close(closeCtx)
+		}()
+
+		// 1. Delete nested workspace
+		res, rpcErr := callDelete(srv, "1", mainRepoDir, "nested-ws")
+		if rpcErr != nil {
+			t.Fatalf("delete nested-ws failed: %+v", rpcErr)
+		}
+		if m, ok := res.(map[string]any); !ok || m["success"] != true {
+			t.Fatalf("expected success=true, got %v", res)
+		} else if paths, ok := m["deletedPaths"].([]string); !ok || len(paths) == 0 {
+			t.Fatalf("expected non-empty deletedPaths, got %v", m["deletedPaths"])
+		}
+		if _, err := os.Stat(nestedWsDir); !os.IsNotExist(err) {
+			t.Fatalf("expected nestedWsDir to be deleted, stat err=%v", err)
+		}
+		wsList := runJJ(mainRepoDir, "workspace", "list")
+		if hasWorkspace(wsList, "nested-ws") {
+			t.Fatalf("expected nested-ws to be forgotten, got:\n%s", wsList)
+		}
+
+		// 1b. Missing workspace directory on disk: matches installed jj's `workspace root` behavior
+		staleWsDir := filepath.Join(mainRepoDir, ".workspaces", "stale-ws")
+		runJJ(mainRepoDir, "workspace", "add", staleWsDir, "--name", "stale-ws")
+		if err := os.RemoveAll(staleWsDir); err != nil {
+			t.Fatalf("remove staleWsDir: %v", err)
+		}
+		probeCmd := exec.Command("jj", "workspace", "root", "--ignore-working-copy", "--name=stale-ws")
+		probeCmd.Dir = mainRepoDir
+		_, probeErr := probeCmd.CombinedOutput()
+		_, rpcErr = callDelete(srv, "1b", mainRepoDir, "stale-ws")
+		wsList = runJJ(mainRepoDir, "workspace", "list")
+		if probeErr == nil {
+			if rpcErr != nil {
+				t.Fatalf("expected stale-ws delete to succeed when jj resolves root, got %+v", rpcErr)
+			}
+			if hasWorkspace(wsList, "stale-ws") {
+				t.Fatalf("expected stale-ws to be forgotten, got:\n%s", wsList)
+			}
+		} else {
+			if rpcErr == nil || !strings.Contains(rpcErr.Message, "Could not find workspace directory") {
+				t.Fatalf("expected 'Could not find workspace directory' error for stale-ws, got %+v", rpcErr)
+			}
+			if !hasWorkspace(wsList, "stale-ws") {
+				t.Fatalf("expected stale-ws to remain tracked when directory is missing, got:\n%s", wsList)
+			}
+			runJJ(mainRepoDir, "workspace", "forget", "stale-ws")
+		}
+
+		// 2. Delete sibling workspace outside mainRepoDir
+		if _, rpcErr := callDelete(srv, "2", mainRepoDir, "sibling-ws"); rpcErr != nil {
+			t.Fatalf("delete sibling-ws failed: %+v", rpcErr)
+		}
+		if _, err := os.Stat(siblingWsDir); !os.IsNotExist(err) {
+			t.Fatalf("expected siblingWsDir to be deleted, stat err=%v", err)
+		}
+		wsList = runJJ(mainRepoDir, "workspace", "list")
+		if hasWorkspace(wsList, "sibling-ws") {
+			t.Fatalf("expected sibling-ws to be forgotten, got:\n%s", wsList)
+		}
+
+		// 3. Delete workspace previously registered via workspace.addAllowedRoot
+		addParams, _ := json.Marshal(map[string]string{"path": allowedSiblingWsDir})
+		if _, rpcErr := srv.dispatch(context.Background(), "c1", &protocol.Request{
+			JSONRPC: "2.0",
+			ID:      rawRPCID("3a"),
+			Method:  "workspace.addAllowedRoot",
+			Params:  addParams,
+		}); rpcErr != nil {
+			t.Fatalf("addAllowedRoot failed: %+v", rpcErr)
+		}
+		if _, rpcErr := callDelete(srv, "3b", mainRepoDir, "allowed-sibling-ws"); rpcErr != nil {
+			t.Fatalf("delete allowed-sibling-ws failed: %+v", rpcErr)
+		}
+		if _, err := os.Stat(allowedSiblingWsDir); !os.IsNotExist(err) {
+			t.Fatalf("expected allowedSiblingWsDir to be deleted, stat err=%v", err)
+		}
+		canonicalAllowed, _ := filepath.EvalSymlinks(allowedSiblingWsDir)
+		for _, root := range srv.fsMgr.AllowedRoots() {
+			if root == allowedSiblingWsDir || (canonicalAllowed != "" && root == canonicalAllowed) {
+				t.Fatalf("expected allowedSiblingWsDir to be removed from AllowedRoots, got %v", srv.fsMgr.AllowedRoots())
+			}
+		}
+
+		// 4. Reject invalid params, outside repoRoot, unknown workspace, and active workspace
+		if _, rpcErr := callDelete(srv, "4a", "", "default"); rpcErr == nil || rpcErr.Code != protocol.CodeInvalidParams {
+			t.Fatalf("expected CodeInvalidParams for empty repoRoot, got %+v", rpcErr)
+		}
+		if _, rpcErr := callDelete(srv, "4b", mainRepoDir, ""); rpcErr == nil || rpcErr.Code != protocol.CodeInvalidParams {
+			t.Fatalf("expected CodeInvalidParams for empty workspaceName, got %+v", rpcErr)
+		}
+		outsideDir := t.TempDir()
+		if _, rpcErr := callDelete(srv, "4c", outsideDir, "default"); rpcErr == nil || rpcErr.Code != protocol.CodeSecurityError {
+			t.Fatalf("expected CodeSecurityError for unallowed repoRoot, got %+v", rpcErr)
+		}
+		if _, rpcErr := callDelete(srv, "4d", mainRepoDir, "does-not-exist"); rpcErr == nil {
+			t.Fatalf("expected error for unknown workspace")
+		}
+		if _, rpcErr := callDelete(srv, "4e", mainRepoDir, "default"); rpcErr == nil || rpcErr.Code != protocol.CodeSecurityError {
+			t.Fatalf("expected CodeSecurityError when deleting active default workspace, got %+v", rpcErr)
+		}
+		if _, err := os.Stat(mainRepoDir); err != nil {
+			t.Fatalf("expected mainRepoDir to still exist: %v", err)
+		}
+		wsList = runJJ(mainRepoDir, "workspace", "list")
+		if !hasWorkspace(wsList, "default") {
+			t.Fatalf("expected default workspace to remain tracked, got:\n%s", wsList)
+		}
+	})
+
+	t.Run("from secondary workspace: deletes sibling and refuses deleting main repo owning .jj/repo", func(t *testing.T) {
+		anotherSiblingDir := filepath.Join(parentDir, "another-sibling-ws")
+		runJJ(mainRepoDir, "workspace", "add", anotherSiblingDir, "--name", "another-sibling-ws")
+
+		srv, err := NewServer(Config{
+			RepoRoot:    activeSecondaryWsDir,
+			UserDataDir: filepath.Join(parentDir, "user-data-secondary"),
+		})
+		if err != nil {
+			t.Fatalf("NewServer: %v", err)
+		}
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = srv.Close(closeCtx)
+		}()
+
+		// Can delete another sibling workspace
+		if _, rpcErr := callDelete(srv, "5a", activeSecondaryWsDir, "another-sibling-ws"); rpcErr != nil {
+			t.Fatalf("delete another-sibling-ws from secondary workspace failed: %+v", rpcErr)
+		}
+		if _, err := os.Stat(anotherSiblingDir); !os.IsNotExist(err) {
+			t.Fatalf("expected anotherSiblingDir to be deleted, stat err=%v", err)
+		}
+
+		// Refuses deleting active secondary workspace
+		if _, rpcErr := callDelete(srv, "5b", activeSecondaryWsDir, "active-secondary-ws"); rpcErr == nil || rpcErr.Code != protocol.CodeSecurityError {
+			t.Fatalf("expected CodeSecurityError for active secondary workspace, got %+v", rpcErr)
+		}
+
+		// Refuses deleting main workspace containing .jj/repo directory
+		if _, rpcErr := callDelete(srv, "5c", activeSecondaryWsDir, "default"); rpcErr == nil || rpcErr.Code != protocol.CodeSecurityError {
+			t.Fatalf("expected CodeSecurityError when deleting main workspace from secondary, got %+v", rpcErr)
+		}
+		if _, err := os.Stat(filepath.Join(mainRepoDir, ".jj", "repo")); err != nil {
+			t.Fatalf("expected main repo .jj/repo to remain intact: %v", err)
+		}
+		wsList := runJJ(activeSecondaryWsDir, "workspace", "list")
+		if !hasWorkspace(wsList, "default") {
+			t.Fatalf("expected default workspace to remain tracked, got:\n%s", wsList)
+		}
+	})
 }
