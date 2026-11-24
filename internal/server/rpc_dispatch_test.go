@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -413,14 +414,17 @@ func TestWorkspaceDeleteRPC(t *testing.T) {
 		cmd := exec.Command("jj", args...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(),
+			"JJ_CONFIG=",
 			"JJ_USER=Test User",
 			"JJ_EMAIL=test@example.com",
 		)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("jj %v in %s failed: %v\n%s", args, dir, err, string(out))
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("jj %v in %s failed: %v\nstdout: %s\nstderr: %s", args, dir, err, stdout.String(), stderr.String())
 		}
-		return string(out)
+		return stdout.String()
 	}
 
 	runJJ(mainRepoDir, "git", "init")
@@ -451,13 +455,22 @@ func TestWorkspaceDeleteRPC(t *testing.T) {
 		})
 	}
 
-	hasWorkspace := func(wsList string, name string) bool {
-		for _, line := range strings.Split(wsList, "\n") {
-			if strings.HasPrefix(line, name+":") || strings.HasPrefix(line, name+" (") {
-				return true
+	listWorkspaces := func(dir string) []string {
+		t.Helper()
+		out := runJJ(dir, "workspace", "list", "--ignore-working-copy", "--color", "never", "-T", `json(name) ++ "\n"`)
+		var names []string
+		for _, rawLine := range strings.Split(out, "\n") {
+			line := strings.TrimSpace(rawLine)
+			if line == "" {
+				continue
 			}
+			var name string
+			if err := json.Unmarshal([]byte(line), &name); err != nil {
+				t.Fatalf("failed to parse workspace name %q: %v", line, err)
+			}
+			names = append(names, name)
 		}
-		return false
+		return names
 	}
 
 	t.Run("from main repo: nested, sibling, allowed sibling, active, and invalid cases", func(t *testing.T) {
@@ -487,9 +500,9 @@ func TestWorkspaceDeleteRPC(t *testing.T) {
 		if _, err := os.Stat(nestedWsDir); !os.IsNotExist(err) {
 			t.Fatalf("expected nestedWsDir to be deleted, stat err=%v", err)
 		}
-		wsList := runJJ(mainRepoDir, "workspace", "list")
-		if hasWorkspace(wsList, "nested-ws") {
-			t.Fatalf("expected nested-ws to be forgotten, got:\n%s", wsList)
+		wsList := listWorkspaces(mainRepoDir)
+		if slices.Contains(wsList, "nested-ws") {
+			t.Fatalf("expected nested-ws to be forgotten, got %v", wsList)
 		}
 
 		// 1b. Missing workspace directory on disk: matches installed jj's `workspace root` behavior
@@ -502,20 +515,20 @@ func TestWorkspaceDeleteRPC(t *testing.T) {
 		probeCmd.Dir = mainRepoDir
 		_, probeErr := probeCmd.CombinedOutput()
 		_, rpcErr = callDelete(srv, "1b", mainRepoDir, "stale-ws")
-		wsList = runJJ(mainRepoDir, "workspace", "list")
+		wsList = listWorkspaces(mainRepoDir)
 		if probeErr == nil {
 			if rpcErr != nil {
 				t.Fatalf("expected stale-ws delete to succeed when jj resolves root, got %+v", rpcErr)
 			}
-			if hasWorkspace(wsList, "stale-ws") {
-				t.Fatalf("expected stale-ws to be forgotten, got:\n%s", wsList)
+			if slices.Contains(wsList, "stale-ws") {
+				t.Fatalf("expected stale-ws to be forgotten, got %v", wsList)
 			}
 		} else {
 			if rpcErr == nil || !strings.Contains(rpcErr.Message, "Could not find workspace directory") {
 				t.Fatalf("expected 'Could not find workspace directory' error for stale-ws, got %+v", rpcErr)
 			}
-			if !hasWorkspace(wsList, "stale-ws") {
-				t.Fatalf("expected stale-ws to remain tracked when directory is missing, got:\n%s", wsList)
+			if !slices.Contains(wsList, "stale-ws") {
+				t.Fatalf("expected stale-ws to remain tracked when directory is missing, got %v", wsList)
 			}
 			runJJ(mainRepoDir, "workspace", "forget", "stale-ws")
 		}
@@ -527,9 +540,9 @@ func TestWorkspaceDeleteRPC(t *testing.T) {
 		if _, err := os.Stat(siblingWsDir); !os.IsNotExist(err) {
 			t.Fatalf("expected siblingWsDir to be deleted, stat err=%v", err)
 		}
-		wsList = runJJ(mainRepoDir, "workspace", "list")
-		if hasWorkspace(wsList, "sibling-ws") {
-			t.Fatalf("expected sibling-ws to be forgotten, got:\n%s", wsList)
+		wsList = listWorkspaces(mainRepoDir)
+		if slices.Contains(wsList, "sibling-ws") {
+			t.Fatalf("expected sibling-ws to be forgotten, got %v", wsList)
 		}
 
 		// 3. Delete workspace previously registered via workspace.addAllowedRoot
@@ -575,9 +588,9 @@ func TestWorkspaceDeleteRPC(t *testing.T) {
 		if _, err := os.Stat(mainRepoDir); err != nil {
 			t.Fatalf("expected mainRepoDir to still exist: %v", err)
 		}
-		wsList = runJJ(mainRepoDir, "workspace", "list")
-		if !hasWorkspace(wsList, "default") {
-			t.Fatalf("expected default workspace to remain tracked, got:\n%s", wsList)
+		wsList = listWorkspaces(mainRepoDir)
+		if !slices.Contains(wsList, "default") {
+			t.Fatalf("expected default workspace to remain tracked, got %v", wsList)
 		}
 	})
 
@@ -618,9 +631,9 @@ func TestWorkspaceDeleteRPC(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(mainRepoDir, ".jj", "repo")); err != nil {
 			t.Fatalf("expected main repo .jj/repo to remain intact: %v", err)
 		}
-		wsList := runJJ(activeSecondaryWsDir, "workspace", "list")
-		if !hasWorkspace(wsList, "default") {
-			t.Fatalf("expected default workspace to remain tracked, got:\n%s", wsList)
+		wsList := listWorkspaces(activeSecondaryWsDir)
+		if !slices.Contains(wsList, "default") {
+			t.Fatalf("expected default workspace to remain tracked, got %v", wsList)
 		}
 	})
 }
