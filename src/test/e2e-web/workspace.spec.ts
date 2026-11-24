@@ -20,13 +20,6 @@ function trackPageErrors(page: Page): string[] {
     return pageErrors;
 }
 
-function hasWorkspace(repo: TestRepo, workspaceName: string): boolean {
-    return repo
-        .listWorkspaces()
-        .split('\n')
-        .some((line) => line.startsWith(`${workspaceName}:`) || line.startsWith(`${workspaceName} (`));
-}
-
 test.describe('Standalone Web Workspace Management', () => {
     test('deletes a nested workspace directory via WorkspacePill context menu', async ({ page, server, testRepo }) => {
         const pageErrors = trackPageErrors(page);
@@ -62,7 +55,7 @@ test.describe('Standalone Web Workspace Management', () => {
 
         await expect(pill).toHaveCount(0, { timeout: 10000 });
         await expect.poll(() => fs.existsSync(wsPath), { timeout: 10000 }).toBe(false);
-        expect(hasWorkspace(testRepo, wsName)).toBe(false);
+        expect(testRepo.listWorkspaces()).not.toContain(wsName);
         expect(pageErrors).toEqual([]);
     });
 
@@ -106,7 +99,7 @@ test.describe('Standalone Web Workspace Management', () => {
 
                 await expect(siblingPill).toHaveCount(0, { timeout: 10000 });
                 await expect.poll(() => fs.existsSync(siblingWsPath), { timeout: 10000 }).toBe(false);
-                expect(hasWorkspace(mainRepo, 'sibling-ws')).toBe(false);
+                expect(mainRepo.listWorkspaces()).not.toContain('sibling-ws');
                 expect(fs.existsSync(activeWsPath)).toBe(true);
                 expect(pageErrors).toEqual([]);
             } finally {
@@ -153,7 +146,7 @@ test.describe('Standalone Web Workspace Management', () => {
         await confirmBtn.click();
 
         await expect(pill).toHaveCount(0, { timeout: 10000 });
-        expect(hasWorkspace(testRepo, wsName)).toBe(false);
+        expect(testRepo.listWorkspaces()).not.toContain(wsName);
         expect(fs.existsSync(wsPath)).toBe(true);
         expect(pageErrors).toEqual([]);
     });

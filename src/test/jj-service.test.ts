@@ -433,8 +433,8 @@ log = "none()"
             expect(fs.existsSync(path.join(wsPath, '.jj'))).toBe(true);
 
             // Verify it shows up in workspace list
-            const output = repo.listWorkspaces();
-            expect(output).toContain('new_ws');
+            const workspaces = repo.listWorkspaces();
+            expect(workspaces).toContain('new_ws');
         });
 
         test('getWorkspaceRoot returns correct paths', async () => {
@@ -454,15 +454,15 @@ log = "none()"
             await jjService.workspaceAdd(wsPath, 'ws_to_forget');
 
             // Verify it exists in list
-            let output = repo.listWorkspaces();
-            expect(output).toContain('ws_to_forget');
+            let workspaces = repo.listWorkspaces();
+            expect(workspaces).toContain('ws_to_forget');
 
             // Forget it
             await jjService.workspaceForget('ws_to_forget');
 
             // Verify it's gone from list
-            output = repo.listWorkspaces();
-            expect(output).not.toContain('ws_to_forget');
+            workspaces = repo.listWorkspaces();
+            expect(workspaces).not.toContain('ws_to_forget');
 
             // Directory should still exist (jj forget doesnt delete path)
             expect(fs.existsSync(wsPath)).toBe(true);
@@ -472,6 +472,8 @@ log = "none()"
             await jjService.workspaceAdd(path.join(repo.path, 'ws1'), 'ws1');
             await jjService.workspaceAdd(path.join(repo.path, 'ws_colon'), 'ws:colon');
             await jjService.workspaceAdd(path.join(repo.path, 'ws-dash_under'), 'ws-dash_under');
+
+            expect(repo.listWorkspaces().sort()).toEqual(['default', 'ws-dash_under', 'ws1', 'ws:colon']);
 
             const workspaces = await jjService.getWorkspaces();
             expect(workspaces.map((w) => w.name).sort()).toEqual(['default', 'ws-dash_under', 'ws1', 'ws:colon']);

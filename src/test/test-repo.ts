@@ -685,8 +685,30 @@ export class TestRepo {
         this.exec(['git', 'push', '--bookmark', bookmarkName]);
     }
 
-    listWorkspaces(): string {
-        return this.exec(['workspace', 'list']).stdout;
+    listWorkspaces(): string[] {
+        const output = this.exec([
+            'workspace',
+            'list',
+            '--ignore-working-copy',
+            '--color',
+            'never',
+            '-T',
+            'json(name) ++ "\\n"',
+        ]).stdout;
+        if (!output.trim()) {
+            return [];
+        }
+        return output
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => {
+                const parsed: unknown = JSON.parse(line);
+                if (typeof parsed !== 'string') {
+                    throw new Error(`Expected string workspace name from jj template, got: ${line}`);
+                }
+                return parsed;
+            });
     }
 
     hasGitRef(ref: string): boolean {

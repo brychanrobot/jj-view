@@ -142,7 +142,7 @@ describe('workspace delete command', () => {
         expect(ctx.host.ui.errorMessages).toHaveLength(1);
         expect(ctx.host.ui.errorMessages[0]).toContain('Cannot delete the active workspace directory');
         expect(fs.existsSync(repo.path)).toBe(true);
-        expect(repo.listWorkspaces()).toMatch(/^default(?:\s+\(current\))?:/m);
+        expect(repo.listWorkspaces()).toContain('default');
     });
 
     test('refuses to delete the main repository workspace owning .jj/repo from a secondary workspace', async () => {
@@ -162,7 +162,7 @@ describe('workspace delete command', () => {
                 'Cannot delete the main repository workspace directory containing .jj/repo',
             );
             expect(fs.existsSync(path.join(repo.path, '.jj', 'repo'))).toBe(true);
-            expect(repo.listWorkspaces()).toMatch(/^default(?:\s+\(current\))?:/m);
+            expect(repo.listWorkspaces()).toContain('default');
         } finally {
             await secRepo.dispose();
         }
