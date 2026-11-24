@@ -1701,7 +1701,7 @@ export class JjService {
     }
 
     async workspaceForget(workspaceName: string): Promise<void> {
-        await this.run('workspace', ['forget', workspaceName], { isMutation: true, label: 'workspaceForget' });
+        await this.run('workspace', ['forget', '--', workspaceName], { isMutation: true, label: 'workspaceForget' });
     }
 
     async getWorkspaces(): Promise<JjWorkspace[]> {

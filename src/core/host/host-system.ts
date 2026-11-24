@@ -172,6 +172,7 @@ export interface HostSystem {
     readonly watcher: HostWatcher;
     readonly platform: HostPlatform;
     addAllowedRoot?(path: string): Promise<void>;
+    deleteWorkspace?(repoRoot: string, workspaceName: string): Promise<void>;
     checkUpdate?(options?: SystemCheckUpdateOptions): Promise<SystemUpdateInfo>;
     applyUpdate?(options?: { prerelease?: boolean }): Promise<SystemApplyUpdateResult>;
 }

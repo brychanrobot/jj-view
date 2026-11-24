@@ -546,3 +546,49 @@ func TestWorkspaceConfigCannotOverrideAdapterCommand(t *testing.T) {
 	}
 }
 
+func TestUnwatchWorkspaceRoot(t *testing.T) {
+	tempDir := t.TempDir()
+	userConfigPath := filepath.Join(tempDir, "user", "config.json")
+	mainRoot := filepath.Join(tempDir, "main")
+	extraRoot := filepath.Join(tempDir, "extra-ws")
+	if err := os.MkdirAll(mainRoot, 0755); err != nil {
+		t.Fatalf("mkdir mainRoot: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(extraRoot, ".jj-view"), 0755); err != nil {
+		t.Fatalf("mkdir extraRoot/.jj-view: %v", err)
+	}
+
+	store, err := NewStore(Options{
+		UserConfigPath: userConfigPath,
+		RepoRoot:       mainRoot,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	store.WatchWorkspaceRoot(extraRoot)
+	store.mu.RLock()
+	_, loadedBefore := store.workspaces[filepath.Clean(extraRoot)]
+	store.mu.RUnlock()
+	if !loadedBefore {
+		t.Fatalf("expected extraRoot to be loaded in store.workspaces")
+	}
+
+	store.UnwatchWorkspaceRoot(extraRoot)
+
+	store.mu.RLock()
+	_, loadedAfter := store.workspaces[filepath.Clean(extraRoot)]
+	store.mu.RUnlock()
+	if loadedAfter {
+		t.Fatalf("expected extraRoot to be removed from store.workspaces after UnwatchWorkspaceRoot")
+	}
+
+	store.watchMu.Lock()
+	stillWatched := store.watchedDirs[filepath.Clean(extraRoot)] || store.watchedDirs[filepath.Join(extraRoot, ".jj-view")]
+	store.watchMu.Unlock()
+	if stillWatched {
+		t.Fatalf("expected extraRoot directories to be removed from watchedDirs")
+	}
+}
+
