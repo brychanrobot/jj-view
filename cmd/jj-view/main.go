@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -81,11 +82,22 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == openCommand {
+		err := runOpenCommand(os.Args[2:], os.Stdout, os.Stderr)
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	flag.Usage = func() {
 		printUsage(flag.CommandLine, "jj-view [flags]",
 			"Serve the JJ View UI for a Jujutsu repository.",
-			"Subcommands:\n  "+configCommand+"                      Query and modify JJ View configuration.\n  "+updateCommand+"                      Check for and install JJ View updates.\n  "+installAntigravityPluginCommand+"  Register this binary as an Antigravity plugin.")
+			"Subcommands:\n  "+openCommand+"                        Open a folder in a new browser tab on a running server.\n  "+configCommand+"                      Query and modify JJ View configuration.\n  "+updateCommand+"                      Check for and install JJ View updates.\n  "+installAntigravityPluginCommand+"  Register this binary as an Antigravity plugin.")
 	}
 	hostFlag := flag.String("host", "127.0.0.1", "Host address to bind to")
 	portFlag := flag.Int("port", 8080, "Port to listen on (0 for dynamic port)")
@@ -195,17 +207,50 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
+	var csrfToken string
+	sidecarToken := os.Getenv("ANTIGRAVITY_SIDECAR_UI_TOKEN")
+	if sidecarToken != "" {
+		csrfToken = os.Getenv("ANTIGRAVITY_CSRF_TOKEN")
+	}
+
+	tryAttachExistingServer := func() bool {
+		res, openErr := openFolderOnExistingServer(openOptions{
+			Host:        *hostFlag,
+			Port:        port,
+			FolderPath:  absRepo,
+			UserDataDir: absUserDataDir,
+		})
+		if openErr == nil {
+			printOpenResult(os.Stdout, res)
+			if !noOpen {
+				openBrowser(res.TabURL)
+			}
+			return true
+		}
+		if !errors.Is(openErr, errNoExistingServer) {
+			fmt.Fprintf(os.Stderr, "Failed to open folder in existing JJ View server: %v\n", openErr)
+			os.Exit(1)
+		}
+		return false
+	}
+
+	if !isReload && !isSidecar && port > 0 {
+		if tryAttachExistingServer() {
+			return
+		}
+	}
+
 	cfg := server.Config{
-		Host:              *hostFlag,
-		Port:              port,
-		RepoRoot:          absRepo,
-		SessionToken:      reloadSessionToken,
-		SidecarToken:      os.Getenv("ANTIGRAVITY_SIDECAR_UI_TOKEN"),
-		CSRFToken:         os.Getenv("ANTIGRAVITY_CSRF_TOKEN"),
-		Version:           version,
-		ReleaseAsset:      effectiveReleaseAsset(),
-		ExecutablePath:    execPath,
-		ReleasesURL:       effectiveUpdateURL(""),
+		Host:           *hostFlag,
+		Port:           port,
+		RepoRoot:       absRepo,
+		SessionToken:   reloadSessionToken,
+		SidecarToken:   sidecarToken,
+		CSRFToken:      csrfToken,
+		Version:        version,
+		ReleaseAsset:   effectiveReleaseAsset(),
+		ExecutablePath: execPath,
+		ReleasesURL:    effectiveUpdateURL(""),
 		OnReload: func() error {
 			sigChan <- syscall.SIGHUP
 			return nil
@@ -222,6 +267,12 @@ func main() {
 	}
 
 	if err := listenWithReloadRetry(srv, isReload); err != nil {
+		if !isReload && !isSidecar && port > 0 && isAddrInUse(err) {
+			_ = srv.Close(context.Background())
+			if tryAttachExistingServer() {
+				return
+			}
+		}
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
@@ -231,7 +282,8 @@ func main() {
 		}
 	}()
 
-	serverURL := fmt.Sprintf("http://%s:%d/?token=%s", *hostFlag, srv.Port(), srv.SessionToken())
+	serverAddr := net.JoinHostPort(strings.Trim(strings.TrimSpace(*hostFlag), "[]"), strconv.Itoa(srv.Port()))
+	serverURL := fmt.Sprintf("http://%s/?token=%s", serverAddr, srv.SessionToken())
 	fmt.Printf("\n  JJ View is running at:\n  %s\n\n", serverURL)
 
 	if !noOpen {
@@ -279,7 +331,7 @@ func openBrowser(targetURL string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", targetURL)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", targetURL)
 	case "darwin":
 		cmd = exec.Command("open", targetURL)
 	default:
