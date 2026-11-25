@@ -31,6 +31,7 @@ import { resolveScmResourceState } from './app/scm-resource-lookup';
 import { TabDocumentManager } from './app/tab-document-manager.svelte';
 import { applyTheme, openThemePicker } from './app/theme-picker';
 import { UpdateCoordinator } from './app/update-coordinator';
+import { formatWindowTitle } from './app/window-title';
 import { createInMemoryBridge } from './bridge/in-memory-bridge';
 import {
     enrichWebRemoteFilePayload,
@@ -232,6 +233,20 @@ $effect(() => {
     webHostEnv?.documents.notifyActiveDocumentChanged(uri);
     rootContext.set('resourceScheme', uri?.scheme);
     rootContext.set('resourceFilename', activeTab ? activeTab.title.replace(/\s*\([^)]*\)$/, '').trim() : undefined);
+});
+
+$effect(() => {
+    if (typeof document === 'undefined') {
+        return;
+    }
+    const activeTab = tabDocManager.activeTab;
+    document.title = formatWindowTitle({
+        activeTabTitle: activeTab?.title,
+        activeTabDirty: activeTab?.isDirty,
+        focusedRepoRoot: workspaceRoot,
+        repositoryRoots: scmRepositories.map((r) => r.workspaceRoot),
+        platform: host?.platform ?? webHostEnv?.system?.platform,
+    });
 });
 
 $effect(() => {

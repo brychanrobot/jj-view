@@ -247,6 +247,10 @@ async function copyAssets() {
             src: 'web/node_modules/@pierre/diffs/dist/worker/worker-portable.js',
             dest: 'web/dist/pierre-worker.js',
         },
+        {
+            src: 'media/favicon.svg',
+            dest: 'web/dist/favicon.svg',
+        },
     ];
 
     for (const asset of assets) {

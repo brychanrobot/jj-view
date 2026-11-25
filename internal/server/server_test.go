@@ -1465,3 +1465,37 @@ func TestServerCloseBeforeStartServe(t *testing.T) {
 		}
 	})
 }
+
+func TestNewServerCSRFTokenSidecarOnlyFallback(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_CSRF_TOKEN", "ambient-csrf-token")
+	t.Setenv("ANTIGRAVITY_SIDECAR_UI_TOKEN", "")
+
+	standaloneSrv, err := NewServer(Config{
+		Host:        "127.0.0.1",
+		Port:        0,
+		RepoRoot:    t.TempDir(),
+		UserDataDir: filepath.Join(t.TempDir(), "standalone"),
+	})
+	if err != nil {
+		t.Fatalf("NewServer standalone failed: %v", err)
+	}
+	t.Cleanup(func() { _ = standaloneSrv.Close(context.Background()) })
+	if standaloneSrv.cfg.CSRFToken != "" {
+		t.Fatalf("expected standalone server to ignore ambient ANTIGRAVITY_CSRF_TOKEN, got %q", standaloneSrv.cfg.CSRFToken)
+	}
+
+	sidecarSrv, err := NewServer(Config{
+		Host:         "127.0.0.1",
+		Port:         0,
+		RepoRoot:     t.TempDir(),
+		UserDataDir:  filepath.Join(t.TempDir(), "sidecar"),
+		SidecarToken: "sidecar-token",
+	})
+	if err != nil {
+		t.Fatalf("NewServer sidecar failed: %v", err)
+	}
+	t.Cleanup(func() { _ = sidecarSrv.Close(context.Background()) })
+	if sidecarSrv.cfg.CSRFToken != "ambient-csrf-token" {
+		t.Fatalf("expected sidecar server to inherit ANTIGRAVITY_CSRF_TOKEN, got %q", sidecarSrv.cfg.CSRFToken)
+	}
+}

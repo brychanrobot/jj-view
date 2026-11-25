@@ -52,6 +52,10 @@ function ensurePrerequisites(): void {
             src: 'media/custom-icons/jj-view-icons.woff2',
             dest: 'web/dist/custom-icons/jj-view-icons.woff2',
         },
+        {
+            src: 'media/favicon.svg',
+            dest: 'web/dist/favicon.svg',
+        },
     ];
 
     for (const asset of assets) {

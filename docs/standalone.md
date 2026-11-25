@@ -10,6 +10,14 @@ jj-view --repo /path/to/repo
 
 The daemon prints a URL of the form `http://127.0.0.1:8080/?token=…` and opens it in your default browser.
 
+If a JJ View server is already running on that host and port, running `jj-view --repo /path/to/another-repo` (or `jj-view open /path/to/another-repo`) registers that folder with the running server and opens a new browser tab pointed at it (`/?repo=...`) instead of failing with a port-in-use error or mutating existing tabs:
+
+```bash
+jj-view --repo /path/to/another-repo
+# or explicitly:
+jj-view open /path/to/another-repo
+```
+
 Every request to the daemon must carry that session token (as the `?token=` query parameter, a `Bearer` header, or the cookie set when the page first loads). Anyone with the URL can read and modify the repository, so treat it like a password.
 
 ### Options
@@ -24,6 +32,14 @@ Every request to the daemon must carry that session token (as the `?token=` quer
 | `--no-open` | `false` | Do not open a browser on start. |
 | `--allowed-origins <list>` | _(empty)_ | Comma-separated extra browser origin hosts to accept, e.g. `ui.example.com,*.proxy.example.com`. A leading `*.` matches subdomains only. Loopback, the bound host and the request `Host` are always accepted, so this is only needed when the UI is reached through a reverse proxy that rewrites `Host`. |
 | `--version` | | Print the version and exit. |
+
+### `jj-view open`
+
+```bash
+jj-view open [flags] [path]
+```
+
+Opens a folder in a new browser tab against an already-running JJ View server. Accepts `--host`, `--port`, `--repo`, `--user-data-dir`, and `--no-open`. When `--user-data-dir` was passed to the running server, pass the same `--user-data-dir` so the CLI can locate its session token. Prints the `/?repo=...&token=...` tab URL and opens it in your default browser unless `--no-open` is passed.
 
 ## Antigravity
 

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +72,7 @@ type Server struct {
 	bgCancel     context.CancelFunc
 	fileServer   http.Handler
 	assetVersion string
+	instancePath string
 	clientsMu    sync.Mutex
 	sseClients   map[string]*sseClient
 	wsClients    map[*wsConn]struct{}
@@ -90,7 +92,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.SidecarToken == "" {
 		cfg.SidecarToken = os.Getenv("ANTIGRAVITY_SIDECAR_UI_TOKEN")
 	}
-	if cfg.CSRFToken == "" {
+	if cfg.CSRFToken == "" && cfg.SidecarToken != "" {
 		cfg.CSRFToken = os.Getenv("ANTIGRAVITY_CSRF_TOKEN")
 	}
 
@@ -223,19 +225,11 @@ func NewServer(cfg Config) (*Server, error) {
 	})
 
 	s.restoreAllowedRootsFromState()
-	s.maybeWarmRepoRoot(cfg.RepoRoot)
-	for _, r := range cfg.ExtraAllowedRoots {
-		s.maybeWarmRepoRoot(r)
-	}
 
 	_ = mime.AddExtensionType(".woff2", "font/woff2")
 	_ = mime.AddExtensionType(".woff", "font/woff")
 	_ = mime.AddExtensionType(".ttf", "font/ttf")
 	_ = mime.AddExtensionType(".svg", "image/svg+xml")
-	// Pre-extract scripts in the background
-	go func() {
-		_ = s.procMgr.EnsureScriptsExtracted()
-	}()
 
 	return s, nil
 }
@@ -328,13 +322,22 @@ func (s *Server) Listen() error {
 		return nil
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
+	addr := net.JoinHostPort(strings.Trim(strings.TrimSpace(s.cfg.Host), "[]"), strconv.Itoa(s.cfg.Port))
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 	s.cfg.Port = listener.Addr().(*net.TCPAddr).Port
 	s.listener = &onceCloseListener{Listener: listener}
+	s.writeInstanceFile()
+	s.maybeWarmRepoRoot(s.cfg.RepoRoot)
+	for _, r := range s.cfg.ExtraAllowedRoots {
+		s.maybeWarmRepoRoot(r)
+	}
+	// Pre-extract helper scripts only after binding so an EADDRINUSE exit does not race an active daemon.
+	go func() {
+		_ = s.procMgr.EnsureScriptsExtracted()
+	}()
 
 	close(s.readyCh)
 	return nil
@@ -349,6 +352,7 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/preload.js", s.handlePreload)
+	mux.HandleFunc("/favicon.ico", s.handleFavicon)
 	mux.HandleFunc("/_sidecar/", s.handleSidecarProxy)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/rpc", s.handleRPC)
@@ -389,7 +393,7 @@ func (s *Server) Addr() string {
 	if s.listener != nil {
 		return s.listener.Addr().String()
 	}
-	return fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
+	return net.JoinHostPort(strings.Trim(strings.TrimSpace(s.cfg.Host), "[]"), strconv.Itoa(s.cfg.Port))
 }
 
 // Port returns the bound port.
@@ -419,7 +423,11 @@ func (s *Server) Close(ctx context.Context) error {
 	s.closed = true
 	httpSrv := s.httpServer
 	listener := s.listener
+	instancePath := s.instancePath
+	s.instancePath = ""
 	s.mu.Unlock()
+
+	s.removeInstanceFile(instancePath)
 
 	if listener != nil {
 		_ = listener.Close()

@@ -8,10 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	iofs "io/fs"
 	"net/http"
 	"net/url"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -28,11 +30,12 @@ var versionedAssets = []string{
 	"dist/app.js",
 	"dist/app.css",
 	"dist/preload.js",
+	"dist/favicon.svg",
 	"preload.js",
 }
 
 var (
-	cssURLRegex = regexp.MustCompile(`(?i)url\(\s*(?:"([^"]+)"|'([^']+)'|([^'")\s]+))\s*\)`)
+	cssURLRegex    = regexp.MustCompile(`(?i)url\(\s*(?:"([^"]+)"|'([^']+)'|([^'")\s]+))\s*\)`)
 	fontExtensions = map[string]bool{
 		".ttf":   true,
 		".woff":  true,
@@ -174,6 +177,40 @@ func (s *Server) handlePreload(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(content)
 }
 
+func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	s.applyCORS(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	content, err := web.FS.ReadFile("dist/favicon.svg")
+	if err != nil {
+		http.Error(w, "favicon not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(content)
+}
+
+func formatInitialWindowTitle(repoRoot string) string {
+	trimmed := strings.TrimSpace(repoRoot)
+	if trimmed == "" || trimmed == "." {
+		return "JJ View"
+	}
+	clean := filepath.Clean(trimmed)
+	if isFilesystemRoot(clean) {
+		return "JJ View"
+	}
+	base := filepath.Base(clean)
+	if base == "" || base == "." || base == ".." || base == "/" || base == `\` {
+		return "JJ View"
+	}
+	return fmt.Sprintf("%s \u2014 JJ View", base)
+}
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	s.applyCORS(w, r)
 	if r.Method == http.MethodOptions {
@@ -286,17 +323,23 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	titleRepo := strings.TrimSpace(r.URL.Query().Get("repo"))
+	if titleRepo == "" {
+		titleRepo = s.cfg.RepoRoot
+	}
 	injected := fmt.Sprintf("<script>window.__JJ_VIEW_CONFIG__ = %s;</script>\n%s</head>", string(configJSON), importMapScript)
-	html := strings.Replace(string(content), "</head>", injected, 1)
+	renderedHTML := strings.Replace(string(content), "<title>JJ View</title>", "<title>"+html.EscapeString(formatInitialWindowTitle(titleRepo))+"</title>", 1)
+	renderedHTML = strings.Replace(renderedHTML, "</head>", injected, 1)
 
 	for _, asset := range []string{
 		"/dist/codicons/codicon.css",
 		"/dist/custom-icons/jj-view-icons.css",
 		"/dist/app.css",
 		"/dist/app.js",
+		"/dist/favicon.svg",
 		"/preload.js",
 	} {
-		html = strings.ReplaceAll(html, asset, asset+assetQuery)
+		renderedHTML = strings.ReplaceAll(renderedHTML, asset, asset+assetQuery)
 	}
 
 	http.SetCookie(w, &http.Cookie{
@@ -308,5 +351,5 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	_, _ = w.Write([]byte(html))
+	_, _ = w.Write([]byte(renderedHTML))
 }

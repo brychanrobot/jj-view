@@ -242,9 +242,26 @@ func TestAssets_HandleIndex(t *testing.T) {
 	if !strings.Contains(bodyStr, `"session-secret"`) {
 		t.Errorf("missing session token in injected config")
 	}
+	if !strings.Contains(bodyStr, "<title>repo — JJ View</title>") {
+		t.Errorf("expected initial repo window title in index.html, got: %s", bodyStr)
+	}
 	expectedAssetQuery := "?v=" + url.QueryEscape(srv.assetVersion) + "&token=session-secret"
 	if !strings.Contains(bodyStr, expectedAssetQuery) {
 		t.Errorf("missing assetQuery %q in index.html", expectedAssetQuery)
+	}
+	if !strings.Contains(bodyStr, `<link rel="icon" type="image/svg+xml" href="/dist/favicon.svg`+expectedAssetQuery+`">`) {
+		t.Errorf("missing versioned SVG favicon link in index.html: %s", bodyStr)
+	}
+
+	// 4b. ?repo= overrides initial window title and escapes HTML characters
+	reqRepoTitle := httptest.NewRequest(http.MethodGet, "/?token=session-secret&repo="+url.QueryEscape("/tmp/<unsafe&repo>"), nil)
+	recRepoTitle := httptest.NewRecorder()
+	srv.handleIndex(recRepoTitle, reqRepoTitle)
+	if recRepoTitle.Code != http.StatusOK {
+		t.Fatalf("GET /?repo=... expected 200, got %d", recRepoTitle.Code)
+	}
+	if !strings.Contains(recRepoTitle.Body.String(), "<title>&lt;unsafe&amp;repo&gt; — JJ View</title>") {
+		t.Errorf("expected escaped repo title, got: %s", recRepoTitle.Body.String())
 	}
 
 	// Cookie verification
@@ -269,5 +286,49 @@ func TestAssets_HandleIndex(t *testing.T) {
 	}
 	if !strings.Contains(cssRec.Body.String(), "token=session-secret") {
 		t.Errorf("codicon.css missing font token query: %s", cssRec.Body.String())
+	}
+}
+
+func TestAssets_FormatInitialWindowTitle(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"", "JJ View"},
+		{"   ", "JJ View"},
+		{".", "JJ View"},
+		{"/", "JJ View"},
+		{"/workspace/jj-view", "jj-view — JJ View"},
+		{"/workspace/jj-view/", "jj-view — JJ View"},
+	}
+	for _, tc := range cases {
+		if got := formatInitialWindowTitle(tc.input); got != tc.want {
+			t.Errorf("formatInitialWindowTitle(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestAssets_HandleFavicon(t *testing.T) {
+	srv := &Server{}
+
+	reqOptions := httptest.NewRequest(http.MethodOptions, "/favicon.ico", nil)
+	recOptions := httptest.NewRecorder()
+	srv.handleFavicon(recOptions, reqOptions)
+	if recOptions.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS /favicon.ico expected 204, got %d", recOptions.Code)
+	}
+
+	reqGet := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
+	recGet := httptest.NewRecorder()
+	srv.handleFavicon(recGet, reqGet)
+	if recGet.Code != http.StatusOK {
+		t.Fatalf("GET /favicon.ico expected 200, got %d", recGet.Code)
+	}
+	if ct := recGet.Header().Get("Content-Type"); ct != "image/svg+xml; charset=utf-8" {
+		t.Errorf("expected Content-Type image/svg+xml; charset=utf-8, got %q", ct)
+	}
+	svgBody := recGet.Body.String()
+	if !strings.Contains(svgBody, "<svg") || !strings.Contains(svgBody, "viewBox=") {
+		t.Errorf("expected SVG markup with viewBox in /favicon.ico response")
 	}
 }

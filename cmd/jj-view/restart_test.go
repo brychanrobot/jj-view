@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -258,6 +260,36 @@ func TestDaemonReloadInPlaceOnSIGHUP(t *testing.T) {
 
 	port1, token1 := waitForServerURL()
 
+	// Register an additional allowed root before reload and verify it persists across SIGHUP.
+	extraFolder := filepath.Join(tempDir, "extra-folder")
+	if err := os.MkdirAll(extraFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extraFile := filepath.Join(extraFolder, "hello.txt")
+	if err := os.WriteFile(extraFile, []byte("persisted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	portNum1, _ := strconv.Atoi(port1)
+	allowReq, _ := http.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%d/api/rpc", portNum1),
+		strings.NewReader(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"workspace.addAllowedRoot","params":{"path":%q}}`, extraFolder)),
+	)
+	allowReq.Header.Set("Content-Type", "application/json")
+	allowReq.Header.Set("Authorization", "Bearer "+token1)
+	noProxyClient := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{DisableKeepAlives: true, Proxy: nil},
+	}
+	allowResp, err := noProxyClient.Do(allowReq)
+	if err != nil {
+		t.Fatalf("workspace.addAllowedRoot before SIGHUP failed: %v", err)
+	}
+	allowResp.Body.Close()
+	if allowResp.StatusCode != http.StatusOK {
+		t.Fatalf("workspace.addAllowedRoot status = %d, want 200", allowResp.StatusCode)
+	}
+
 	// Send SIGHUP via reloadProcess and verify the daemon reloads in-place
 	// without exiting, keeping the exact same PID, port, and session token.
 	if err := reloadProcess(origPID); err != nil {
@@ -278,7 +310,7 @@ func TestDaemonReloadInPlaceOnSIGHUP(t *testing.T) {
 	// Verify the reloaded server answers authenticated requests with the preserved token.
 	client := &http.Client{
 		Timeout:   5 * time.Second,
-		Transport: &http.Transport{DisableKeepAlives: true},
+		Transport: &http.Transport{DisableKeepAlives: true, Proxy: nil},
 	}
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%s/?token=%s", port2, token2))
 	if err != nil {
@@ -287,6 +319,29 @@ func TestDaemonReloadInPlaceOnSIGHUP(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET status after SIGHUP reload = %d, want 200", resp.StatusCode)
+	}
+
+	statReq, _ := http.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%s/api/rpc", port2),
+		strings.NewReader(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"fs.stat","params":{"path":%q}}`, extraFile)),
+	)
+	statReq.Header.Set("Content-Type", "application/json")
+	statReq.Header.Set("Authorization", "Bearer "+token2)
+	statResp, err := client.Do(statReq)
+	if err != nil {
+		t.Fatalf("fs.stat after SIGHUP reload failed: %v", err)
+	}
+	defer statResp.Body.Close()
+	var statRPC struct {
+		Error  any            `json:"error"`
+		Result map[string]any `json:"result"`
+	}
+	if err := json.NewDecoder(statResp.Body).Decode(&statRPC); err != nil {
+		t.Fatalf("decode fs.stat after SIGHUP reload: %v", err)
+	}
+	if statRPC.Error != nil {
+		t.Fatalf("expected extraFolder %q to remain allowed across SIGHUP reload, got error %v", extraFolder, statRPC.Error)
 	}
 	_ = strings.TrimSpace(port2)
 }

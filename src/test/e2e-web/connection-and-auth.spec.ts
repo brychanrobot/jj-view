@@ -3,12 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as path from 'node:path';
 import { expect, test, waitForScmReady } from './standalone-fixture';
 
 test.describe('Standalone Web Connection and Auth', () => {
-    test('should load web application and connect to daemon cleanly with valid token', async ({ page, server }) => {
+    test('should load web application and connect to daemon cleanly with valid token', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
         await page.goto(server.serverUrl);
-        await expect(page).toHaveTitle('JJ View');
+        await expect(page).toHaveTitle(`${path.basename(testRepo.path)} \u2014 JJ View`);
 
         await waitForScmReady(page);
 
