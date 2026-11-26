@@ -622,6 +622,7 @@ export const RevisionQuery = {
     mutableAncestorsIncluding: (rev: string) => `ancestors(${rev}) & mutable()`,
     mutable: () => 'mutable()',
     visible: () => 'visible()',
+    visibleNonRoot: () => 'visible() ~ root()',
     children: (rev: string) => `children(${rev})`,
 } as const;
 

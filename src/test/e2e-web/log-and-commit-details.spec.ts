@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { expect, test, waitForScmReady } from './standalone-fixture';
+import * as path from 'node:path';
+import { ROOT_ID } from '../test-repo';
+import { ARTIFACT_DIR, expect, test, waitForScmReady } from './standalone-fixture';
 
 test.describe('Standalone Web Log and Commit Details', () => {
     test('should display log graph, select commit, open commit details, and click file diff', async ({
@@ -249,5 +251,100 @@ test.describe('Standalone Web Log and Commit Details', () => {
         // Verify scrollTop changed
         const scrollTop = await scrollContainer.evaluate((el) => el.scrollTop);
         expect(scrollTop).toBeGreaterThan(0);
+    });
+
+    test('renders root() cleanly, does not open Commit Details for root, and hides diff/duplicate menu items', async ({
+        page,
+        server,
+        testRepo,
+    }) => {
+        const pageErrors: Error[] = [];
+        page.on('pageerror', (err) => {
+            if (err.message.includes('agentapi failed') || err.message.includes('agentapi binary not found')) {
+                return;
+            }
+            pageErrors.push(err);
+        });
+
+        testRepo.config('revsets.log', 'all()');
+        testRepo.writeFile('app.txt', 'hello\n');
+        testRepo.describe('feat: normal commit');
+        testRepo.new();
+
+        await page.goto(server.serverUrl);
+        await waitForScmReady(page);
+
+        const logContent = page.locator('[data-testid="log-content"]');
+        const rootRow = logContent.locator(`.commit-row[data-change-id="${ROOT_ID}"]`);
+        await expect(rootRow).toBeVisible({ timeout: 10000 });
+
+        // Root commit displays `root()` rather than `(empty) (no description)`
+        const rootDesc = rootRow.locator('.commit-desc');
+        await expect(rootDesc).toHaveText('root()');
+        await expect(rootRow).not.toContainText('(empty)');
+        await expect(rootRow).not.toContainText('(no description)');
+
+        // Graph node renders a solid diamond <polygon> filled with lane color
+        const rootPolygon = logContent.locator(
+            `.graph-svg g[data-commit-id="0000000000000000000000000000000000000000"] polygon`,
+        );
+        await expect(rootPolygon).toBeVisible();
+        await expect(rootPolygon).toHaveAttribute('fill', /--jj-lane-/);
+
+        // Clicking root commit does not open Commit Details
+        const detailsView = page.locator('[data-testid="commit-details-view"]');
+        const tabs = page.locator('[data-testid="tab-bar-container"] .tab');
+        await rootRow.click();
+        await expect(rootRow).toHaveAttribute('aria-selected', 'true');
+        await expect(detailsView).toHaveCount(0);
+        await expect(tabs).toHaveCount(0);
+
+        const normalRow = logContent.locator('.commit-row').filter({ hasText: 'feat: normal commit' });
+        await expect(rootRow).not.toHaveAttribute('data-draggable', 'true');
+        await expect(normalRow).toHaveAttribute('data-draggable', 'true');
+
+        // Attempting to drag root() does not activate drag preview
+        const rootBox = await rootRow.boundingBox();
+        const normalBox = await normalRow.boundingBox();
+        expect(rootBox).not.toBeNull();
+        expect(normalBox).not.toBeNull();
+        if (rootBox && normalBox) {
+            await page.mouse.move(rootBox.x + rootBox.width / 2, rootBox.y + rootBox.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(normalBox.x + normalBox.width / 2, normalBox.y + normalBox.height / 2, { steps: 5 });
+            await expect(page.locator('.drag-preview-overlay')).toHaveCount(0);
+            await page.mouse.up();
+        }
+
+        // Open Commit Details on a normal commit, then click root() — existing details remain intact
+        await normalRow.locator('.commit-desc').click();
+        await expect(detailsView).toBeVisible({ timeout: 10000 });
+        await expect(detailsView.locator('.commit-textarea')).toHaveValue('feat: normal commit');
+        await expect(tabs).toHaveCount(1);
+
+        await rootRow.click();
+        await expect(rootRow).toHaveAttribute('aria-selected', 'true');
+        await expect(tabs).toHaveCount(1);
+        await expect(detailsView.locator('.commit-textarea')).toHaveValue('feat: normal commit');
+
+        // Right-clicking root commit hides Show Multi-File Diff and Duplicate while keeping New
+        await rootRow.click({ button: 'right' });
+        const contextMenu = page.locator('[data-testid="context-menu"]');
+        await expect(contextMenu).toBeVisible();
+        await expect(page.locator('[data-testid="menu-item-jj-view.showMultiFileDiff"]')).toHaveCount(0);
+        await expect(page.locator('[data-testid="menu-item-jj-view.duplicate"]')).toHaveCount(0);
+        await expect(page.locator('[data-testid="menu-item-jj-view.new"]')).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(contextMenu).toHaveCount(0);
+
+        // Capture dark & light theme screenshots of the log pane with root()
+        await page.screenshot({ path: path.join(ARTIFACT_DIR, 'root-commit-log-dark.png') });
+        await page.evaluate(async () => {
+            await window.__JJ_VIEW_ENV__?.config.update?.('appearance.theme', 'pierre-light');
+        });
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'pierre-light');
+        await page.screenshot({ path: path.join(ARTIFACT_DIR, 'root-commit-log-light.png') });
+
+        expect(pageErrors).toEqual([]);
     });
 });

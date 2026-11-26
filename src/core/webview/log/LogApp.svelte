@@ -3,6 +3,7 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
+import { isRootCommit } from '../../../utils/jj-utils';
 import {
     type ActionPayload,
     type CommitAction,
@@ -248,7 +249,8 @@ function handleGraphAction(action: string, payload: ActionPayload) {
             hasImmutableSelection: hasImmutable,
         });
 
-        if (newSelection.has(payload.changeId)) {
+        const selectedCommit = commits.find((c) => c.change_id === payload.changeId);
+        if (newSelection.has(payload.changeId) && !(selectedCommit && isRootCommit(selectedCommit))) {
             void sender.getDetails(payload);
         }
         return;

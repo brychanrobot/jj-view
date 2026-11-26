@@ -204,11 +204,23 @@ export class DragManager {
             window.addEventListener('pointercancel', handlePointerCancel);
         };
 
-        node.setAttribute('data-draggable', 'true');
+        const syncDraggableAttr = () => {
+            if (getItem()) {
+                node.setAttribute('data-draggable', 'true');
+            } else {
+                node.removeAttribute('data-draggable');
+            }
+        };
+        syncDraggableAttr();
         node.addEventListener('pointerdown', handlePointerDown);
 
         return {
+            update: (nextGetItem: () => DragItem | null) => {
+                getItem = nextGetItem;
+                syncDraggableAttr();
+            },
             destroy: () => {
+                node.removeAttribute('data-draggable');
                 node.removeEventListener('pointerdown', handlePointerDown);
                 if (this.activeCleanup === cleanup) {
                     cleanup();

@@ -871,7 +871,7 @@ export const DEFAULT_PACKAGE_JSON_CONTRIBUTES: PackageJsonContributes = {
             },
             {
                 command: 'jj-view.showMultiFileDiff',
-                when: "webviewSection == 'commit'",
+                when: "webviewSection == 'commit' && !jj.isRoot",
                 group: '1_diff@1',
             },
             {

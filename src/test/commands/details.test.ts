@@ -13,7 +13,7 @@ import { Uri } from '../../core/uri-utils';
 import { createShowDetailsPayload } from '../../vscode/payloads/details.payload';
 import type { VsCodeScmProvider } from '../../vscode/providers/vscode-scm-provider';
 import { FakeCommandContext } from '../fake-host-environment';
-import { buildGraph, TestRepo } from '../test-repo';
+import { buildGraph, ROOT_ID, TestRepo } from '../test-repo';
 import { createMock } from '../test-utils';
 
 describe('showDetailsCommand', () => {
@@ -213,5 +213,26 @@ describe('showDetailsCommand', () => {
 
         expect(ctx.host.ui.errorMessages).toHaveLength(2);
         expect(ctx.host.ui.errorMessages[1]).toContain('No log entry found for revision: none()');
+    });
+
+    test('excludes root() from QuickPick items and blocks opening details for root()', async () => {
+        await buildGraph(repo, [{ label: 'A', parents: ['root()'], description: 'commit A' }]);
+
+        ctx.host.ui.setNextQuickPickResponse({
+            label: 'root()',
+            customValue: 'root()',
+        });
+        await showDetailsCommand(ctx, {});
+
+        expect(ctx.host.ui.quickPickCalls).toHaveLength(1);
+        expect(ctx.host.ui.quickPickCalls[0].items.map((item) => item.value)).not.toContain(ROOT_ID);
+        expect(ctx.host.nav.commitDetailsOpened).toHaveLength(0);
+        expect(ctx.host.ui.infoMessages).toContain('Commit details are not available for the root commit.');
+        expect(ctx.host.ui.errorMessages).toHaveLength(0);
+
+        await showDetailsCommand(ctx, { revision: 'root()' });
+        expect(ctx.host.nav.commitDetailsOpened).toHaveLength(0);
+        expect(ctx.host.ui.infoMessages).toHaveLength(2);
+        expect(ctx.host.ui.errorMessages).toHaveLength(0);
     });
 });

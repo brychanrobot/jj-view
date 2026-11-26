@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JjService, NO_OP_LOGGER } from '../core/jj-service';
 import type { CommitAction, JjLogEntry } from '../core/jj-types';
-import { computeCommitActions } from '../core/webview/log/utils/commit-utils';
+import { computeCommitActions, findMatchingCommit } from '../core/webview/log/utils/commit-utils';
 import { buildGraph, TestRepo } from './test-repo';
 
 describe('computeCommitActions', () => {
@@ -48,6 +48,8 @@ describe('computeCommitActions', () => {
         expect(result.vscodeContext['jj.canEdit']).toBe(true);
         expect(result.vscodeContext['jj.canAbandon']).toBe(true);
         expect(result.vscodeContext['jj.canSquash']).toBe(true);
+        expect(result.vscodeContext['jj.canDuplicate']).toBe(true);
+        expect(result.vscodeContext['jj.isRoot']).toBe(false);
     });
 
     it('should hide immutable actions', async () => {
@@ -56,11 +58,14 @@ describe('computeCommitActions', () => {
         const hiddenActions = new Set<CommitAction>();
         const result = computeCommitActions(commit, hiddenActions, false, 0, false);
 
+        expect(result.visibleActions.newChild).toBe(true);
         expect(result.visibleActions.edit).toBe(false);
         expect(result.visibleActions.abandon).toBe(false);
+        expect(result.vscodeContext['jj.isRoot']).toBe(true);
         expect(result.vscodeContext['jj.canEdit']).toBe(false);
         expect(result.vscodeContext['jj.canAbandon']).toBe(false);
         expect(result.vscodeContext['jj.canSquash']).toBe(false);
+        expect(result.vscodeContext['jj.canDuplicate']).toBe(false);
     });
 
     it('should respect hiddenActions', async () => {
@@ -323,5 +328,13 @@ describe('computeCommitActions', () => {
 
         const resultWithMulti = computeCommitActions(commit, new Set(), true, 2, false);
         expect(resultWithMulti.vscodeContext['jj.canCompareWithUploaded']).toBe(false);
+    });
+
+    it('findMatchingCommit resolves root() to the root commit', async () => {
+        const ids = await buildGraph(repo, [{ label: 'A', parents: ['root()'] }]);
+        const commitA = await getCommit(ids.A.changeId);
+        const rootCommit = await getCommit('root()');
+
+        expect(findMatchingCommit([commitA, rootCommit], 'root()')).toEqual(rootCommit);
     });
 });

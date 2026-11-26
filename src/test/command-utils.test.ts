@@ -20,6 +20,7 @@ describe('RevisionQuery', () => {
         expect(RevisionQuery.mutableAncestorsIncluding('@')).toBe('ancestors(@) & mutable()');
         expect(RevisionQuery.mutable()).toBe('mutable()');
         expect(RevisionQuery.visible()).toBe('visible()');
+        expect(RevisionQuery.visibleNonRoot()).toBe('visible() ~ root()');
         expect(RevisionQuery.children('rev123')).toBe('children(rev123)');
     });
 });

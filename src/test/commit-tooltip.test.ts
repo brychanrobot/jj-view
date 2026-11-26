@@ -150,5 +150,22 @@ describe('commit-tooltip', () => {
 
             expect(tooltip).toContain('(no description)');
         });
+
+        it('displays root() and omits Unix epoch date for root commit', () => {
+            const commit = createMockCommit({
+                change_id: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+                change_id_shortest: 'z',
+                commit_id: '0000000000000000000000000000000000000000',
+                description: '',
+                is_root: true,
+                is_empty: true,
+                is_immutable: true,
+            });
+            const tooltip = formatCommitTooltip(commit);
+
+            expect(tooltip).not.toContain('ᴅᴀᴛᴇ:');
+            expect(tooltip).not.toContain('(no description)');
+            expect(tooltip.endsWith(`${DIVIDER}\nroot()`)).toBe(true);
+        });
     });
 });

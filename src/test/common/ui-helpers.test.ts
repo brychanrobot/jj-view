@@ -81,6 +81,10 @@ describe('ui-helpers', () => {
             ui = new FakeHostUi();
         });
 
+        afterEach(async () => {
+            await repo.dispose();
+        });
+
         it('returns selected revision value from quick pick', async () => {
             const ids = await buildGraph(repo, [
                 { label: 'v1', files: { 'file1.txt': 'v1\n' } },
@@ -196,6 +200,18 @@ describe('ui-helpers', () => {
 
             expect(picked).toMatch(/\/\d+$/);
             expect(labels.some((label) => /\/\d+\b/.test(label))).toBe(true);
+        });
+
+        it('displays root() as description for the root commit in quick pick items', async () => {
+            let rootItem: { label: string; description?: string; value?: unknown } | undefined;
+            ui.showQuickPick = vi.fn().mockImplementation((items) => {
+                rootItem = items[0];
+                return Promise.resolve(undefined);
+            });
+
+            await promptForRevision(ui, jj, { revisionQuery: 'root()' });
+
+            expect(rootItem?.description).toBe('root()');
         });
 
         it('supports RevisionQuery expressions', async () => {
@@ -449,6 +465,10 @@ describe('ui-helpers', () => {
             repo.init();
             jj = new JjService(repo.path, NO_OP_LOGGER);
             ui = new FakeHostUi();
+        });
+
+        afterEach(async () => {
+            await repo.dispose();
         });
 
         it('displays error message and logs error', async () => {

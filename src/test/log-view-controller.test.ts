@@ -20,7 +20,7 @@ import { JjRepositoryManager } from '../core/jj-repository-manager';
 import type { JjLogEntry } from '../core/jj-types';
 import { Uri } from '../core/uri-utils';
 import { FakeHostEnvironment } from './fake-host-environment';
-import { TestRepo } from './test-repo';
+import { ROOT_ID, TestRepo } from './test-repo';
 import { createMock, createMockLogOutputChannel } from './test-utils';
 
 describe('LogViewController Domain Unit Tests', () => {
@@ -1712,5 +1712,52 @@ describe('LogViewController Domain Unit Tests', () => {
             await repo1?.dispose();
             await repo2?.dispose();
         }
+    });
+
+    test('ignores getDetails RPC for root commit while opening details for non-root commits', async () => {
+        testRepo.writeFile('example.txt', 'hello\n');
+        testRepo.describe('feat: non-root commit');
+        testRepo.config('revsets.log', 'all()');
+
+        await controller.refresh('test-root-details');
+        const nonRootCommit = controller.commits.find((c) => !c.is_root);
+        expect(nonRootCommit).toBeDefined();
+        expect(controller.commits.some((c) => c.change_id === ROOT_ID && c.is_root)).toBe(true);
+
+        const handledRoot = await controller.handleMessage({
+            type: 'getDetails',
+            payload: { changeId: ROOT_ID },
+        });
+        expect(handledRoot).toBe(true);
+        expect(fakeHost.nav.commitDetailsOpened).toHaveLength(0);
+
+        if (!nonRootCommit) {
+            return;
+        }
+        const handledNonRoot = await controller.handleMessage({
+            type: 'getDetails',
+            payload: { changeId: nonRootCommit.change_id },
+        });
+        expect(handledNonRoot).toBe(true);
+        expect(fakeHost.nav.commitDetailsOpened).toHaveLength(1);
+        expect(fakeHost.nav.commitDetailsOpened[0]?.changeId).toBe(nonRootCommit.change_id);
+    });
+
+    test('blocks getDetails RPC for root() and ROOT_ID even before commits cache is populated', async () => {
+        testRepo.writeFile('example.txt', 'hello\n');
+        testRepo.describe('feat: uncached test');
+
+        expect(controller.commits).toHaveLength(0);
+
+        await controller.handleMessage({
+            type: 'getDetails',
+            payload: { changeId: ROOT_ID },
+        });
+        await controller.handleMessage({
+            type: 'getDetails',
+            payload: { changeId: 'root()' },
+        });
+
+        expect(fakeHost.nav.commitDetailsOpened).toHaveLength(0);
     });
 });

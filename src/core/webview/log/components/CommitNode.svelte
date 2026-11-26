@@ -3,6 +3,7 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 <script lang="ts">
+import { isRootCommit } from '../../../../utils/jj-utils';
 import type { ActionPayload, CommitAction } from '../../../host/ipc/log-view-schemas';
 import type { JjLogEntry } from '../../../jj-types';
 import { BookmarkPill, IconButton, TagPill, WorkspacePill } from '../../common/components';
@@ -42,6 +43,7 @@ let {
 let isHovered = $state(false);
 
 const isImmutable = $derived(commit.is_immutable || false);
+const isRoot = $derived(isRootCommit(commit));
 const isCurrentWorkingCopy = $derived(commit.is_current_working_copy);
 const isConflict = $derived(commit.conflict);
 const isEmpty = $derived(commit.is_empty);
@@ -156,6 +158,9 @@ const textOpacity = $derived(isDraggingThis ? 0.5 : 1);
 const fontStyle = $derived(isImmutable ? 'italic' : 'normal');
 
 const descriptionFull = $derived.by(() => {
+    if (isRoot) {
+        return 'root()';
+    }
     let desc = commit.description.trim() || '(no description)';
     if (isEmpty) {
         desc = `(empty) ${desc}`;
@@ -195,13 +200,16 @@ const hasActiveBookmarkAlready = $derived(
     style:background-color={backgroundColor}
     style:outline={outline}
     style:opacity={textOpacity}
-    use:dragManager.draggable={() => ({
-        type: 'commit',
-        changeId: commit.change_id,
-        description: commit.description,
-        change_id_shortest: commit.change_id_shortest,
-        descendantCount,
-    })}
+    use:dragManager.draggable={() =>
+        isRoot
+            ? null
+            : {
+                  type: 'commit',
+                  changeId: commit.change_id,
+                  description: commit.description,
+                  change_id_shortest: commit.change_id_shortest,
+                  descendantCount,
+              }}
     use:dragManager.droppable={() => commit.change_id}
     onclick={(e) => {
         e.stopPropagation();

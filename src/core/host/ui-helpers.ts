@@ -4,6 +4,7 @@
  */
 
 import { getErrorMessage, toError } from '../../utils/error-utils';
+import { isRootCommit } from '../../utils/jj-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { extractUriFromArgs } from '../commands/command-utils';
 import type { JjRepository } from '../jj-repository';
@@ -134,7 +135,7 @@ export async function promptForRevision(
                       ? `/${entry.change_id_offset}`
                       : '';
             const shortId = `${baseShortId}${offsetSuffix}`;
-            const desc = entry.description || '(no description set)';
+            const desc = isRootCommit(entry) ? 'root()' : entry.description || '(no description set)';
             const shortDesc = desc.split('\n')[0].substring(0, 50);
 
             let bookmarkStr = '';
