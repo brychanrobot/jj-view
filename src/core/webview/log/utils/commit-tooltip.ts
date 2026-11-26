@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { isRootCommit } from '../../../../utils/jj-utils';
 import type { JjLogEntry } from '../../../jj-types';
 import { getPersonDisplayStrings } from '../../common/utils/person-utils';
 
@@ -129,9 +130,11 @@ export function formatCommitTooltip(commit: JjLogEntry): string {
     const truncatedCommitId = commit.commit_id.slice(0, HASH_DISPLAY_LENGTH);
     lines.push(`ᴄᴏᴍᴍɪᴛ: ${toUnicodeSansRegular(truncatedCommitId)}`);
 
+    const isRoot = isRootCommit(commit);
+
     // Date (Author or Committer timestamp)
     const person = commit.author || commit.committer;
-    if (person?.timestamp) {
+    if (!isRoot && person?.timestamp) {
         const { relTime, fullTime } = getPersonDisplayStrings(person);
         lines.push(`ᴅᴀᴛᴇ: ${relTime} (${fullTime})`);
     }
@@ -152,7 +155,7 @@ export function formatCommitTooltip(commit: JjLogEntry): string {
     lines.push(DIVIDER);
 
     // Description
-    const desc = commit.description.trim() || '(no description)';
+    const desc = isRoot ? 'root()' : commit.description.trim() || '(no description)';
     lines.push(desc);
 
     return lines.join('\n');

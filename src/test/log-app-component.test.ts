@@ -21,7 +21,7 @@ import { Uri } from '../core/uri-utils';
 import { MockWebviewTransport } from '../core/webview/transport/mock-transport';
 import type { WebviewTransport } from '../core/webview/transport/types';
 import { FakeHostEnvironment } from './fake-host-environment';
-import { TestRepo } from './test-repo';
+import { ROOT_ID, TestRepo } from './test-repo';
 import { createMockLogOutputChannel } from './test-utils';
 
 function createTestBridge(handler: (message: unknown) => Promise<unknown> | unknown): {
@@ -314,6 +314,83 @@ describe('LogApp Client Component Lifecycle with LogViewController', () => {
             expect(postedUpdates).toHaveLength(1);
         } finally {
             releaseLogExec?.();
+            unmountApp?.();
+            bridge.dispose();
+            controller?.dispose();
+            await validJjRepo?.dispose();
+            await validRepo?.dispose();
+            target.remove();
+        }
+    });
+
+    it('renders root() for the root commit and selects it without opening commit details', async () => {
+        const target = document.createElement('div');
+        document.body.appendChild(target);
+
+        let validRepo: TestRepo | undefined;
+        let validJjRepo: JjRepository | undefined;
+        let controller: LogViewController | undefined;
+        let unmountApp: (() => void) | undefined;
+
+        const bridge = createTestBridge(async (msg) => {
+            if (controller) {
+                await controller.handleMessage(msg);
+            }
+        });
+
+        try {
+            validRepo = new TestRepo();
+            validRepo.init();
+            validRepo.writeFile('readme.md', '# root-test\n');
+            validRepo.describe('feat: normal commit');
+            validRepo.config('revsets.log', 'all()');
+
+            const noopWatcher: HostWatcher = {
+                watch: async () => ({ unsubscribe: async () => {} }),
+            };
+            const fakeHost = new FakeHostEnvironment(new NodeHostSystem({ watcher: noopWatcher }));
+            const registry = new CodeForgeRegistry();
+            const outputChannel = createMockLogOutputChannel({
+                appendLine: () => {},
+            });
+
+            validJjRepo = new JjRepository(
+                Uri.file(validRepo.path),
+                path.join(validRepo.path, '.jj', 'repo'),
+                registry,
+                outputChannel,
+                fakeHost,
+            );
+            await validJjRepo.watcher.dispose();
+            await validJjRepo.activeRefresh;
+
+            controller = new LogViewController(validJjRepo, fakeHost, {
+                messenger: bridge.messenger,
+                logger: outputChannel,
+            });
+
+            unmountApp = clientMod.mountLogApp(target, bridge.transport);
+
+            await expect.poll(() => target.textContent ?? '').toContain('feat: normal commit');
+
+            const rootRow = target.querySelector<HTMLElement>(`.commit-row[data-change-id="${ROOT_ID}"]`);
+            expect(rootRow).not.toBeNull();
+            expect(rootRow?.querySelector('.commit-desc')?.textContent?.trim()).toBe('root()');
+            expect(rootRow?.textContent).not.toContain('(empty)');
+            expect(rootRow?.textContent).not.toContain('(no description)');
+
+            rootRow?.click();
+            await expect.poll(() => controller?.selectedCommitIds ?? []).toEqual([ROOT_ID]);
+            expect(fakeHost.nav.commitDetailsOpened).toHaveLength(0);
+
+            const normalRow = Array.from(target.querySelectorAll<HTMLElement>('.commit-row')).find((el) =>
+                el.textContent?.includes('feat: normal commit'),
+            );
+            expect(normalRow).toBeDefined();
+            normalRow?.click();
+            await expect.poll(() => fakeHost.nav.commitDetailsOpened.length).toBe(1);
+            expect(fakeHost.nav.commitDetailsOpened[0]?.changeId).toBe(normalRow?.getAttribute('data-change-id'));
+        } finally {
             unmountApp?.();
             bridge.dispose();
             controller?.dispose();

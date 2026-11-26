@@ -249,6 +249,7 @@ categories:
 -   **Await `'close'` (Not `'exit'`) When Capturing Child Process Stdio in Node Tests**: `ChildProcess` `'exit'` can fire before `stdout`/`stderr` pipes flush; always resolve CLI capture helpers on `'close'` so printed output checks cannot truncate.
 -   **Defer Shared-Directory Side Effects Until After `Listen()` Binds**: Never spawn background writes to shared per-user temp directories (e.g., `EnsureScriptsExtracted`) or index warmers in `NewServer()` before `Listen()` binds, so an `EADDRINUSE` short-circuit cannot race with or truncate a live daemon's files.
 -   **Audit `jj diff` & Run `gofmt` After Architecture Pivots**: After reverting or replacing a prototype approach, inspect `jj diff` across all modified files and run `gofmt` so stray blank-line diffs, formatting churn, and dead helper paths do not linger in the final commit.
+-   **Don't Rely Solely on Mutable Host Caches for RPC Eligibility Guards**: When a webview RPC handler enforces an eligibility guard (such as blocking `root()`), do not fall through on a miss in `this._commits`; fall back to a bounded `jj.getLog({ revision, limit: 1, omitChanges: true })` lookup guarded across `await` by disposal and repository identity/version checks.
 
 --------------------------------------------------------------------------------
 

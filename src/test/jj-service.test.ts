@@ -1095,6 +1095,14 @@ log = "none()"
         expect(emptyLog.is_empty).toBe(true);
     });
 
+    test('getLog populates is_root accurately for root() and non-root revisions', async () => {
+        const [rootLog] = await jjService.getLog({ revision: 'root()' });
+        expect(rootLog.is_root).toBe(true);
+
+        const [wcLog] = await jjService.getLog({ revision: '@' });
+        expect(wcLog.is_root).toBe(false);
+    });
+
     test('getLog parses parents_immutable correctly', async () => {
         repo.describe('child of root');
         const [child] = await jjService.getLog({ revision: '@' });

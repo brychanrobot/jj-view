@@ -5,7 +5,7 @@
 
 import { CoalescingQueue } from '../../utils/coalescing-queue';
 import { getErrorMessage, toError } from '../../utils/error-utils';
-import { canAbsorbCommit } from '../../utils/jj-utils';
+import { canAbsorbCommit, isRootCommit } from '../../utils/jj-utils';
 import type { LoggerChannel } from '../../utils/output-channel';
 import { type CodeForgeService, MANUAL_REFRESH_REASON } from '../code-forge-service';
 import { type Disposable, type Event, EventEmitter } from '../host/events';
@@ -711,15 +711,46 @@ export class LogViewController implements Disposable {
                     await this._host.commands.executeCommand('jj-view.abandon', msg);
                 },
                 getDetails: async (msg) => {
-                    if (this._repo) {
-                        await this._host.nav.openCommitDetails(
-                            this._repo.rootUri,
-                            msg.changeId,
-                            msg.changeIdShortest,
-                            msg.isDivergent,
-                            msg.changeIdOffset,
-                        );
+                    const targetRepo = this._repo;
+                    if (!targetRepo) {
+                        return;
                     }
+                    const trimmedId = msg.changeId.trim();
+                    if (trimmedId === 'root()') {
+                        return;
+                    }
+                    const cached = this._commits.find((c) => c.change_id === trimmedId);
+                    if (cached) {
+                        if (isRootCommit(cached)) {
+                            return;
+                        }
+                    } else {
+                        const targetRepoVersion = this._repoChangeVersion;
+                        try {
+                            const [entry] = await targetRepo.jj.getLog({
+                                revision: trimmedId,
+                                limit: 1,
+                                omitChanges: true,
+                            });
+                            if (this._isStaleRefresh(targetRepo, targetRepoVersion)) {
+                                return;
+                            }
+                            if (entry && isRootCommit(entry)) {
+                                return;
+                            }
+                        } catch {
+                            if (this._isStaleRefresh(targetRepo, targetRepoVersion)) {
+                                return;
+                            }
+                        }
+                    }
+                    await this._host.nav.openCommitDetails(
+                        targetRepo.rootUri,
+                        msg.changeId,
+                        msg.changeIdShortest,
+                        msg.isDivergent,
+                        msg.changeIdOffset,
+                    );
                 },
                 new: async () => {
                     await this._host.commands.executeCommand('jj-view.new');

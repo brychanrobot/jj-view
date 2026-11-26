@@ -132,6 +132,7 @@ export const LOG_ENTRY_SCHEMA: Record<string, JjTemplateField> = {
         itemExpr: 'item.name()',
     },
     is_immutable: { type: 'raw', expr: 'immutable' },
+    is_root: { type: 'raw', expr: 'root' },
     is_current_working_copy: { type: 'raw', expr: 'current_working_copy' },
     working_copies: {
         type: 'rawArray',

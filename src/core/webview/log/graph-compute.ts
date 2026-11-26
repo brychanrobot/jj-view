@@ -130,6 +130,7 @@ export function computeGraphLayout(commits: JjLogEntry[], themeName: string = 'd
                 conflict: row.conflict,
                 isEmpty: row.is_empty,
                 isImmutable: row.is_immutable,
+                isRoot: row.is_root,
                 isHidden: row.is_hidden,
             });
         }

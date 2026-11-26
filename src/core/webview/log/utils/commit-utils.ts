@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { canAbsorbCommit, canSquashCommit, isMutableCommit } from '../../../../utils/jj-utils';
+import { canAbsorbCommit, canSquashCommit, isMutableCommit, isRootCommit } from '../../../../utils/jj-utils';
 import type { CommitAction } from '../../../host/ipc/log-view-schemas';
 import type { JjLogEntry } from '../../../jj-types';
 
@@ -32,9 +32,11 @@ export function computeCommitActions(
         abandon: isMutableCommit(commit) && !hiddenActions.has('abandon'),
     };
 
+    const isRoot = isRootCommit(commit);
     const vscodeContext = {
         webviewSection: 'commit',
         'jj.isCurrentWorkingCopy': commit.is_current_working_copy,
+        'jj.isRoot': isRoot,
 
         'jj.newChildVisible': visibleActions.newChild,
         'jj.editVisible': visibleActions.edit,
@@ -56,7 +58,7 @@ export function computeCommitActions(
         // Edit, Duplicate, and Absorb restricted to single-item context (or unselected item)
         'jj.canEdit':
             isMutableCommit(commit) && !commit.is_current_working_copy && (!isSelected || selectionCount <= 1),
-        'jj.canDuplicate': !isSelected || selectionCount <= 1,
+        'jj.canDuplicate': !isRoot && (!isSelected || selectionCount <= 1),
         'jj.canNewChild': !isSelected || selectionCount <= 1,
 
         // Rebase source must be mutable, and we rebase ONTO the current selection
@@ -132,6 +134,14 @@ export function findMatchingCommit(commits: readonly JjLogEntry[], query: string
         const wc = commits.find((c) => c.is_current_working_copy);
         if (wc) {
             return wc;
+        }
+    }
+
+    // 5b. Root commit root()
+    if (q === 'root()') {
+        const rootCommit = commits.find((c) => isRootCommit(c));
+        if (rootCommit) {
+            return rootCommit;
         }
     }
 

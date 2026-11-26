@@ -298,6 +298,14 @@ const svgHeight = $derived(height + BOTTOM_PADDING);
                     stroke-width="2"
                     stroke-linecap="round"
                 />
+            {:else if node.isRoot}
+                <polygon
+                    points={`${cx},${cy - 6} ${cx + 6},${cy} ${cx},${cy + 6} ${cx - 6},${cy}`}
+                    fill={node.color}
+                    stroke={node.color}
+                    stroke-width="2"
+                    stroke-linejoin="round"
+                />
             {:else if node.isEmpty}
                 {#if node.isImmutable}
                     <polygon

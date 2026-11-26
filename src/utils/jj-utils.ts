@@ -78,6 +78,13 @@ export function isMutableCommit(commit: { is_immutable?: boolean }): boolean {
 }
 
 /**
+ * Checks if a commit is the repository root commit (`root()`).
+ */
+export function isRootCommit(commit: { is_root?: boolean }): boolean {
+    return Boolean(commit.is_root);
+}
+
+/**
  * Checks if a commit has any mutable parent (allowing absorb).
  */
 export function canAbsorbCommit(commit: { parents?: { is_immutable?: boolean }[] }): boolean {

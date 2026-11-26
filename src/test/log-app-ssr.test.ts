@@ -83,6 +83,30 @@ describe('LogApp SSR Rendering', () => {
         expect(result.body).not.toContain('data-testid="log-no-repo-state"');
     });
 
+    it('renders root() description and solid diamond node for root commit instead of (empty) (no description)', () => {
+        const rootCommit = createSampleCommit({
+            change_id: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+            change_id_shortest: 'z',
+            commit_id: '0000000000000000000000000000000000000000',
+            description: '',
+            is_immutable: true,
+            is_empty: true,
+            is_root: true,
+            is_current_working_copy: false,
+            parents: [],
+        });
+        const initialState: LogViewPayload = {
+            commits: [rootCommit],
+            hasRepository: true,
+        };
+        const result = render(LogApp, { props: { initialState } });
+
+        expect(result.body).toMatch(/class="commit-desc[^>]*>(?:<!--.*?-->|\s)*root\(\)<\/span>/);
+        expect(result.body).not.toContain('(empty)');
+        expect(result.body).not.toContain('(no description)');
+        expect(result.body).toMatch(/<polygon[^>]*fill="var\(--jj-lane-0\)"/);
+    });
+
     it('uses strictly theme-defined CSS variables with zero hardcoded hex or rgb colors in LogApp.svelte', () => {
         const svelteSource = fs.readFileSync(path.resolve(__dirname, '../core/webview/log/LogApp.svelte'), 'utf8');
         const styleMatch = /<style>([\s\S]*?)<\/style>/.exec(svelteSource);
