@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as vscode from 'vscode';
 
@@ -228,6 +229,77 @@ describe('VsCodeScmProvider Unit Tests', () => {
             expect(ancestorGroup?.resourceStates[0]?.resourceUri.scheme).toBe('jj-edit');
         });
         expect(scmProvider.sourceControl.inputBox.value).toBe('unsaved wc draft');
+    });
+
+    test('uses repo-relative resourceUri for nested ancestor paths and decorates both resourceUri and rightUri', async () => {
+        await buildGraph(testRepo, [
+            { label: 'base', description: 'base commit', files: { 'README.md': 'base\n' } },
+            {
+                label: 'parent',
+                description: 'add nested file',
+                parents: ['base'],
+                files: { 'packages/core/src/ancestor.ts': 'export const v = 1;\n' },
+            },
+            {
+                label: 'wc',
+                description: 'modify nested file in wc',
+                parents: ['parent'],
+                files: { 'packages/core/src/ancestor.ts': 'export const v = 2;\n' },
+                isCurrentWorkingCopy: true,
+            },
+        ]);
+
+        await scmProvider.refresh({ forceSnapshot: true });
+
+        const getGroups = () =>
+            vi
+                .mocked(scmProvider.sourceControl.createResourceGroup)
+                .mock.results.filter(
+                    (r): r is { type: 'return'; value: vscode.SourceControlResourceGroup } => r.type === 'return',
+                )
+                .map((r) => r.value);
+
+        let ancestorState: vscode.SourceControlResourceState | undefined;
+        let wcState: vscode.SourceControlResourceState | undefined;
+        await vi.waitFor(() => {
+            const ancestorGroup = getGroups().find((g) => g.id === 'ancestor-0');
+            const wcGroup = getGroups().find((g) => g.id === ScmContextValue.WorkingCopyGroup);
+            ancestorState = ancestorGroup?.resourceStates[0];
+            wcState = wcGroup?.resourceStates[0];
+            expect(ancestorState).toBeDefined();
+            expect(wcState).toBeDefined();
+        });
+
+        if (!ancestorState || !wcState) {
+            throw new Error('Expected ancestorState and wcState to be defined');
+        }
+
+        expect(ancestorState.resourceUri.scheme).toBe('jj-edit');
+        expect(ancestorState.resourceUri.path).toBe('/packages/core/src/ancestor.ts');
+        expect(ancestorState.resourceUri.path).not.toContain(path.basename(testRepo.path));
+
+        const diffArgs = ancestorState.command?.arguments;
+        const leftUri = diffArgs && Uri.isUri(diffArgs[0]) ? diffArgs[0] : undefined;
+        const rightUri = diffArgs && Uri.isUri(diffArgs[1]) ? diffArgs[1] : undefined;
+        if (!leftUri || !rightUri) {
+            throw new Error('Expected command arguments to contain leftUri and rightUri');
+        }
+        expect(leftUri.path).toBe(rightUri.path);
+        expect(rightUri.path.endsWith('/packages/core/src/ancestor.ts')).toBe(true);
+        expect(rightUri.fsPath).toContain('packages');
+
+        const token = createMock<vscode.CancellationToken>();
+        const ancestorResourceDec = await scmProvider.decorationProvider.provideFileDecoration(
+            ancestorState.resourceUri,
+            token,
+        );
+        expect(ancestorResourceDec?.badge).toBe('A');
+
+        const ancestorRightDec = await scmProvider.decorationProvider.provideFileDecoration(rightUri, token);
+        expect(ancestorRightDec?.badge).toBe('A');
+
+        const wcResourceDec = await scmProvider.decorationProvider.provideFileDecoration(wcState.resourceUri, token);
+        expect(wcResourceDec?.badge).toBe('M');
     });
 
     test('disposes all VS Code resources cleanly', () => {

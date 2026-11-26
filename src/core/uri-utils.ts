@@ -221,13 +221,15 @@ export function getFsPathFromUri(uri: Uri, platform?: HostPlatform | string): st
         return getUriFsPathForPlatform(uri, platform);
     }
     const effectivePlatform = inferRootPlatform(root, platform);
-    const candidateFsPath = getUriFsPathForPlatform(uri, effectivePlatform);
-    const normFsPath = toFsComparisonKey(candidateFsPath, effectivePlatform);
-    const normRoot = toFsComparisonKey(root, effectivePlatform);
-    const isInsideRoot =
-        normFsPath === normRoot || normFsPath.startsWith(normRoot.endsWith('/') ? normRoot : `${normRoot}/`);
-    if (isInsideRoot) {
-        return candidateFsPath;
+    if (params.get('relative') !== '1') {
+        const candidateFsPath = getUriFsPathForPlatform(uri, effectivePlatform);
+        const normFsPath = toFsComparisonKey(candidateFsPath, effectivePlatform);
+        const normRoot = toFsComparisonKey(root, effectivePlatform);
+        const isInsideRoot =
+            normFsPath === normRoot || normFsPath.startsWith(normRoot.endsWith('/') ? normRoot : `${normRoot}/`);
+        if (isInsideRoot) {
+            return candidateFsPath;
+        }
     }
     const relativePath = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
     return pathResolve([root, relativePath], effectivePlatform);
@@ -275,6 +277,24 @@ export function createRepoFileUri(
     });
 }
 
+/**
+ * Builds a repository-relative URI for custom `jj-view` / `jj-edit` schemes,
+ * used by VS Code SCM `SourceControlResourceState.resourceUri` for non-working-copy
+ * revisions so SCM Tree and List views display clean repo-relative paths.
+ */
+function createRelativeRepoFileUri(
+    filePath: string,
+    scheme: 'jj-view' | 'jj-edit',
+    options: { fragment?: string; platform?: HostPlatform | string } = {},
+): Uri {
+    const cleanPath = stripLeadingSeparators(normalizeRepoSeparators(filePath, options.platform), options.platform);
+    return Uri.from({
+        scheme,
+        path: cleanPath ? `/${cleanPath}` : '/',
+        fragment: options.fragment ?? '',
+    });
+}
+
 export function createDiffUris(
     entry: JjStatusEntry,
     revision: string,
@@ -298,21 +318,34 @@ export function createDiffUris(
     resourceParams.set('jj-revision', revision);
     resourceParams.set('revision', isCurrentWorkingCopy ? '@' : revision);
 
+    const relativeResourceParams = new URLSearchParams(resourceParams);
+    relativeResourceParams.set('relative', '1');
+
+    // Non-working-copy SCM resourceUri keeps a repo-relative `.path` (with `root` and
+    // `relative=1` in the fragment) so VS Code's SCM Tree and List views never render
+    // full filesystem paths for ancestor revisions and `getFsPathFromUri` never
+    // conflates leading repo segments with `root`, while leftUri/rightUri use full
+    // repo paths so MultiDiffEditor Modified-vs-Renamed path comparisons match `file://`.
     const resourceUri = isCurrentWorkingCopy
         ? createRepoFileUri(root, entry.path, 'file', { platform: effectivePlatform })
-        : createRepoFileUri(root, entry.path, options.editable ? 'jj-edit' : 'jj-view', {
-              fragment: resourceParams.toString(),
+        : createRelativeRepoFileUri(entry.path, options.editable ? 'jj-edit' : 'jj-view', {
+              fragment: relativeResourceParams.toString(),
               platform: effectivePlatform,
           });
 
     const isDeleted = entry.status === 'deleted';
     const rightUri =
-        !isDeleted && (isCurrentWorkingCopy || options.editable)
+        !isDeleted && isCurrentWorkingCopy
             ? resourceUri
-            : createRepoFileUri(root, entry.path, 'jj-view', {
-                  fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
-                  platform: effectivePlatform,
-              });
+            : !isDeleted && options.editable
+              ? createRepoFileUri(root, entry.path, 'jj-edit', {
+                    fragment: resourceParams.toString(),
+                    platform: effectivePlatform,
+                })
+              : createRepoFileUri(root, entry.path, 'jj-view', {
+                    fragment: encodeJjViewQuery({ mode: 'diff', root, base: revision, side: 'right' }),
+                    platform: effectivePlatform,
+                });
 
     return { leftUri, rightUri, resourceUri };
 }

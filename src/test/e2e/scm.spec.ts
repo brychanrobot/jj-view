@@ -1036,57 +1036,177 @@ test.describe('SCM Pane E2E', () => {
         const repo = new TestRepo();
         repo.init();
 
+        const fileName = 'diff-refresh-plain-file.txt';
+        await buildGraph(repo, [
+            {
+                label: 'initial',
+                description: 'initial commit',
+                files: { [fileName]: 'line 1\nline 2\n' },
+            },
+            {
+                label: 'wc',
+                parents: ['initial'],
+                isCurrentWorkingCopy: true,
+                files: { [fileName]: 'line 1\nline 2 modified\n' },
+            },
+        ]);
+
+        const { page } = await vscode.openWorkspace(repo);
+
+        await focusSCM(page);
+
+        // 1. Open diff editor from SCM for the working copy file
+        await openScmDiff(page, fileName, /Working Copy/);
+
+        // Verify the modified text is currently in the diff editor's right side
+        const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
+        await expect(rightEditor).toContainText('line 2 modified');
+
+        // 2. Open the plain file in an editor tab beside the diff editor
+        await vscode.openFileInEditor(path.resolve(repo.path, fileName), {
+            viewColumn: 2,
+            preview: false,
+        });
+        const plainEditor = page.locator('.editor-group-container.active .monaco-editor');
+        await expect(plainEditor).toBeVisible();
+
+        // 3. Edit the plain file
+        await plainEditor.click();
+        await selectLine(page, plainEditor, 'line 2 modified');
+        await page.keyboard.press('End');
+        await page.keyboard.type(' with extra edits');
+        await save(page);
+
+        // 4. Switch back to the diff editor tab
+        const diffTab = page.getByRole('tab', { name: /diff-refresh-plain-file\.txt/ }).first();
+        await expect(diffTab).toBeVisible();
+        await diffTab.click();
+
+        // 5. Assert the right-hand side of the diff editor immediately reflects the updated plain file content
+        await expect(rightEditor).toContainText('line 2 modified with extra edits', { timeout: 10000 });
+    });
+
+    test('Ancestor revisions show repo-relative paths in SCM Tree and List views (#714)', async ({ vscode }) => {
+        const repo = new TestRepo();
+        const repoBaseName = path.basename(repo.path);
+
         try {
-            const fileName = 'diff-refresh-plain-file.txt';
+            repo.init();
             await buildGraph(repo, [
                 {
-                    label: 'initial',
-                    description: 'initial commit',
-                    files: { [fileName]: 'line 1\nline 2\n' },
+                    label: 'base',
+                    description: 'base commit',
+                    files: {
+                        'packages/core/src/deep_module.ts': 'export const value = 1;\n',
+                        'root_file.txt': 'root v1\n',
+                    },
+                },
+                {
+                    label: 'ancestor',
+                    parents: ['base'],
+                    description: 'ancestor changes',
+                    files: {
+                        'packages/core/src/deep_module.ts': 'export const value = 2;\n',
+                        'root_file.txt': 'root v2\n',
+                    },
                 },
                 {
                     label: 'wc',
-                    parents: ['initial'],
+                    parents: ['ancestor'],
+                    description: 'wc changes',
                     isCurrentWorkingCopy: true,
-                    files: { [fileName]: 'line 1\nline 2 modified\n' },
+                    files: {
+                        'packages/core/src/wc_file.ts': 'export const wc = true;\n',
+                    },
                 },
             ]);
 
             const { page } = await vscode.openWorkspace(repo);
 
             await focusSCM(page);
+            await vscode.executeCommand('workbench.scm.action.setTreeViewMode');
 
-            // 1. Open diff editor from SCM for the working copy file
-            await openScmDiff(page, fileName, /Working Copy/);
-
-            // Verify the modified text is currently in the diff editor's right side
-            const rightEditor = page.locator('.monaco-diff-editor .editor.modified');
-            await expect(rightEditor).toContainText('line 2 modified');
-
-            // 2. Open the plain file in an editor tab beside the diff editor
-            await vscode.openFileInEditor(path.resolve(repo.path, fileName), {
-                viewColumn: 2,
-                preview: false,
+            // 1. Verify Tree View renders repo-relative folder hierarchy without leaking repo root or temp path
+            await expect(page.locator('.scm-view.tree-view-mode')).toBeVisible({ timeout: 10000 });
+            await expect(
+                page.locator('.scm-view [role="treeitem"]', { hasText: 'ancestor changes' }).first(),
+            ).toBeVisible({ timeout: 10000 });
+            await expect(
+                page.locator('.scm-view [role="treeitem"]', { hasText: 'deep_module.ts' }).first(),
+            ).toBeVisible({ timeout: 10000 });
+            await expect(page.locator('.scm-view [role="treeitem"]', { hasText: 'root_file.txt' }).first()).toBeVisible(
+                {
+                    timeout: 10000,
+                },
+            );
+            await expect(page.locator('.scm-view [role="treeitem"]', { hasText: 'wc_file.ts' }).first()).toBeVisible({
+                timeout: 10000,
             });
-            const plainEditor = page.locator('.editor-group-container.active .monaco-editor');
-            await expect(plainEditor).toBeVisible();
 
-            // 3. Edit the plain file
-            await plainEditor.click();
-            await selectLine(page, plainEditor, 'line 2 modified');
-            await page.keyboard.press('End');
-            await page.keyboard.type(' with extra edits');
-            await save(page);
+            const treeItems = await page.evaluate(() => {
+                return Array.from(document.querySelectorAll<HTMLElement>('.scm-view [role="treeitem"]')).map((el) => ({
+                    level: el.getAttribute('aria-level'),
+                    name: el.querySelector('.label-name')?.textContent?.trim() ?? '',
+                    description: el.querySelector('.label-description')?.textContent?.trim() ?? '',
+                    text: el.textContent?.trim() ?? '',
+                }));
+            });
 
-            // 4. Switch back to the diff editor tab
-            const diffTab = page.getByRole('tab', { name: /diff-refresh-plain-file\.txt/ }).first();
-            await expect(diffTab).toBeVisible();
-            await diffTab.click();
+            const ancestorHeaderIdx = treeItems.findIndex((item) => item.text.includes('ancestor changes'));
+            expect(ancestorHeaderIdx).toBeGreaterThan(-1);
+            const nextGroupOffset = treeItems.slice(ancestorHeaderIdx + 1).findIndex((item) => item.level === '1');
+            const ancestorEndIdx = nextGroupOffset >= 0 ? ancestorHeaderIdx + 1 + nextGroupOffset : treeItems.length;
+            const ancestorTreeItems = treeItems.slice(ancestorHeaderIdx + 1, ancestorEndIdx);
 
-            // 5. Assert the right-hand side of the diff editor immediately reflects the updated plain file content
-            await expect(rightEditor).toContainText('line 2 modified with extra edits', { timeout: 10000 });
+            for (const item of ancestorTreeItems) {
+                expect(item.text).not.toContain(repoBaseName);
+                expect(item.name).not.toContain(repoBaseName);
+                expect(item.description).not.toContain(repoBaseName);
+                expect(item.description.startsWith('/')).toBe(false);
+            }
+
+            expect(ancestorTreeItems.some((item) => item.name.includes('packages'))).toBe(true);
+            expect(ancestorTreeItems.some((item) => item.name === 'deep_module.ts')).toBe(true);
+            expect(ancestorTreeItems.some((item) => item.name === 'root_file.txt')).toBe(true);
+
+            // Verify clicking the ancestor file in Tree View still opens its diff editor cleanly
+            await page.locator('.scm-view [role="treeitem"]', { hasText: 'deep_module.ts' }).first().click();
+            await expect(page.locator('.monaco-diff-editor').first()).toBeVisible({ timeout: 10000 });
+            await waitForTab(page, 'deep_module.ts');
+
+            // 2. Switch to List View and verify repo-relative path descriptions
+            await vscode.executeCommand('workbench.scm.action.setListViewMode');
+            await expect(page.locator('.scm-view:not(.tree-view-mode)')).toBeVisible({ timeout: 10000 });
+            await expect
+                .poll(
+                    async () => {
+                        const items = await page.evaluate(() => {
+                            return Array.from(
+                                document.querySelectorAll<HTMLElement>('.scm-view [role="treeitem"][aria-level="2"]'),
+                            ).map((el) => ({
+                                name: el.querySelector('.label-name')?.textContent?.trim() ?? '',
+                                description: (
+                                    el.querySelector('.label-description')?.textContent?.trim() ?? ''
+                                ).replace(/\\/g, '/'),
+                            }));
+                        });
+                        const deepItem = items.find((i) => i.name === 'deep_module.ts');
+                        const rootItem = items.find((i) => i.name === 'root_file.txt');
+                        const wcItem = items.find((i) => i.name === 'wc_file.ts');
+                        return { deepItem, rootItem, wcItem };
+                    },
+                    { timeout: 10000 },
+                )
+                .toEqual({
+                    deepItem: { name: 'deep_module.ts', description: 'packages/core/src' },
+                    rootItem: { name: 'root_file.txt', description: '' },
+                    wcItem: {
+                        name: 'wc_file.ts',
+                        description: expect.stringMatching(/^(?:[^/\\]+ • )?packages\/core\/src$/),
+                    },
+                });
         } finally {
-            await repo.dispose();
+            await vscode.executeCommand('workbench.scm.action.setListViewMode').catch(() => {});
         }
     });
 });
