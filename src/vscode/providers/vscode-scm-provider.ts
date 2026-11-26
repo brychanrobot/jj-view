@@ -254,6 +254,9 @@ export class VsCodeScmProvider implements vscode.Disposable {
                     mutableCommit: ancestor.isMutable,
                 });
                 decorationMap.set(state.resourceUri.toString(), c);
+                if (state.rightUri && state.rightUri.toString() !== state.resourceUri.toString()) {
+                    decorationMap.set(state.rightUri.toString(), c);
+                }
                 return state;
             });
         }

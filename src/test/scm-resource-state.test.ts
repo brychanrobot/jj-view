@@ -20,10 +20,33 @@ describe('createJjResourceState', () => {
             };
             const state = createJjResourceState(entry, 'rev123', root);
 
-            expect(state.resourceUri.path).toBe('/root/file.txt');
+            expect(state.resourceUri.path).toBe('/file.txt');
             expect(state.revision).toBe('rev123');
             expect(state.leftUri?.path).toBe('/root/file.txt');
             expect(state.rightUri?.path).toBe('/root/file.txt');
+        });
+
+        it('uses repo-relative resourceUri for nested ancestor paths while keeping full repo paths on diff URIs', () => {
+            const entry: JjStatusEntry = {
+                path: 'cli/src/cli_util.rs',
+                status: 'modified',
+            };
+
+            const editableAncestor = createJjResourceState(entry, 'rev123', root, { editable: true });
+            expect(editableAncestor.resourceUri.scheme).toBe('jj-edit');
+            expect(editableAncestor.resourceUri.path).toBe('/cli/src/cli_util.rs');
+            expect(editableAncestor.leftUri?.path).toBe('/root/cli/src/cli_util.rs');
+            expect(editableAncestor.rightUri?.path).toBe('/root/cli/src/cli_util.rs');
+
+            const readonlyAncestor = createJjResourceState(entry, 'rev123', root, { editable: false });
+            expect(readonlyAncestor.resourceUri.scheme).toBe('jj-view');
+            expect(readonlyAncestor.resourceUri.path).toBe('/cli/src/cli_util.rs');
+            expect(readonlyAncestor.leftUri?.path).toBe('/root/cli/src/cli_util.rs');
+            expect(readonlyAncestor.rightUri?.path).toBe('/root/cli/src/cli_util.rs');
+
+            const workingCopy = createJjResourceState(entry, '@', root);
+            expect(workingCopy.resourceUri.scheme).toBe('file');
+            expect(workingCopy.resourceUri.path).toBe('/root/cli/src/cli_util.rs');
         });
 
         it('uses oldPath as leftPath for renamed entries', () => {

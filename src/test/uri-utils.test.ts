@@ -218,13 +218,86 @@ describe('createDiffUris', () => {
             status: 'modified',
         };
         const revision = 'rev1';
-        const { leftUri, rightUri } = createDiffUris(entry, revision, root, { editable: true });
+        const { leftUri, rightUri, resourceUri } = createDiffUris(entry, revision, root, { editable: true });
+
+        expect(resourceUri.scheme).toBe('jj-edit');
+        expect(resourceUri.path).toBe('/file.txt');
+        expect(resourceUri.fragment).toContain('root=%2Froot');
+        expect(resourceUri.fragment).toContain('revision=rev1');
 
         expect(rightUri.scheme).toBe('jj-edit');
         expect(rightUri.path).toBe('/root/file.txt');
         expect(rightUri.path).toBe(leftUri.path);
         expect(rightUri.fragment).toContain('root=%2Froot');
         expect(rightUri.fragment).toContain('revision=rev1');
+    });
+
+    it('uses repo-relative resourceUri for nested ancestor paths while resolving full fsPath and preserving platform paths', () => {
+        const nestedEntry: JjStatusEntry = {
+            path: 'cli/src/cli_util.rs',
+            status: 'modified',
+        };
+        for (const editable of [false, true]) {
+            const { leftUri, rightUri, resourceUri } = createDiffUris(nestedEntry, 'rev1', '/workspace/repo', {
+                editable,
+                platform: 'linux',
+            });
+            expect(resourceUri.path).toBe('/cli/src/cli_util.rs');
+            expect(leftUri.path).toBe('/workspace/repo/cli/src/cli_util.rs');
+            expect(rightUri.path).toBe(leftUri.path);
+            expect(getFsPathFromUri(resourceUri, 'linux')).toBeSameFsPath('/workspace/repo/cli/src/cli_util.rs');
+            expect(getRepoRelativePath(resourceUri, '/workspace/repo', 'linux')).toBe('/cli/src/cli_util.rs');
+            expect(toFileUri(resourceUri, 'linux').fsPath).toBeSameFsPath('/workspace/repo/cli/src/cli_util.rs');
+        }
+
+        const winRoot = 'C:\\workspace\\repo';
+        const winResult = createDiffUris({ path: 'cli\\src\\cli_util.rs', status: 'modified' }, 'rev1', winRoot, {
+            editable: true,
+            platform: 'win32',
+        });
+        expect(winResult.resourceUri.path).toBe('/cli/src/cli_util.rs');
+        expect(winResult.leftUri.path).toBe('/C:/workspace/repo/cli/src/cli_util.rs');
+        expect(winResult.rightUri.path).toBe(winResult.leftUri.path);
+        expect(getFsPathFromUri(winResult.resourceUri, 'win32')).toBe('C:/workspace/repo/cli/src/cli_util.rs');
+        expect(getRepoRelativePath(winResult.resourceUri, winRoot, 'win32')).toBe('/cli/src/cli_util.rs');
+        expect(toFileUri(winResult.resourceUri, 'win32').path.toLowerCase()).toBe(
+            '/c:/workspace/repo/cli/src/cli_util.rs',
+        );
+
+        const posixBackslash = createDiffUris(
+            { path: 'sub/foo\\bar.txt', status: 'modified' },
+            'rev1',
+            '/workspace/repo',
+            {
+                editable: false,
+                platform: 'linux',
+            },
+        );
+        expect(posixBackslash.resourceUri.path).toBe('/sub/foo\\bar.txt');
+        expect(posixBackslash.leftUri.path).toBe('/workspace/repo/sub/foo\\bar.txt');
+        expect(posixBackslash.rightUri.path).toBe(posixBackslash.leftUri.path);
+        expect(getFsPathFromUri(posixBackslash.resourceUri, 'linux')).toBeSameFsPath(
+            '/workspace/repo/sub/foo\\bar.txt',
+        );
+        expect(getRepoRelativePath(posixBackslash.resourceUri, '/workspace/repo', 'linux')).toBe('/sub/foo\\bar.txt');
+        expect(toFileUri(posixBackslash.resourceUri, 'linux').fsPath).toBeSameFsPath(
+            '/workspace/repo/sub/foo\\bar.txt',
+        );
+
+        // Short root collision guard: /app with entry app/page.tsx vs page.tsx
+        const shortRootResult = createDiffUris({ path: 'app/page.tsx', status: 'added' }, 'rev1', '/app', {
+            editable: true,
+            platform: 'linux',
+        });
+        const shortRootOther = createDiffUris({ path: 'page.tsx', status: 'modified' }, 'rev1', '/app', {
+            editable: true,
+            platform: 'linux',
+        });
+        expect(shortRootResult.resourceUri.path).toBe('/app/page.tsx');
+        expect(shortRootResult.resourceUri.toString()).not.toBe(shortRootOther.rightUri.toString());
+        expect(getFsPathFromUri(shortRootResult.resourceUri, 'linux')).toBe('/app/app/page.tsx');
+        expect(getRepoRelativePath(shortRootResult.resourceUri, '/app', 'linux')).toBe('/app/page.tsx');
+        expect(toFileUri(shortRootResult.resourceUri, 'linux').path).toBe('/app/app/page.tsx');
     });
 
     it('matches working copy change ID by prefix for short change IDs', () => {
