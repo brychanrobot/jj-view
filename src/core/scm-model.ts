@@ -307,8 +307,7 @@ export class ScmModel implements Disposable {
             !parentEntry.parents[0].is_immutable;
 
         const shortId = formatDisplayChangeId(parentEntry.change_id, parentEntry.change_id_shortest, minChangeIdLength);
-        const desc = parentEntry.description?.trim() || '(no description)';
-        const subject = desc.split('\n', 1)[0].trim();
+        const subject = this.extractDescriptionSubject(parentEntry.description) || '(no description)';
         const label = `${prefix}: ${shortId} - ${subject}`;
 
         const groupFlags: string[] = [
@@ -354,6 +353,14 @@ export class ScmModel implements Disposable {
         return statusMap;
     }
 
+    private extractDescriptionSubject(description: string | undefined): string {
+        const trimmed = description?.trim();
+        if (!trimmed) {
+            return '';
+        }
+        return trimmed.split('\n', 1)[0].trim();
+    }
+
     private computeWorkingCopyLabel(currentEntry: JjLogEntry | undefined, minChangeIdLength: number): string {
         if (!currentEntry) {
             return 'Working Copy';
@@ -363,7 +370,8 @@ export class ScmModel implements Disposable {
             currentEntry.change_id_shortest,
             minChangeIdLength,
         );
-        return `Working Copy - ${shortId}`;
+        const subject = this.extractDescriptionSubject(currentEntry.description);
+        return subject ? `Working Copy: ${shortId} - ${subject}` : `Working Copy: ${shortId}`;
     }
 
     private computeWorkingCopyContextValue(currentEntry: JjLogEntry | undefined): string {
