@@ -86,6 +86,26 @@ describe('ScmModel Domain Unit Tests', () => {
         expect(snapshot?.parentMutable).toBe(true);
     });
 
+    test('formats working copy label with description subject when described and omits it when empty', async () => {
+        await buildGraph(testRepo, [
+            { label: 'parent', description: 'parent commit', files: { 'file.txt': 'v1\n' } },
+            { label: 'wc', parents: ['parent'], description: '', isCurrentWorkingCopy: true },
+        ]);
+
+        await scmModel.updateSnapshot({ reason: 'undescribed working copy' });
+        const emptySnapshot = scmModel.snapshot;
+        expect(emptySnapshot?.currentEntry).toBeDefined();
+        expect(emptySnapshot?.workingCopyLabel).toMatch(/^Working Copy: [a-z]+$/);
+
+        await scmModel.setDescription('feat: add working copy label\n\nDetailed body line');
+        const describedSnapshot = scmModel.snapshot;
+        expect(describedSnapshot?.workingCopyLabel).toMatch(/^Working Copy: [a-z]+ - feat: add working copy label$/);
+
+        await scmModel.setDescription('   \n  ');
+        const clearedSnapshot = scmModel.snapshot;
+        expect(clearedSnapshot?.workingCopyLabel).toMatch(/^Working Copy: [a-z]+$/);
+    });
+
     test('tracks selected commit IDs and updates description', async () => {
         scmModel.handleSelectionChange(['commit-1', 'commit-2']);
         expect(scmModel.getSelectedCommitIds()).toEqual(['commit-1', 'commit-2']);

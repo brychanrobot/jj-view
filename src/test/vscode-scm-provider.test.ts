@@ -302,6 +302,30 @@ describe('VsCodeScmProvider Unit Tests', () => {
         expect(wcResourceDec?.badge).toBe('M');
     });
 
+    test('updates working copy resource group label with description subject when described', async () => {
+        await buildGraph(testRepo, [
+            { label: 'parent', description: 'parent commit', files: { 'file.txt': 'v1\n' } },
+            { label: 'wc', parents: ['parent'], description: '', isCurrentWorkingCopy: true },
+        ]);
+        await scmProvider.refresh({ forceSnapshot: true });
+
+        const getWorkingCopyGroup = () =>
+            vi
+                .mocked(scmProvider.sourceControl.createResourceGroup)
+                .mock.results.filter(
+                    (r): r is { type: 'return'; value: vscode.SourceControlResourceGroup } => r.type === 'return',
+                )
+                .map((r) => r.value)
+                .find((g) => g.id === ScmContextValue.WorkingCopyGroup);
+
+        expect(getWorkingCopyGroup()?.label).toMatch(/^Working Copy: [a-z]+$/);
+
+        testRepo.describe('feat: describe working copy\n\nExtra details');
+        await scmProvider.refresh({ reason: 'after describe' });
+
+        expect(getWorkingCopyGroup()?.label).toMatch(/^Working Copy: [a-z]+ - feat: describe working copy$/);
+    });
+
     test('disposes all VS Code resources cleanly', () => {
         expect(() => {
             scmProvider.dispose();
